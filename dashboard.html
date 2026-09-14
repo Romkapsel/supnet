@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Supnet</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Supnet"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --card2: #22263a;
+      --accent: #f0c040;
+      --text: #e8e8f0;
+      --muted: #666880;
+      --radius: 20px;
+      --user-color: #3a7bd5;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'Nunito', sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0 0 40px 0;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 10%, rgba(58,123,213,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 90%, rgba(240,192,64,0.05) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* HEADER */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 20px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .avatar {
+      background: var(--card);
+      border-radius: 12px;
+      width: 52px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--user-color);
+      overflow: hidden;
+    }
+
+    .avatar img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    .greeting {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .greeting-name {
+      font-size: 1.1rem;
+      font-weight: 800;
+    }
+
+    .greeting-date {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .logout-btn {
+      background: var(--card);
+      border: none;
+      border-radius: 999px;
+      color: var(--muted);
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.8rem;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .logout-btn:hover { color: var(--text); }
+
+    /* GRID */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      padding: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 700px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      animation: fadeUp 0.5s forwards;
+      opacity: 0;
+    }
+
+    .card:nth-child(1) { animation-delay: 0.1s; }
+    .card:nth-child(2) { animation-delay: 0.2s; }
+    .card:nth-child(3) { animation-delay: 0.3s; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding-bottom: 12px;
+    }
+
+    .card-icon {
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+    }
+
+    .weather-badge {
+      background: var(--card2);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .fc-day .day-weather { font-size: 0.65rem; color: var(--accent); font-weight: 700; text-align: center; }
+
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+    }
+
+    /* WEATHER */
+    .weather-main {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .weather-icon { font-size: 3rem; }
+
+    .weather-temp {
+      font-size: 2.6rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .weather-desc {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .weather-details {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .weather-forecast {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .fc-day {
+      background: var(--card2);
+      border-radius: 12px;
+      padding: 8px 6px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+    }
+
+    .fc-day .day-name { color: var(--muted); }
+    .fc-day .day-icon { font-size: 1.1rem; }
+    .fc-day .day-temp { font-weight: 800; }
+
+    .weather-loading {
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    /* CALENDAR */
+    .cal-month-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      font-weight: 800;
+    }
+
+    .cal-nav-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 8px;
+      transition: color 0.2s, background 0.2s;
+    }
+    .cal-nav-btn:hover { color: var(--text); background: var(--card2); }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      text-align: center;
+    }
+
+    .cal-day-name {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding-bottom: 4px;
+    }
+
+    .cal-day {
+      font-size: 0.78rem;
+      padding: 5px 2px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .cal-day:hover { background: var(--card2); }
+    .cal-day.empty { cursor: default; }
+    .cal-day.today {
+      background: var(--user-color);
+      font-weight: 800;
+      color: #fff;
+    }
+    .cal-day.has-event::after {
+      content: '•';
+      display: block;
+      color: var(--accent);
+      font-size: 0.5rem;
+      margin-top: -4px;
+    }
+
+    .cal-events {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .cal-event {
+      background: var(--card2);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .cal-event-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--user-color);
+      flex-shrink: 0;
+    }
+
+    .cal-event-info { display: flex; flex-direction: column; }
+    .cal-event-title { font-weight: 700; }
+    .cal-event-time { font-size: 0.72rem; color: var(--muted); }
+
+    .add-event-btn {
+      background: none;
+      border: 1px dashed var(--muted);
+      border-radius: 10px;
+      color: var(--muted);
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.8rem;
+      padding: 8px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      text-align: center;
+    }
+    .add-event-btn:hover { color: var(--text); border-color: var(--text); }
+
+    /* MESSAGES */
+    .messages-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .message {
+      background: var(--card2);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 0.83rem;
+    }
+
+    .msg-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .msg-author {
+      font-weight: 800;
+      font-size: 0.78rem;
+    }
+
+    .msg-time {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .msg-text { line-height: 1.4; }
+
+    .msg-compose {
+      display: flex;
+      gap: 8px;
+    }
+
+    .msg-input {
+      flex: 1;
+      background: var(--card2);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      color: var(--text);
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .msg-input:focus { border-color: var(--user-color); }
+
+    .msg-send {
+      background: var(--user-color);
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 1.1rem;
+      padding: 0 16px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .msg-send:hover { opacity: 0.85; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="user-info">
+    <div class="avatar" id="headerAvatar"></div>
+    <div class="greeting">
+      <div class="greeting-name" id="headerName">Hei, Daniel!</div>
+      <div class="greeting-date" id="headerDate"></div>
+    </div>
+  </div>
+  <button class="logout-btn" onclick="location.href='index.html'">← Bytt bruker</button>
+</header>
+
+<div class="grid">
+
+  <!-- WEATHER -->
+  <div class="card" id="weatherCard">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></span>
+      <span class="card-title">Vær – Fagertunveien, Jar</span>
+    </div>
+    <div id="weatherContent">
+      <div class="weather-loading">Henter vær...</div>
+    </div>
+  </div>
+
+  <!-- CALENDAR -->
+  <div class="card" id="calendarCard">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+      <span class="card-title">Familiekalender</span>
+    </div>
+    <div class="cal-month-nav">
+      <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+      <span id="calMonthLabel"></span>
+      <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-events" id="calEvents"></div>
+    <button class="add-event-btn" onclick="addEvent()">+ Legg til hendelse</button>
+  </div>
+
+  <!-- MESSAGES -->
+  <div class="card" id="messagesCard">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+      <span class="card-title">Meldingstavle</span>
+    </div>
+    <div class="messages-list" id="messagesList"></div>
+    <div class="msg-compose">
+      <input class="msg-input" id="msgInput" type="text" placeholder="Skriv en melding..." maxlength="200"/>
+      <button class="msg-send" onclick="sendMessage()">↑</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // PWA service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+
+  // ── SUPABASE ────────────────────────────────────────────
+  const SUPABASE_URL = 'https://vnbjpgolxmzruhfxepts.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_-SguNsXxJuoStQQRq0_zJA_Q7wc35rB';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── STATE ──────────────────────────────────────────────
+  const storedUser = JSON.parse(sessionStorage.getItem('user') || 'null');
+  const user = storedUser || { name: 'Daniel', img: 'bilder/profil_giraff.png' };
+
+  let events = [];
+
+  // ── HEADER ─────────────────────────────────────────────
+  document.getElementById('headerAvatar').innerHTML = `<img src="${user.img}" style="width:100%;height:100%;object-fit:contain;display:block;" alt="">`;
+  document.getElementById('headerName').textContent = 'Hei, ' + user.name + '!';
+  const now = new Date();
+  document.getElementById('headerDate').textContent = now.toLocaleDateString('nb-NO', {
+    weekday: 'long', day: 'numeric', month: 'long'
+  });
+
+  // ── WEATHER ────────────────────────────────────────────
+  const LAT = 59.9324, LON = 10.6045; // Fagertunveien, Jar
+
+  const weatherLabels = {
+    clearsky: 'Sol', fair: 'Pent', partlycloudy: 'Halvsky',
+    cloudy: 'Skyet', fog: 'Tåke', lightrain: 'L.regn',
+    rain: 'Regn', heavyrain: 'Kraftig', lightsnow: 'L.snø',
+    snow: 'Snø', lightsleet: 'Sludd', sleet: 'Sludd', thunder: 'Torden',
+  };
+
+  function getWeatherIcon(symbol) {
+    for (const k of Object.keys(weatherLabels)) {
+      if (symbol.startsWith(k)) return weatherLabels[k];
+    }
+    return 'Ukjent';
+  }
+
+  async function loadWeather() {
+    try {
+      const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${LAT}&lon=${LON}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      const timeseries = data.properties.timeseries;
+
+      const current = timeseries[0];
+      const temp = Math.round(current.data.instant.details.air_temperature);
+      const wind = Math.round(current.data.instant.details.wind_speed);
+      const symbol = current.data.next_1_hours?.summary?.symbol_code || 'cloudy';
+      const icon = getWeatherIcon(symbol);
+      const desc = symbol.replace(/_/g, ' ').replace('day', '').replace('night', '').trim();
+
+      // 4-day forecast (every 24h)
+      const days = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
+      const forecast = [];
+      const seen = new Set();
+      for (const ts of timeseries) {
+        const d = new Date(ts.time);
+        const dateStr = d.toISOString().split('T')[0];
+        if (!seen.has(dateStr) && d.getHours() === 12 && forecast.length < 4) {
+          seen.add(dateStr);
+          const fsym = ts.data.next_6_hours?.summary?.symbol_code || ts.data.next_1_hours?.summary?.symbol_code || 'cloudy';
+          const ftemp = Math.round(ts.data.instant.details.air_temperature);
+          forecast.push({ day: days[d.getDay()], icon: getWeatherIcon(fsym), temp: ftemp });
+        }
+      }
+
+      document.getElementById('weatherContent').innerHTML = `
+        <div class="weather-main">
+          <div class="weather-badge">${getWeatherIcon(symbol)}</div>
+          <div>
+            <div class="weather-temp">${temp}°</div>
+            <div class="weather-desc">Vind: ${wind} m/s</div>
+          </div>
+        </div>
+        <div class="weather-forecast">
+          ${forecast.map(f => `
+            <div class="fc-day">
+              <span class="day-name">${f.day}</span>
+              <span class="day-weather">${f.icon}</span>
+              <span class="day-temp">${f.temp}°</span>
+            </div>`).join('')}
+        </div>
+      `;
+    } catch(e) {
+      document.getElementById('weatherContent').innerHTML = '<div class="weather-loading">Kunne ikke hente vær</div>';
+    }
+  }
+
+  loadWeather();
+
+  // ── LOAD EVENTS FROM SUPABASE ──────────────────────────
+  async function loadEvents() {
+    const { data, error } = await db.from('hendelser').select('*').order('dato');
+    if (!error && data) {
+      events = data.map(r => ({ id: r.id, date: r.dato, title: r.tittel, time: r.tid || '' }));
+      renderCalendar();
+    }
+  }
+
+  // ── CALENDAR ───────────────────────────────────────────
+  let calDate = new Date();
+
+  function renderCalendar() {
+    const year = calDate.getFullYear();
+    const month = calDate.getMonth();
+    const monthNames = ['Januar','Februar','Mars','April','Mai','Juni','Juli','August','September','Oktober','November','Desember'];
+    document.getElementById('calMonthLabel').textContent = monthNames[month] + ' ' + year;
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const offset = firstDay === 0 ? 6 : firstDay - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const dayNames = ['Ma','Ti','On','To','Fr','Lø','Sø'];
+    let html = dayNames.map(d => `<div class="cal-day-name">${d}</div>`).join('');
+
+    for (let i = 0; i < offset; i++) html += '<div class="cal-day empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const isToday = dateStr === todayStr;
+      const hasEvent = events.some(e => e.date === dateStr);
+      html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="showDayEvents('${dateStr}')">${d}</div>`;
+    }
+
+    document.getElementById('calGrid').innerHTML = html;
+    renderUpcoming();
+  }
+
+  function renderUpcoming() {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const upcoming = events.filter(e => e.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)).slice(0,3);
+    document.getElementById('calEvents').innerHTML = upcoming.length
+      ? upcoming.map(e => `
+        <div class="cal-event">
+          <div class="cal-event-dot"></div>
+          <div class="cal-event-info">
+            <div class="cal-event-title">${e.title}</div>
+            <div class="cal-event-time">${formatDate(e.date)} ${e.time ? '· ' + e.time : ''}</div>
+          </div>
+        </div>`).join('')
+      : '<div style="color:var(--muted);font-size:0.8rem">Ingen kommende hendelser</div>';
+  }
+
+  function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
+  }
+
+  function changeMonth(dir) {
+    calDate.setMonth(calDate.getMonth() + dir);
+    renderCalendar();
+  }
+
+  function showDayEvents(dateStr) {
+    const day = events.filter(e => e.date === dateStr);
+    if (day.length) alert(day.map(e => `${e.title}${e.time ? ' kl ' + e.time : ''}`).join('\n'));
+  }
+
+  async function addEvent() {
+    const title = prompt('Hendelse:');
+    if (!title) return;
+    const date = prompt('Dato (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+    if (!date) return;
+    const time = prompt('Tidspunkt (valgfritt, f.eks. 14:00):') || '';
+    const { data, error } = await db.from('hendelser').insert({ dato: date, tittel: title, tid: time || null }).select().single();
+    if (!error && data) {
+      events.push({ id: data.id, date: data.dato, title: data.tittel, time: data.tid || '' });
+      renderCalendar();
+    }
+  }
+
+  loadEvents();
+
+  // ── MESSAGES ───────────────────────────────────────────
+  let messages = [];
+
+  function renderMessages() {
+    document.getElementById('messagesList').innerHTML = messages.map(m => {
+      const d = new Date(m.created_at || Date.now());
+      const tid = d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+      return `
+        <div class="message">
+          <div class="msg-header">
+            <span class="msg-author">${m.forfatter}</span>
+            <span class="msg-time">${tid}</span>
+          </div>
+          <div class="msg-text">${m.tekst}</div>
+        </div>`;
+    }).join('');
+    const list = document.getElementById('messagesList');
+    list.scrollTop = list.scrollHeight;
+  }
+
+  async function loadMessages() {
+    const { data, error } = await db.from('meldinger').select('*').order('created_at').limit(50);
+    if (!error && data) {
+      messages = data;
+      renderMessages();
+    }
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    await db.from('meldinger').insert({ forfatter: user.name, emoji: '', tekst: text });
+  }
+
+  // Sanntidsoppdatering
+  db.channel('meldinger-kanal')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meldinger' }, payload => {
+      messages.push(payload.new);
+      renderMessages();
+    })
+    .subscribe();
+
+  document.getElementById('msgInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  loadMessages();
+</script>
+</body>
+</html>

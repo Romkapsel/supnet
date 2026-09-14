@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Hjem</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Supnet"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #114c73;
+      --card: #0276c2;
+      --card-hover: #0367ab;
+      --accent: #f0c040;
+      --text: #ffffff;
+      --muted: rgba(255,255,255,0.65);
+      --radius: 20px;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'Nunito', sans-serif;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text);
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(240,192,64,0.05) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(100,120,255,0.05) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    #screen-pick {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      width: 100%;
+      max-width: 340px;
+    }
+
+    .app-title {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      margin-bottom: -8px;
+    }
+
+    .tagline {
+      font-size: 0.85rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      width: 100%;
+    }
+
+    .avatar-card {
+      border-radius: var(--radius);
+      aspect-ratio: 1;
+      cursor: pointer;
+      border: 3px solid rgba(255,255,255,0.15);
+      overflow: hidden;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    .avatar-card:hover  {
+      border-color: rgba(255,255,255,0.75);
+      transform: scale(1.04);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .avatar-card:active { transform: scale(0.93); }
+    .avatar-card:focus-visible { border-color: var(--accent); }
+    .avatar-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: rgba(0,0,0,0.15);
+    }
+
+    /* PIN-skjerm */
+    #screen-pin {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      width: 100%;
+      max-width: 280px;
+    }
+
+    #screen-pin.show { display: flex; }
+
+    .pin-avatar {
+      width: 10rem;
+      height: 10rem;
+      border-radius: var(--radius);
+      overflow: hidden;
+      animation: popIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards;
+    }
+    .pin-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: rgba(0,0,0,0.15);
+    }
+
+    .pin-dots-row {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--muted);
+      background: transparent;
+      transition: background 0.12s, border-color 0.12s, transform 0.12s;
+    }
+
+    .dot.filled {
+      background: var(--accent);
+      border-color: var(--accent);
+      transform: scale(1.25);
+    }
+
+    .dot.error {
+      background: #e05555;
+      border-color: #e05555;
+      transform: scale(1);
+      animation: shake 0.45s ease;
+    }
+
+    .pin-hint {
+      font-size: 0.85rem;
+      color: var(--muted);
+      min-height: 1.2em;
+      text-align: center;
+      margin-top: -16px;
+    }
+
+    .back-link {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--muted);
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem;
+      cursor: pointer;
+      padding: 10px 20px;
+      border-radius: 999px;
+      transition: color 0.2s, border-color 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .back-link:hover { color: var(--text); border-color: rgba(255,255,255,0.3); }
+
+    #pinInput {
+      position: fixed;
+      opacity: 0;
+      pointer-events: none;
+      width: 1px; height: 1px;
+      top: 50%; left: 50%;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.4); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%      { transform: translateX(-9px); }
+      40%      { transform: translateX(9px); }
+      60%      { transform: translateX(-5px); }
+      80%      { transform: translateX(5px); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SKJERM 1: Velg hvem du er -->
+  <div id="screen-pick">
+    <div class="grid" role="list">
+      <div class="avatar-card" role="button" tabindex="0" aria-label="Bruker 1" data-user="daniel" onclick="pickUser(this)">
+        <img src="bilder/profil_giraff.png" alt="">
+      </div>
+      <div class="avatar-card" role="button" tabindex="0" aria-label="Bruker 2" data-user="hanna" onclick="pickUser(this)">
+        <img src="bilder/profil_tiger.png" alt="">
+      </div>
+      <div class="avatar-card" role="button" tabindex="0" aria-label="Bruker 3" data-user="frida" onclick="pickUser(this)">
+        <img src="bilder/profil_rev.png" alt="">
+      </div>
+      <div class="avatar-card" role="button" tabindex="0" aria-label="Bruker 4" data-user="magnus" onclick="pickUser(this)">
+        <img src="bilder/profil_bjorn.png" alt="">
+      </div>
+    </div>
+  </div>
+
+  <!-- SKJERM 2: PIN -->
+  <div id="screen-pin" role="region" aria-label="PIN-innlogging">
+    <div class="pin-avatar" id="pinEmoji" aria-hidden="true"></div>
+    <div class="pin-dots-row" aria-live="polite" aria-label="PIN-felt">
+      <div class="dot" id="d0"></div>
+      <div class="dot" id="d1"></div>
+      <div class="dot" id="d2"></div>
+      <div class="dot" id="d3"></div>
+    </div>
+    <div class="pin-hint" id="pinHint" aria-live="assertive">Tast PIN</div>
+    <button class="back-link" onclick="goBack()">← Velg annen bruker</button>
+  </div>
+
+  <input id="pinInput" type="tel" inputmode="numeric" maxlength="4" autocomplete="off" aria-hidden="true"/>
+
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+
+    // Oppdater kort med valgte profilbilder fra localStorage
+    (function() {
+      const pics = JSON.parse(localStorage.getItem('profilePictures')) || {};
+      document.querySelectorAll('.avatar-card').forEach(card => {
+        const pic = pics[card.dataset.user];
+        if (pic) card.querySelector('img').src = pic;
+      });
+    })();
+
+    const users = {
+      daniel: { pin: '0000', name: 'Daniel', img: 'bilder/profil_giraff.png' },
+      hanna:  { pin: '0000', name: 'Hanna',  img: 'bilder/profil_tiger.png' },
+      frida:  { pin: '0000', name: 'Frida',  img: 'bilder/profil_rev.png' },
+      magnus: { pin: '0000', name: 'Magnus', img: 'bilder/profil_bjorn.png' },
+    };
+
+    let currentUser = null;
+    let pinValue = '';
+
+    function pickUser(card) {
+      currentUser = users[card.dataset.user];
+      pinValue = '';
+      updateDots();
+
+      document.getElementById('screen-pick').style.display = 'none';
+      document.getElementById('screen-pin').classList.add('show');
+
+      // Re-trigger animasjon – bruk valgt bilde om det finnes
+      const el = document.getElementById('pinEmoji');
+      const pics = JSON.parse(localStorage.getItem('profilePictures')) || {};
+      const imgSrc = pics[card.dataset.user] || currentUser.img;
+      el.innerHTML = '';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.innerHTML = `<img src="${imgSrc}" alt="">`;
+      }));
+
+      document.getElementById('pinHint').textContent = 'Tast PIN';
+      setTimeout(() => document.getElementById('pinInput').focus(), 80);
+    }
+
+    function goBack() {
+      currentUser = null;
+      pinValue = '';
+      updateDots();
+      document.getElementById('screen-pin').classList.remove('show');
+      document.getElementById('screen-pick').style.display = 'flex';
+      document.getElementById('pinInput').blur();
+      document.getElementById('pinInput').value = '';
+    }
+
+    function addDigit(d) {
+      if (!currentUser || pinValue.length >= 4) return;
+      pinValue += d;
+      updateDots();
+      if (pinValue.length === 4) setTimeout(checkPin, 200);
+    }
+
+    function updateDots() {
+      for (let i = 0; i < 4; i++) {
+        const dot = document.getElementById('d' + i);
+        dot.classList.remove('filled', 'error');
+        if (i < pinValue.length) dot.classList.add('filled');
+      }
+    }
+
+    function checkPin() {
+      if (pinValue === currentUser.pin) {
+        const { pin: _, ...userToStore } = currentUser;
+        sessionStorage.setItem('user', JSON.stringify({ id: Object.keys(users).find(k => users[k] === currentUser), ...userToStore }));
+        document.getElementById('pinHint').textContent = '✓ Hei, ' + currentUser.name + '!';
+        setTimeout(() => location.href = 'profile.html', 500);
+      } else {
+        for (let i = 0; i < 4; i++) {
+          document.getElementById('d' + i).classList.remove('filled');
+          document.getElementById('d' + i).classList.add('error');
+        }
+        document.getElementById('pinHint').textContent = 'Feil PIN – prøv igjen';
+        setTimeout(() => {
+          pinValue = '';
+          updateDots();
+          document.getElementById('pinHint').textContent = 'Tast PIN';
+          document.getElementById('pinInput').value = '';
+          document.getElementById('pinInput').focus();
+        }, 900);
+      }
+    }
+
+    // Mobil: input-event
+    document.getElementById('pinInput').addEventListener('input', function() {
+      const digits = this.value.replace(/\D/g, '');
+      this.value = '';
+      for (const d of digits) addDigit(d);
+    });
+
+    // PC: keydown
+    document.addEventListener('keydown', function(e) {
+      if (!currentUser) return;
+      if (e.key >= '0' && e.key <= '9') { e.preventDefault(); addDigit(e.key); }
+      else if (e.key === 'Backspace') {
+        e.preventDefault();
+        pinValue = pinValue.slice(0, -1);
+        updateDots();
+      }
+    });
+
+    // Tastaturaktivering av avatar-kort (Enter/Space)
+    document.querySelectorAll('.avatar-card').forEach(card => {
+      card.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          pickUser(this);
+        }
+      });
+    });
+
+    // Trykk på PIN-skjermen fokuserer input igjen
+    document.getElementById('screen-pin').addEventListener('click', function(e) {
+      if (currentUser && e.target.tagName !== 'BUTTON') {
+        document.getElementById('pinInput').focus();
+      }
+    });
+  </script>
+</body>
+</html>

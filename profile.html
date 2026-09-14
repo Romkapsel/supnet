@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Supnet</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Supnet"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+
+  <style id="userStyle"></style>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --card2: #22263a;
+      --accent: #f0c040;
+      --text: #e8e8f0;
+      --muted: #666880;
+      --radius: 20px;
+      --user-color: #3a7bd5;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'Nunito', sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0 0 56px 0;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── HEADER ────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 20px;
+      background: var(--card);
+      margin: 12px 20px 0;
+      border-radius: 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .header-end { margin-left: auto; flex-shrink: 0; }
+
+    .user-info { display: flex; align-items: center; gap: 12px; }
+
+    .avatar {
+      background: var(--card);
+      border-radius: 12px;
+      width: 52px; height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--user-color);
+      overflow: hidden;
+    }
+
+    .greeting { display: flex; flex-direction: column; }
+    .greeting-name { font-size: 1.1rem; font-weight: 800; }
+    .greeting-date { font-size: 0.75rem; color: var(--muted); }
+
+    .logout-btn {
+      background: var(--card);
+      border: none;
+      border-radius: 999px;
+      color: var(--muted);
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.8rem;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .logout-btn:hover { color: var(--text); }
+
+    /* ── GRID ───────────────────────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      padding: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .pair-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding: 0 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 640px) {
+      .pair-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── KORT ──────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      animation: fadeUp 0.5s forwards;
+      opacity: 0;
+    }
+
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.15s; }
+    .card:nth-child(3) { animation-delay: 0.25s; }
+    .card:nth-child(4) { animation-delay: 0.35s; }
+    .pair-grid .card:nth-child(1) { animation-delay: 0.40s; }
+    .pair-grid .card:nth-child(2) { animation-delay: 0.50s; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding-bottom: 12px;
+    }
+
+    .card-icon {
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+    }
+
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+      flex: 1;
+    }
+
+    /* ── VÆR I HEADER ───────────────────────────────────── */
+    #weatherContent {
+      flex: 1; display: flex; align-items: center;
+      gap: 14px; min-width: 0; overflow: hidden;
+    }
+    #weatherContent .wb-today {
+      flex-direction: row !important;
+      align-items: center; gap: 8px;
+    }
+    #weatherContent .wb-today-title { display: none; }
+    #weatherContent .wb-loading { font-size: 0.82rem; color: var(--muted); }
+
+    .wb-today {
+      display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+    }
+    .wb-today-title {
+      font-size: 0.7rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.09em; color: var(--muted);
+    }
+    .wb-slots { display: flex; gap: 6px; }
+    .wb-slot {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 4px; min-width: 52px; padding: 8px 4px; border-radius: 10px;
+    }
+    .wb-slot-label {
+      font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+      color: var(--muted); letter-spacing: 0.05em;
+    }
+    .wb-slot-icon { display: flex; align-items: center; justify-content: center; }
+    .wb-slot-temp { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+
+    .wb-sep {
+      width: 1px; align-self: stretch;
+      background: rgba(128,128,128,0.2);
+      flex-shrink: 0; margin: 2px 0;
+    }
+
+    .wb-forecast {
+      display: flex; gap: 2px; flex: 1;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .wb-forecast::-webkit-scrollbar { display: none; }
+
+    .wb-day {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 3px; padding: 8px 4px; border-radius: 10px;
+      flex: 1; min-width: 48px;
+    }
+    .wb-day-name {
+      font-size: 0.7rem; font-weight: 800;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .wb-day-date { font-size: 0.62rem; color: var(--muted); }
+    .wb-day-icon { display: flex; align-items: center; justify-content: center; }
+    .wb-day-temp { font-size: 0.95rem; font-weight: 800; color: var(--text); }
+
+    .wb-loading { color: var(--muted); font-size: 0.9rem; padding: 8px 0; }
+
+    @media (max-width: 500px) {
+      .wb-slot { min-width: 44px; }
+      .wb-day  { min-width: 40px; padding: 6px 3px; }
+    }
+
+    /* ── KALENDER ──────────────────────────────────────── */
+    .cal-month-nav { display: flex; align-items: center; justify-content: space-between; font-size: 0.9rem; font-weight: 800; }
+
+    .cal-nav-btn {
+      background: none; border: none;
+      color: var(--muted); font-size: 1.1rem;
+      cursor: pointer; padding: 4px 8px; border-radius: 8px;
+      transition: color 0.2s, background 0.2s;
+    }
+    .cal-nav-btn:hover { color: var(--text); background: var(--card2); }
+
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+    .cal-day-name { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; padding-bottom: 4px; }
+    .cal-day {
+      font-size: 0.88rem; padding: 5px 2px;
+      border-radius: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .cal-day:hover { background: var(--card2); }
+    .cal-day.empty { cursor: default; }
+    .cal-day.today { background: var(--user-color); font-weight: 800; color: #fff; }
+    .cal-day.has-event::after {
+      content: '•'; display: block;
+      color: var(--accent); font-size: 0.5rem; margin-top: -4px;
+    }
+
+    .cal-events { display: flex; flex-direction: column; gap: 6px; }
+    .cal-event {
+      background: var(--card2); border-radius: 10px;
+      padding: 8px 12px; font-size: 0.9rem;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .cal-event-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--user-color); flex-shrink: 0; }
+    .cal-event-info { display: flex; flex-direction: column; }
+    .cal-event-title { font-weight: 700; }
+    .cal-event-time { font-size: 0.82rem; color: var(--muted); }
+
+    .add-event-btn {
+      background: none; border: 1px dashed var(--muted);
+      border-radius: 10px; color: var(--muted);
+      font-family: 'Nunito', sans-serif; font-size: 0.8rem;
+      padding: 8px; cursor: pointer; text-align: center;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .add-event-btn:hover { color: var(--text); border-color: var(--text); }
+
+    /* ── MELDINGER ─────────────────────────────────────── */
+    .messages-list {
+      display: flex; flex-direction: column; gap: 10px;
+      max-height: 280px; overflow-y: auto;
+    }
+    .message { background: var(--card2); border-radius: 12px; padding: 10px 14px; font-size: 0.92rem; }
+    .msg-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .msg-author { font-weight: 800; font-size: 0.88rem; }
+    .msg-time { font-size: 0.78rem; color: var(--muted); }
+    .msg-text { line-height: 1.4; }
+    .msg-compose { display: flex; gap: 8px; }
+    .msg-input {
+      flex: 1; background: var(--card2);
+      border: 1px solid transparent; border-radius: 12px;
+      color: var(--text); font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem; padding: 10px 14px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .msg-input:focus { border-color: var(--user-color); }
+    .msg-send {
+      background: var(--user-color); border: none; border-radius: 12px;
+      color: #fff; font-size: 1.1rem; padding: 0 16px;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .msg-send:hover { opacity: 0.85; }
+
+    /* ── NOTATER ────────────────────────────────────────── */
+    .notes-area {
+      flex: 1; background: var(--card2);
+      border: 1px solid transparent; border-radius: 14px;
+      color: var(--text); font-family: 'Nunito', sans-serif;
+      font-size: 0.88rem; line-height: 1.6;
+      padding: 14px; resize: none; outline: none;
+      min-height: 160px; transition: border-color 0.2s;
+    }
+    .notes-area:focus { border-color: var(--user-color); }
+    .notes-area::placeholder { color: var(--muted); }
+    .notes-saved { font-size: 0.75rem; color: var(--muted); text-align: right; min-height: 1em; }
+
+    /* ── UKE-NAVIGASJON ─────────────────────────────────── */
+    .week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .week-nav-btn {
+      background: none; border: none;
+      color: var(--muted); font-size: 1.1rem;
+      cursor: pointer; padding: 4px 8px; border-radius: 8px;
+      transition: color 0.2s, background 0.2s; line-height: 1;
+      font-family: 'Nunito', sans-serif;
+    }
+    .week-nav-btn:hover { color: var(--text); background: var(--card2); }
+    .week-label { font-size: 0.9rem; font-weight: 600; color: var(--muted); text-align: center; flex: 1; }
+
+    /* ── MIDDAGSPLAN ────────────────────────────────────── */
+    .plan-list { display: flex; flex-direction: column; gap: 2px; }
+    .plan-row {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      align-items: center;
+      gap: 10px;
+      border-radius: 12px;
+      padding: 4px 6px 4px 8px;
+      transition: background 0.15s;
+      min-height: 50px;
+      border-left: 3px solid transparent;
+    }
+    .plan-row:hover { background: var(--card2); }
+    .plan-row.today { background: rgba(255,255,255,0.04); border-left-color: var(--user-color); }
+    .plan-day { display: flex; flex-direction: column; line-height: 1.2; }
+    .plan-day-name { font-size: 0.92rem; font-weight: 800; color: var(--text); }
+    .plan-row.today .plan-day-name { color: var(--user-color); }
+    .plan-day-date { font-size: 0.78rem; color: var(--muted); }
+    .plan-value {
+      font-size: 1rem; border-radius: 8px; padding: 6px 8px;
+      outline: none; cursor: text; line-height: 1.3;
+      transition: background 0.15s; word-break: break-word;
+      min-height: 32px; display: flex; align-items: center;
+    }
+    .plan-value:focus { background: var(--card2); }
+    .plan-value:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+
+    /* ── LEKSER ─────────────────────────────────────────── */
+    .hw-section { display: flex; flex-direction: column; gap: 6px; }
+    .hw-section + .hw-section { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; }
+    .hw-child-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+    .hw-child-name { font-size: 1rem; font-weight: 800; color: var(--text); }
+    .hw-list { display: flex; flex-direction: column; gap: 2px; }
+    .hw-row {
+      display: grid; grid-template-columns: 36px 1fr;
+      align-items: center; gap: 8px; border-radius: 10px;
+      padding: 3px 6px; transition: background 0.15s; min-height: 42px;
+    }
+    .hw-row:hover { background: var(--card2); }
+    .hw-row.today { background: rgba(255,255,255,0.03); }
+    .hw-day { font-size: 0.9rem; font-weight: 800; color: var(--muted); }
+    .hw-row.today .hw-day { color: var(--user-color); }
+    .hw-value {
+      font-size: 1rem; border-radius: 8px; padding: 5px 8px;
+      outline: none; cursor: text; line-height: 1.3;
+      transition: background 0.15s; min-height: 30px;
+      display: flex; align-items: center;
+    }
+    .hw-value:focus { background: var(--card2); }
+    .hw-value:empty::before { content: attr(data-placeholder); color: var(--muted); font-size: 0.88rem; pointer-events: none; }
+
+    /* ── PROFILBILDE-VELGER ────────────────────────────── */
+    .avatar { cursor: pointer; overflow: hidden; }
+    .avatar img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72); z-index: 100;
+      align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card); border-radius: var(--radius);
+      padding: 24px; width: 100%; max-width: 380px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .modal-title { font-size: 1rem; font-weight: 800; color: var(--text); }
+    .pic-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .pic-opt {
+      aspect-ratio: 1; border-radius: 14px; overflow: hidden;
+      cursor: pointer; border: 3px solid transparent;
+      transition: border-color 0.2s, opacity 0.2s, transform 0.15s;
+    }
+    .pic-opt img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pic-opt:hover:not(.taken) { transform: scale(1.08); }
+    .pic-opt.selected { border-color: var(--accent); }
+    .pic-opt.taken { opacity: 0.25; cursor: not-allowed; pointer-events: none; }
+    .modal-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .btn-sec {
+      background: var(--card2); border: none; border-radius: 10px;
+      color: var(--muted); font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem; padding: 10px 16px; cursor: pointer; transition: color 0.2s;
+    }
+    .btn-sec:hover { color: var(--text); }
+    .btn-pri {
+      background: var(--accent); border: none; border-radius: 10px;
+      color: #1a1d27; font-family: 'Nunito', sans-serif;
+      font-size: 0.85rem; font-weight: 800; padding: 10px 16px;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .btn-pri:hover { opacity: 0.85; }
+
+    /* ── FARGEVALG ──────────────────────────────────────── */
+    .modal-section-label {
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .color-row { display: flex; gap: 12px; align-items: center; }
+
+    .color-opt {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 3px solid transparent;
+      transition: border-color 0.2s, transform 0.15s;
+      flex-shrink: 0;
+      outline: 2px solid rgba(255,255,255,0.08);
+    }
+    .color-opt:hover { transform: scale(1.15); }
+    .color-opt.selected { border-color: var(--accent); outline-color: transparent; }
+
+    /* ── PENDELRUTE-BANNER ───────────────────────────── */
+    .commute-banner {
+      display: flex; align-items: center; gap: 14px;
+      justify-content: center;
+      padding: 12px 20px; background: var(--card);
+      margin: 8px 20px 0; border-radius: 16px;
+      position: relative; z-index: 1;
+      flex-wrap: wrap;
+    }
+    .commute-banner.hidden { display: none; }
+
+    .cb-label {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 0.72rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--muted); flex-shrink: 0; white-space: nowrap;
+    }
+    .cb-main { flex: 1; display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .cb-countdown {
+      font-size: 1.5rem; font-weight: 800; line-height: 1.15;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .cb-countdown.urgent { color: #e05555; }
+    .cb-countdown.soon   { color: var(--accent); }
+
+    .cb-detail { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .cb-line { font-size: 0.88rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cb-sub  { font-size: 0.76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .cb-sep { width: 1px; align-self: stretch; background: rgba(128,128,128,0.2); flex-shrink: 0; margin: 2px 0; }
+
+    .cb-alts { display: flex; gap: 4px; flex-shrink: 0; }
+    .cb-alt {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 2px; padding: 5px 8px; border-radius: 8px;
+      background: var(--card2); min-width: 46px;
+    }
+    .cb-alt-time { font-size: 0.8rem; font-weight: 800; }
+    .cb-alt-arr  { font-size: 0.65rem; color: var(--muted); }
+
+    .cb-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+    .cb-btn {
+      background: none; border: 1px solid rgba(128,128,128,0.2);
+      border-radius: 8px; color: var(--muted);
+      font-family: 'Nunito', sans-serif; font-size: 0.78rem;
+      padding: 5px 10px; cursor: pointer;
+      transition: color 0.2s, border-color 0.2s; white-space: nowrap;
+    }
+    .cb-btn:hover { color: var(--text); border-color: rgba(128,128,128,0.5); }
+
+    .cb-setup-prompt { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.88rem; flex-wrap: wrap; }
+    .cb-loading { color: var(--muted); font-size: 0.88rem; }
+
+    .cb-day-btn {
+      background: var(--card2); border: 1px solid transparent;
+      border-radius: 8px; color: var(--muted);
+      font-family: 'Nunito', sans-serif; font-size: 0.82rem;
+      font-weight: 700; padding: 6px 10px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .cb-day-btn.active { background: var(--user-color); color: #fff; }
+
+    .cb-result-item {
+      padding: 8px 12px; border-radius: 8px;
+      background: var(--card2); font-size: 0.85rem;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .cb-result-item:hover { filter: brightness(1.12); }
+
+    @media (max-width: 500px) {
+      .cb-countdown { font-size: 1.2rem; }
+      .cb-alts { display: none; }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="user-info">
+    <div class="avatar" id="headerAvatar" onclick="openPicker()" title="Velg profilbilde"></div>
+    <div class="greeting">
+      <div class="greeting-name" id="headerName"></div>
+      <div class="greeting-date" id="headerDate"></div>
+    </div>
+  </div>
+  <div id="weatherContent">
+    <div class="wb-loading">Henter vær...</div>
+  </div>
+  <button class="logout-btn header-end" onclick="loggUt()">← Bytt bruker</button>
+</header>
+
+<div class="commute-banner" id="commuteBanner">
+  <div class="cb-loading">Sjekker rute...</div>
+</div>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+      <span class="card-title">Familiekalender</span>
+    </div>
+    <div class="cal-month-nav">
+      <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+      <span id="calMonthLabel"></span>
+      <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-events" id="calEvents"></div>
+    <button class="add-event-btn" onclick="addEvent()">+ Legg til hendelse</button>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3v7"/></svg></span>
+      <span class="card-title">Middagsplan</span>
+    </div>
+    <div class="week-nav">
+      <button class="week-nav-btn" onclick="dinnerPrevWeek()">‹</button>
+      <span class="week-label" id="dinnerWeekLabel"></span>
+      <button class="week-nav-btn" onclick="dinnerNextWeek()">›</button>
+    </div>
+    <div class="plan-list" id="dinnerList"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+      <span class="card-title">Ukens lekser</span>
+    </div>
+    <div class="week-nav">
+      <button class="week-nav-btn" onclick="hwPrevWeek()">‹</button>
+      <span class="week-label" id="hwWeekLabel"></span>
+      <button class="week-nav-btn" onclick="hwNextWeek()">›</button>
+    </div>
+    <div id="hwContent"></div>
+  </div>
+
+</div>
+
+<div class="pair-grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+      <span class="card-title">Meldingstavle</span>
+    </div>
+    <div class="messages-list" id="messagesList"></div>
+    <div class="msg-compose">
+      <input class="msg-input" id="msgInput" type="text" placeholder="Skriv en melding..." maxlength="200"/>
+      <button class="msg-send" onclick="sendMessage()">↑</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg></span>
+      <span class="card-title">Poengtavle</span>
+    </div>
+    <div style="color:var(--muted); font-size:0.85rem; padding: 8px 0;">Kommer snart...</div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="pickerOverlay" onclick="closePicker()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title">Tilpass profil</div>
+    <div class="modal-section-label">Profilbilde</div>
+    <div class="pic-grid" id="picGrid"></div>
+    <div class="modal-section-label">Bakgrunnsfarge</div>
+    <div class="color-row" id="colorRow"></div>
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="removePic()">Fjern bilde</button>
+      <button class="btn-sec" onclick="closePicker()">Avbryt</button>
+      <button class="btn-pri" onclick="confirmPic()">Lagre</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="commuteOverlay" onclick="closeCommuteSetup()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title">Pendelrute til jobb</div>
+
+    <div class="modal-section-label">Destinasjon</div>
+    <input class="msg-input" id="commuteDestInput" type="text"
+           placeholder="Søk etter adresse eller stoppested..."
+           autocomplete="off" style="width:100%"/>
+    <div id="commuteDestResults" style="display:none; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto; margin-top:-8px;"></div>
+    <div id="commuteDestSelected" style="display:none; font-size:0.82rem; color:var(--accent); margin-top:-8px;"></div>
+
+    <div class="modal-section-label">Standard ankomsttid</div>
+    <input class="msg-input" id="commuteArrival" type="time" value="08:00" style="width:140px"/>
+
+    <div class="modal-section-label">Aktive dager</div>
+    <div id="commuteDays" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+
+    <div class="modal-section-label">For i morgen (overstyrer standard)</div>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; color:var(--muted); cursor:pointer;">
+        <input type="checkbox" id="commuteOverrideCheck" onchange="toggleOverrideInput()"/>
+        Annen ankomsttid i morgen
+      </label>
+      <input class="msg-input" id="commuteOverrideTime" type="time" value="08:00"
+             style="width:120px; display:none;"/>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn-sec" onclick="clearCommuteConfig()">Fjern rute</button>
+      <button class="btn-sec" onclick="closeCommuteSetup()">Avbryt</button>
+      <button class="btn-pri" onclick="saveCommuteSetup()">Lagre</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+
+  // ── SUPABASE ──────────────────────────────────────────
+  const SUPABASE_URL = 'https://vnbjpgolxmzruhfxepts.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_-SguNsXxJuoStQQRq0_zJA_Q7wc35rB';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── AUTH GUARD ────────────────────────────────────────
+  const raw = sessionStorage.getItem('user');
+  if (!raw) { location.replace('index.html'); throw 0; }
+  const user = JSON.parse(raw);
+
+  // ── BRUKER-KONFIG ─────────────────────────────────────
+  const USER_CONFIG = {
+    daniel: { color: '#3a7bd5', gradientTop: 'rgba(58,123,213,0.08)',  gradientBot: 'rgba(240,192,64,0.05)' },
+    hanna:  { color: '#e05599', gradientTop: 'rgba(224,85,153,0.08)',  gradientBot: 'rgba(240,192,64,0.05)' },
+    frida:  { color: '#e07030', gradientTop: 'rgba(224,112,48,0.08)',  gradientBot: 'rgba(240,192,64,0.05)' },
+    magnus: { color: '#30b060', gradientTop: 'rgba(48,176,96,0.08)',   gradientBot: 'rgba(240,192,64,0.05)' },
+  };
+  const cfg = USER_CONFIG[user.id] ?? USER_CONFIG.daniel;
+
+  // ── TEMAFARGER ────────────────────────────────────────
+  const PROFILE_COLORS = [
+    { key: 'standard', label: 'Standard', light: false,
+      bg: '#0f1117', card: '#1a1d27', card2: '#22263a', text: '#e8e8f0', muted: '#666880' },
+    { key: 'natt',     label: 'Natt',     light: false,
+      bg: '#0c1428', card: '#142236', card2: '#1c3048', text: '#e0e8f8', muted: '#607898' },
+    { key: 'skog',     label: 'Skog',     light: false,
+      bg: '#0a1a0e', card: '#14221a', card2: '#1e3024', text: '#dff0e4', muted: '#5c8060' },
+    { key: 'isblaa',   label: 'Isblå',    light: true,
+      bg: '#d0e4f8', card: '#e4f0fd', card2: '#eff6fe', text: '#1a1d30', muted: '#506070' },
+    { key: 'lavendel', label: 'Lavendel', light: true,
+      bg: '#e4d0f8', card: '#f0e4fd', card2: '#f6efff', text: '#1e102e', muted: '#686080' },
+    { key: 'fersken',  label: 'Fersken',  light: true,
+      bg: '#f8e0d0', card: '#fdeee4', card2: '#fff4ef', text: '#2e1a14', muted: '#806050' },
+  ];
+
+  function applyTheme(themeKey) {
+    const t = PROFILE_COLORS.find(c => c.key === themeKey) || PROFILE_COLORS[0];
+    document.documentElement.style.setProperty('--bg',    t.bg);
+    document.documentElement.style.setProperty('--card',  t.card);
+    document.documentElement.style.setProperty('--card2', t.card2);
+    document.documentElement.style.setProperty('--text',  t.text);
+    document.documentElement.style.setProperty('--muted', t.muted);
+    document.getElementById('userStyle').textContent = t.light ? '' : `
+      body::before {
+        background:
+          radial-gradient(ellipse at 20% 10%, ${cfg.gradientTop} 0%, transparent 50%),
+          radial-gradient(ellipse at 80% 90%, ${cfg.gradientBot} 0%, transparent 50%);
+      }
+    `;
+  }
+
+  applyTheme(localStorage.getItem('profileColor_' + user.id) || 'standard');
+
+  document.documentElement.style.setProperty('--user-color', cfg.color);
+
+  // ── PROFILBILDE ───────────────────────────────────────
+  const PROFILE_PICS = [
+    'bilder/profil_bjorn.png', 'bilder/profil_giraff.png',
+    'bilder/profil_hund.png',  'bilder/profil_kanin.png',
+    'bilder/profil_katt.png',  'bilder/profil_rev.png',
+    'bilder/profil_sel.png',   'bilder/profil_tiger.png',
+  ];
+
+  function getPics() { return JSON.parse(localStorage.getItem('profilePictures')) || {}; }
+  function savePics(p) { localStorage.setItem('profilePictures', JSON.stringify(p)); }
+
+  const USER_DEFAULTS = {
+    daniel: 'bilder/profil_giraff.png',
+    hanna:  'bilder/profil_tiger.png',
+    frida:  'bilder/profil_rev.png',
+    magnus: 'bilder/profil_bjorn.png',
+  };
+
+  function updateAvatar() {
+    const pic = getPics()[user.id];
+    const el = document.getElementById('headerAvatar');
+    el.innerHTML = `<img src="${pic || user.img || USER_DEFAULTS[user.id]}" alt="${user.name}">`;
+  }
+
+  let pendingPic = null;
+  let pendingTheme = localStorage.getItem('profileColor_' + user.id) || 'standard';
+
+  function openPicker() {
+    const pics = getPics();
+    const myPic = pics[user.id] || null;
+    pendingPic = myPic;
+    pendingTheme = localStorage.getItem('profileColor_' + user.id) || 'standard';
+    const takenByOthers = new Set(
+      Object.keys(USER_DEFAULTS)
+        .filter(id => id !== user.id)
+        .map(id => pics[id] || USER_DEFAULTS[id])
+        .filter(Boolean)
+    );
+    document.getElementById('picGrid').innerHTML = PROFILE_PICS.map(p => `
+      <div class="pic-opt${takenByOthers.has(p) ? ' taken' : ''}${p === myPic ? ' selected' : ''}"
+           data-pic="${p}" onclick="pickOpt(this)">
+        <img src="${p}" alt="">
+      </div>`).join('');
+    document.getElementById('colorRow').innerHTML = PROFILE_COLORS.map(c => `
+      <div class="color-opt${c.key === pendingTheme ? ' selected' : ''}"
+           data-color="${c.key}" title="${c.label}"
+           style="background:${c.bg}"
+           onclick="pickColor(this)"></div>`).join('');
+    document.getElementById('pickerOverlay').classList.add('open');
+  }
+
+  function closePicker() { document.getElementById('pickerOverlay').classList.remove('open'); }
+
+  function pickOpt(el) {
+    document.querySelectorAll('.pic-opt').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    pendingPic = el.dataset.pic;
+  }
+
+  function confirmPic() {
+    const pics = getPics();
+    if (pendingPic) pics[user.id] = pendingPic;
+    else delete pics[user.id];
+    savePics(pics);
+    localStorage.setItem('profileColor_' + user.id, pendingTheme);
+    applyTheme(pendingTheme);
+    closePicker();
+    updateAvatar();
+  }
+
+  function removePic() { pendingPic = null; confirmPic(); }
+
+  function pickColor(el) {
+    document.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    pendingTheme = el.dataset.color;
+  }
+
+  // ── HEADER ────────────────────────────────────────────
+  updateAvatar();
+  document.getElementById('headerName').textContent = 'Hei, ' + user.name + '!';
+  document.getElementById('headerDate').textContent = new Date().toLocaleDateString('nb-NO', {
+    weekday: 'long', day: 'numeric', month: 'long'
+  });
+
+  function loggUt() { sessionStorage.removeItem('user'); location.replace('index.html'); }
+
+  // ── VÆR ──────────────────────────────────────────────
+  const LAT = 59.9324, LON = 10.6045;
+
+  const WX = {
+    sun:           `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.64" y2="6.64"/><line x1="17.36" y1="17.36" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.64" y2="17.36"/><line x1="17.36" y1="6.64" x2="19.07" y2="4.93"/></svg>`,
+    partlycloudy:  `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="9" r="3"/><line x1="9" y1="2" x2="9" y2="3.5"/><line x1="9" y1="14.5" x2="9" y2="16"/><line x1="2" y1="9" x2="3.5" y2="9"/><line x1="14.5" y1="9" x2="16" y2="9"/><line x1="4.1" y1="4.1" x2="5.17" y2="5.17"/><line x1="12.83" y1="12.83" x2="13.9" y2="13.9"/><path d="M20 19H13a5 5 0 0 1 0-10c.34 0 .68.03 1 .1A5 5 0 0 1 20 14a3 3 0 0 1 0 5z"/></svg>`,
+    cloud:         `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>`,
+    fog:           `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="5" y1="14" x2="19" y2="14"/><line x1="7" y1="18" x2="17" y2="18"/></svg>`,
+    rain:          `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="19" x2="8" y2="21"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="16" y1="19" x2="16" y2="21"/><line x1="16" y1="13" x2="16" y2="15"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="12" y1="15" x2="12" y2="17"/></svg>`,
+    snow:          `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="20" x2="8" y2="20.01" stroke-width="3"/><line x1="12" y1="22" x2="12" y2="22.01" stroke-width="3"/><line x1="16" y1="20" x2="16" y2="20.01" stroke-width="3"/><line x1="8" y1="16" x2="8" y2="16.01" stroke-width="3"/><line x1="12" y1="18" x2="12" y2="18.01" stroke-width="3"/><line x1="16" y1="16" x2="16" y2="16.01" stroke-width="3"/></svg>`,
+    sleet:         `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 15.25"/><line x1="8" y1="19" x2="8" y2="21"/><line x1="16" y1="13" x2="16" y2="15"/><line x1="12" y1="15" x2="12" y2="17"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="16" y1="19" x2="16" y2="19.01" stroke-width="3"/><line x1="12" y1="21" x2="12" y2="21.01" stroke-width="3"/></svg>`,
+    thunder:       `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline points="13 11 9 17 15 17 11 23"/></svg>`,
+  };
+
+  function wxIcon(sym) {
+    if (sym.startsWith('clearsky') || sym.startsWith('fair')) return WX.sun;
+    if (sym.startsWith('partlycloudy')) return WX.partlycloudy;
+    if (sym.startsWith('cloudy')) return WX.cloud;
+    if (sym.startsWith('fog'))    return WX.fog;
+    if (sym.includes('thunder')) return WX.thunder;
+    if (sym.includes('sleet'))   return WX.sleet;
+    if (sym.includes('snow'))    return WX.snow;
+    if (sym.includes('rain') || sym.includes('shower')) return WX.rain;
+    return WX.cloud;
+  }
+
+  function wxColor(sym) {
+    if (sym.startsWith('clearsky') || sym.startsWith('fair')) return '#f0c040';
+    if (sym.startsWith('partlycloudy')) return '#a8c8e8';
+    if (sym.includes('thunder')) return '#f0c040';
+    if (sym.includes('snow'))    return '#b8dcf4';
+    if (sym.includes('sleet'))   return '#88b8d8';
+    if (sym.includes('rain') || sym.includes('shower')) return '#5aaee0';
+    return 'var(--muted)';
+  }
+
+  function wxMonth(m) {
+    return ['jan','feb','mar','apr','mai','jun','jul','aug','sep','okt','nov','des'][m];
+  }
+
+  async function loadWeather() {
+    try {
+      const res = await fetch(
+        `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${LAT}&lon=${LON}`
+      );
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      const ts = data.properties.timeseries;
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const DAY_NO = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
+
+      // I dag: morgen (07), middag (12), kveld (18)
+      const SLOTS = [{ h: 7, label: 'Morgen' }, { h: 12, label: 'Middag' }, { h: 18, label: 'Kveld' }];
+      const todaySlots = SLOTS.map(slot => {
+        const entry = ts.find(t => {
+          const d = new Date(t.time);
+          return d.toISOString().split('T')[0] === todayStr && d.getHours() === slot.h;
+        });
+        if (!entry) return null;
+        const sym = entry.data.next_1_hours?.summary?.symbol_code
+                 || entry.data.next_6_hours?.summary?.symbol_code || 'cloudy';
+        return { label: slot.label, temp: Math.round(entry.data.instant.details.air_temperature), sym };
+      }).filter(Boolean);
+
+      // Resten av uka: kl. 12 per dag
+      const forecast = [];
+      const seen = new Set();
+      for (const t of ts) {
+        const d = new Date(t.time);
+        const ds = d.toISOString().split('T')[0];
+        if (ds === todayStr) continue;
+        if (!seen.has(ds) && d.getHours() === 12 && forecast.length < 7) {
+          seen.add(ds);
+          const sym = t.data.next_6_hours?.summary?.symbol_code
+                   || t.data.next_1_hours?.summary?.symbol_code || 'cloudy';
+          forecast.push({
+            day:  DAY_NO[d.getDay()],
+            date: d.getDate() + '. ' + wxMonth(d.getMonth()),
+            temp: Math.round(t.data.instant.details.air_temperature),
+            sym
+          });
+        }
+      }
+
+      const todayLabel = DAY_NO[now.getDay()] + ' ' + now.getDate() + '. ' + wxMonth(now.getMonth());
+
+      document.getElementById('weatherContent').innerHTML = `
+        <div class="wb-today">
+          <div class="wb-today-title">I dag · ${todayLabel}</div>
+          <div class="wb-slots">
+            ${todaySlots.map(s => `
+              <div class="wb-slot">
+                <span class="wb-slot-label">${s.label}</span>
+                <span class="wb-slot-icon" style="color:${wxColor(s.sym)}">${wxIcon(s.sym)}</span>
+                <span class="wb-slot-temp">${s.temp}°</span>
+              </div>`).join('')}
+          </div>
+        </div>
+        <div class="wb-sep"></div>
+        <div class="wb-forecast">
+          ${forecast.map(f => `
+            <div class="wb-day">
+              <span class="wb-day-name">${f.day}</span>
+              <span class="wb-day-date">${f.date}</span>
+              <span class="wb-day-icon" style="color:${wxColor(f.sym)}">${wxIcon(f.sym)}</span>
+              <span class="wb-day-temp">${f.temp}°</span>
+            </div>`).join('')}
+        </div>`;
+    } catch {
+      document.getElementById('weatherContent').innerHTML =
+        '<div class="wb-loading">Kunne ikke hente vær</div>';
+    }
+  }
+
+  loadWeather();
+
+  // ── KALENDER ──────────────────────────────────────────
+  let calDate = new Date();
+  let events = [];
+
+  async function loadEvents() {
+    const { data, error } = await db.from('hendelser').select('*').order('dato');
+    if (!error && data) {
+      events = data.map(r => ({ id: r.id, date: r.dato, title: r.tittel, time: r.tid || '' }));
+      renderCalendar();
+    }
+  }
+
+  function renderCalendar() {
+    const year = calDate.getFullYear();
+    const month = calDate.getMonth();
+    const monthNames = ['Januar','Februar','Mars','April','Mai','Juni',
+                        'Juli','August','September','Oktober','November','Desember'];
+    document.getElementById('calMonthLabel').textContent = monthNames[month] + ' ' + year;
+
+    const offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    let html = ['Ma','Ti','On','To','Fr','Lø','Sø'].map(d => `<div class="cal-day-name">${d}</div>`).join('');
+    for (let i = 0; i < offset; i++) html += '<div class="cal-day empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      html += `<div class="cal-day ${ds===todayStr?'today':''} ${events.some(e=>e.date===ds)?'has-event':''}" onclick="showDayEvents('${ds}')">${d}</div>`;
+    }
+    document.getElementById('calGrid').innerHTML = html;
+    renderUpcoming();
+  }
+
+  function renderUpcoming() {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const upcoming = events.filter(e => e.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)).slice(0,3);
+    document.getElementById('calEvents').innerHTML = upcoming.length
+      ? upcoming.map(e => `
+          <div class="cal-event">
+            <div class="cal-event-dot"></div>
+            <div class="cal-event-info">
+              <div class="cal-event-title">${e.title}</div>
+              <div class="cal-event-time">${new Date(e.date).toLocaleDateString('nb-NO',{day:'numeric',month:'short'})}${e.time?' · '+e.time:''}</div>
+            </div>
+          </div>`).join('')
+      : '<div style="color:var(--muted);font-size:0.8rem">Ingen kommende hendelser</div>';
+  }
+
+  function changeMonth(dir) { calDate.setMonth(calDate.getMonth() + dir); renderCalendar(); }
+
+  function showDayEvents(dateStr) {
+    const day = events.filter(e => e.date === dateStr);
+    if (day.length) alert(day.map(e => `${e.title}${e.time?' kl '+e.time:''}`).join('\n'));
+  }
+
+  async function addEvent() {
+    const title = prompt('Hendelse:');
+    if (!title) return;
+    const date = prompt('Dato (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+    if (!date) return;
+    const time = prompt('Tidspunkt (valgfritt, f.eks. 14:00):') || '';
+    const { data, error } = await db.from('hendelser').insert({ dato: date, tittel: title, tid: time || null }).select().single();
+    if (!error && data) {
+      events.push({ id: data.id, date: data.dato, title: data.tittel, time: data.tid || '' });
+      renderCalendar();
+    }
+  }
+
+  loadEvents();
+  renderCalendar();
+
+  // ── MELDINGER ─────────────────────────────────────────
+  let messages = [];
+
+  function renderMessages() {
+    document.getElementById('messagesList').innerHTML = messages.map(m => {
+      const d = new Date(m.created_at || Date.now());
+      const tid = d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+      return `
+        <div class="message">
+          <div class="msg-header">
+            <span class="msg-author">${m.forfatter}</span>
+            <span class="msg-time">${tid}</span>
+          </div>
+          <div class="msg-text">${m.tekst}</div>
+        </div>`;
+    }).join('');
+    document.getElementById('messagesList').scrollTop = 9999;
+  }
+
+  async function loadMessages() {
+    const { data, error } = await db.from('meldinger').select('*').order('created_at').limit(50);
+    if (!error && data) { messages = data; renderMessages(); }
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    await db.from('meldinger').insert({ forfatter: user.name, emoji: '', tekst: text });
+  }
+
+  db.channel('meldinger-kanal')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'meldinger' }, payload => {
+      messages.push(payload.new);
+      renderMessages();
+    })
+    .subscribe();
+
+  document.getElementById('msgInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  loadMessages();
+
+  // ── UKE-HJELPER ──────────────────────────────────────
+  const DAY_SHORT  = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
+  const DAY_SHORT5 = ['Man','Tir','Ons','Tor','Fre'];
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  function getWeekMonday(offset = 0) {
+    const d = new Date();
+    const dow = d.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    const mon = new Date(d);
+    mon.setDate(d.getDate() + diff + offset * 7);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+  }
+
+  function getWeekDays(offset = 0, count = 7) {
+    const mon = getWeekMonday(offset);
+    return Array.from({ length: count }, (_, i) => {
+      const d = new Date(mon);
+      d.setDate(mon.getDate() + i);
+      return d;
+    });
+  }
+
+  function getWeekKey(offset = 0) { return getWeekMonday(offset).toISOString().split('T')[0]; }
+
+  function getWeekLabel(offset = 0) {
+    const days = getWeekDays(offset);
+    const mon = days[0], sun = days[6];
+    const fmtOpts = { day: 'numeric', month: 'short' };
+    const monLbl = mon.toLocaleDateString('nb-NO', fmtOpts);
+    const sunLbl = sun.toLocaleDateString('nb-NO', fmtOpts);
+    const tmp = new Date(mon); tmp.setDate(tmp.getDate() + 3);
+    const w1 = new Date(tmp.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((tmp - w1) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
+    return `Uke ${weekNum} · ${monLbl}–${sunLbl}`;
+  }
+
+  // ── MIDDAGSPLAN ───────────────────────────────────────
+  let dinnerOffset = 0;
+
+  function getDinners(offset) {
+    return JSON.parse(localStorage.getItem('dinners_' + getWeekKey(offset))) || Array(7).fill('');
+  }
+
+  function saveDinner(offset, idx, val) {
+    const arr = getDinners(offset);
+    arr[idx] = val;
+    localStorage.setItem('dinners_' + getWeekKey(offset), JSON.stringify(arr));
+  }
+
+  function renderDinners() {
+    document.getElementById('dinnerWeekLabel').textContent = getWeekLabel(dinnerOffset);
+    const days = getWeekDays(dinnerOffset);
+    const dinners = getDinners(dinnerOffset);
+
+    document.getElementById('dinnerList').innerHTML = days.map((day, i) => {
+      const ds = day.toISOString().split('T')[0];
+      const isToday = ds === todayStr;
+      const dateLbl = day.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
+      const val = dinners[i] || '';
+      return `
+        <div class="plan-row ${isToday ? 'today' : ''}">
+          <div class="plan-day">
+            <span class="plan-day-name">${DAY_SHORT[i]}</span>
+            <span class="plan-day-date">${dateLbl}</span>
+          </div>
+          <div
+            class="plan-value"
+            contenteditable="true"
+            data-offset="${dinnerOffset}"
+            data-idx="${i}"
+            data-placeholder="Legg til middag…"
+            spellcheck="false"
+          >${escHtml(val)}</div>
+        </div>`;
+    }).join('');
+
+    bindPlanEdits('dinnerList', saveDinner);
+  }
+
+  function dinnerPrevWeek() { dinnerOffset--; renderDinners(); }
+  function dinnerNextWeek() { dinnerOffset++; renderDinners(); }
+
+  // ── LEKSER ───────────────────────────────────────────
+  let hwOffset = 0;
+
+  const HW_CHILDREN = [
+    { id: 'frida',  name: 'Frida' },
+    { id: 'magnus', name: 'Magnus' },
+  ];
+
+  function getHomework(offset) {
+    const def = Object.fromEntries(HW_CHILDREN.map(c => [c.id, Array(5).fill('')]));
+    return JSON.parse(localStorage.getItem('homework_' + getWeekKey(offset))) || def;
+  }
+
+  function saveHomework(offset, childId, idx, val) {
+    const hw = getHomework(offset);
+    hw[childId][idx] = val;
+    localStorage.setItem('homework_' + getWeekKey(offset), JSON.stringify(hw));
+  }
+
+  function renderHomework() {
+    document.getElementById('hwWeekLabel').textContent = getWeekLabel(hwOffset);
+    const days = getWeekDays(hwOffset, 5);
+    const hw = getHomework(hwOffset);
+
+    document.getElementById('hwContent').innerHTML = HW_CHILDREN.map(child => `
+      <div class="hw-section">
+        <div class="hw-child-header">
+          <span class="hw-child-name">${child.name}</span>
+        </div>
+        <div class="hw-list">
+          ${days.map((day, i) => {
+            const ds = day.toISOString().split('T')[0];
+            const isToday = ds === todayStr;
+            const val = hw[child.id]?.[i] || '';
+            return `
+              <div class="hw-row ${isToday ? 'today' : ''}">
+                <span class="hw-day">${DAY_SHORT5[i]}</span>
+                <div
+                  class="hw-value"
+                  contenteditable="true"
+                  data-child="${child.id}"
+                  data-offset="${hwOffset}"
+                  data-idx="${i}"
+                  data-placeholder="Ingen lekser"
+                  spellcheck="false"
+                >${escHtml(val)}</div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+
+    document.querySelectorAll('#hwContent .hw-value').forEach(el => {
+      el.addEventListener('blur', () => {
+        saveHomework(parseInt(el.dataset.offset), el.dataset.child, parseInt(el.dataset.idx), el.textContent.trim());
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+      });
+    });
+  }
+
+  function hwPrevWeek() { hwOffset--; renderHomework(); }
+  function hwNextWeek() { hwOffset++; renderHomework(); }
+
+  // ── HJELPER ───────────────────────────────────────────
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function bindPlanEdits(listId, saveFn) {
+    document.querySelectorAll(`#${listId} .plan-value`).forEach(el => {
+      el.addEventListener('blur', () => {
+        saveFn(parseInt(el.dataset.offset), parseInt(el.dataset.idx), el.textContent.trim());
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+      });
+    });
+  }
+
+  renderDinners();
+  renderHomework();
+
+  // ── PENDELRUTE ────────────────────────────────────────
+  const ENTUR_PLANNER  = 'https://api.entur.io/journey-planner/v3/graphql';
+  const ENTUR_GEOCODER = 'https://api.entur.io/geocoder/v1/autocomplete';
+  const ET_CLIENT = 'supnet-family-oltedal';
+
+  function getCommuteConfig() {
+    return JSON.parse(localStorage.getItem('commute_' + user.id)) || null;
+  }
+  function saveCommuteConfigData(cfg) {
+    localStorage.setItem('commute_' + user.id, JSON.stringify(cfg));
+  }
+  function getCommuteOverride() {
+    const o = JSON.parse(localStorage.getItem('commute_override_' + user.id));
+    if (!o) return null;
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    return o.date === tomorrow ? o : null;
+  }
+  function fmtTime(date) {
+    return date.getHours() + ':' + String(date.getMinutes()).padStart(2, '0');
+  }
+
+  let commuteRefreshTimer = null;
+
+  async function initCommute() {
+    const cfg = getCommuteConfig();
+    const el = document.getElementById('commuteBanner');
+
+    if (!cfg) {
+      el.classList.remove('hidden');
+      el.innerHTML = `
+        <div class="cb-setup-prompt">
+          <span>Sett opp pendelrute til jobb</span>
+          <button class="cb-btn" onclick="openCommuteSetup()">Sett opp</button>
+        </div>`;
+      return;
+    }
+
+    const todayDay = new Date().getDay();
+    if (!cfg.days.includes(todayDay)) {
+      const override = getCommuteOverride();
+      if (override) {
+        el.classList.remove('hidden');
+        el.innerHTML = `
+          <div class="cb-setup-prompt">
+            <span>I morgen: ankomst ${override.arrivalTime} · ${cfg.destName}</span>
+            <button class="cb-btn" onclick="openCommuteSetup()">Endre</button>
+          </div>`;
+      } else {
+        el.classList.add('hidden');
+      }
+      return;
+    }
+
+    el.classList.remove('hidden');
+
+    const now = new Date();
+    const [ah, am] = cfg.arrivalTime.split(':').map(Number);
+    const targetTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), ah, am, 0);
+    if (now > targetTime) {
+      el.innerHTML = `
+        <div class="cb-setup-prompt">
+          <span style="color:var(--muted)">God tur! Ruta til ${cfg.destName} er ferdig for i dag</span>
+          <button class="cb-btn" onclick="openCommuteSetup()">Innst.</button>
+        </div>`;
+      return;
+    }
+
+    el.innerHTML = `<div class="cb-loading">Henter ruter...</div>`;
+    try {
+      const trips = await queryEntur(cfg.destLat, cfg.destLon);
+      renderCommuteTrips(trips, cfg);
+    } catch {
+      el.innerHTML = `
+        <div class="cb-setup-prompt">
+          <span>Kunne ikke hente ruter</span>
+          <button class="cb-btn" onclick="initCommute()">Prøv igjen</button>
+          <button class="cb-btn" onclick="openCommuteSetup()">Innst.</button>
+        </div>`;
+    }
+
+    clearInterval(commuteRefreshTimer);
+    commuteRefreshTimer = setInterval(initCommute, 60000);
+  }
+
+  async function queryEntur(destLat, destLon) {
+    const now = new Date().toISOString();
+    const query = `{
+      trip(
+        from: { coordinates: { latitude: ${LAT}, longitude: ${LON} } }
+        to:   { coordinates: { latitude: ${destLat}, longitude: ${destLon} } }
+        dateTime: "${now}"
+        numTripPatterns: 4
+        arriveBy: false
+      ) {
+        tripPatterns {
+          startTime endTime
+          legs {
+            mode
+            fromPlace { name }
+            line { publicCode }
+            fromEstimatedCall { expectedDepartureTime aimedDepartureTime }
+          }
+        }
+      }
+    }`;
+    const res = await fetch(ENTUR_PLANNER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ET-Client-Name': ET_CLIENT },
+      body: JSON.stringify({ query })
+    });
+    if (!res.ok) throw new Error(res.status);
+    const json = await res.json();
+    return json.data?.trip?.tripPatterns || [];
+  }
+
+  function renderCommuteTrips(trips, cfg) {
+    const el = document.getElementById('commuteBanner');
+    if (!trips.length) {
+      el.innerHTML = `
+        <div class="cb-setup-prompt">
+          <span>Ingen ruter funnet til ${cfg.destName}</span>
+          <button class="cb-btn" onclick="openCommuteSetup()">Innst.</button>
+        </div>`;
+      return;
+    }
+
+    const now = new Date();
+    const next = trips[0];
+    const departure = new Date(next.startTime);
+    const arrival   = new Date(next.endTime);
+    const minsUntil = Math.round((departure - now) / 60000);
+
+    const transitLeg = next.legs.find(l => l.mode !== 'foot');
+    const lineCode  = transitLeg?.line?.publicCode || '';
+    const fromStop  = transitLeg?.fromPlace?.name || '';
+    const busDepRaw = transitLeg?.fromEstimatedCall?.expectedDepartureTime
+                   || transitLeg?.fromEstimatedCall?.aimedDepartureTime;
+    const busDepStr = busDepRaw ? fmtTime(new Date(busDepRaw)) : fmtTime(departure);
+
+    let countdownClass = '', countdownLabel = '';
+    if (minsUntil <= 0)       { countdownLabel = 'Gå nå!';           countdownClass = 'urgent'; }
+    else if (minsUntil <= 10) { countdownLabel = `${minsUntil} min`; countdownClass = 'urgent'; }
+    else if (minsUntil <= 20) { countdownLabel = `${minsUntil} min`; countdownClass = 'soon'; }
+    else                      { countdownLabel = `${minsUntil} min`; }
+
+    let lateWarning = '';
+    const [h, m] = cfg.arrivalTime.split(':').map(Number);
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+    if (arrival > target) {
+      const late = Math.round((arrival - target) / 60000);
+      lateWarning = ` · <span style="color:#e05555">${late} min for sent</span>`;
+    }
+
+    const alts = trips.slice(1, 4).map(t => ({
+      dep: fmtTime(new Date(t.startTime)),
+      arr: fmtTime(new Date(t.endTime))
+    }));
+
+    el.innerHTML = `
+      <div class="cb-label">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Til jobb
+      </div>
+      <div class="cb-sep"></div>
+      <div class="cb-main">
+        <div class="cb-countdown ${countdownClass}">Gå om<br>${countdownLabel}</div>
+        <div class="cb-detail">
+          <span class="cb-line">${lineCode ? lineCode + ' · ' : ''}avgang ${busDepStr}${fromStop ? ' fra ' + fromStop : ''}</span>
+          <span class="cb-sub">Ankomst ${fmtTime(arrival)} · ${cfg.destName}${lateWarning}</span>
+        </div>
+      </div>
+      ${alts.length ? `
+        <div class="cb-sep"></div>
+        <div class="cb-alts">
+          ${alts.map(a => `
+            <div class="cb-alt">
+              <span class="cb-alt-time">${a.dep}</span>
+              <span class="cb-alt-arr">${a.arr}</span>
+            </div>`).join('')}
+        </div>` : ''}
+      <div class="cb-sep"></div>
+      <div class="cb-actions">
+        <button class="cb-btn" onclick="openCommuteSetup()">Innst.</button>
+      </div>`;
+  }
+
+  // ── PENDEL-OPPSETT ────────────────────────────────────
+  let commutePendingDest = null;
+  let geocodeTimer = null;
+
+  function openCommuteSetup() {
+    const cfg = getCommuteConfig();
+    const override = getCommuteOverride();
+    commutePendingDest = cfg ? { lat: cfg.destLat, lon: cfg.destLon, name: cfg.destName } : null;
+
+    document.getElementById('commuteDestInput').value = cfg?.destName || '';
+    document.getElementById('commuteDestResults').style.display = 'none';
+    const selEl = document.getElementById('commuteDestSelected');
+    selEl.textContent = commutePendingDest ? `Valgt: ${commutePendingDest.name}` : '';
+    selEl.style.display = commutePendingDest ? 'block' : 'none';
+    document.getElementById('commuteArrival').value = cfg?.arrivalTime || '08:00';
+
+    const DAY_LABELS = ['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
+    const activeDays = cfg?.days || [1,2,3,4,5];
+    document.getElementById('commuteDays').innerHTML = DAY_LABELS.map((d, i) => `
+      <button class="cb-day-btn${activeDays.includes(i) ? ' active' : ''}"
+              data-day="${i}" onclick="toggleCommuteDay(this)">${d}</button>`).join('');
+
+    const hasOverride = !!override;
+    document.getElementById('commuteOverrideCheck').checked = hasOverride;
+    document.getElementById('commuteOverrideTime').style.display = hasOverride ? 'inline-block' : 'none';
+    document.getElementById('commuteOverrideTime').value = override?.arrivalTime || cfg?.arrivalTime || '08:00';
+
+    document.getElementById('commuteOverlay').classList.add('open');
+  }
+
+  function closeCommuteSetup() {
+    document.getElementById('commuteOverlay').classList.remove('open');
+    document.getElementById('commuteDestResults').style.display = 'none';
+  }
+
+  function toggleCommuteDay(btn) { btn.classList.toggle('active'); }
+
+  function toggleOverrideInput() {
+    const checked = document.getElementById('commuteOverrideCheck').checked;
+    document.getElementById('commuteOverrideTime').style.display = checked ? 'inline-block' : 'none';
+  }
+
+  function clearCommuteConfig() {
+    localStorage.removeItem('commute_' + user.id);
+    localStorage.removeItem('commute_override_' + user.id);
+    closeCommuteSetup();
+    initCommute();
+  }
+
+  async function geocodeSearch(text) {
+    const resultsEl = document.getElementById('commuteDestResults');
+    if (text.length < 3) { resultsEl.style.display = 'none'; return; }
+    try {
+      const res = await fetch(
+        `${ENTUR_GEOCODER}?text=${encodeURIComponent(text)}&size=6&lang=no`,
+        { headers: { 'ET-Client-Name': ET_CLIENT } }
+      );
+      const json = await res.json();
+      const features = json.features || [];
+      if (!features.length) { resultsEl.style.display = 'none'; return; }
+      resultsEl.style.display = 'flex';
+      resultsEl.innerHTML = features.map(f => {
+        const name = f.properties.label || f.properties.name || '';
+        const [lon, lat] = f.geometry.coordinates;
+        const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<div class="cb-result-item" onclick="selectCommuteDest(${lat}, ${lon}, '${safeName}')">${name}</div>`;
+      }).join('');
+    } catch {}
+  }
+
+  function selectCommuteDest(lat, lon, name) {
+    commutePendingDest = { lat, lon, name };
+    document.getElementById('commuteDestInput').value = name;
+    document.getElementById('commuteDestResults').style.display = 'none';
+    const selEl = document.getElementById('commuteDestSelected');
+    selEl.textContent = `Valgt: ${name}`;
+    selEl.style.display = 'block';
+  }
+
+  function saveCommuteSetup() {
+    if (!commutePendingDest) { alert('Velg en destinasjon fra søkeresultatene'); return; }
+    const arrivalTime = document.getElementById('commuteArrival').value;
+    const days = [...document.querySelectorAll('#commuteDays .cb-day-btn.active')]
+                   .map(b => parseInt(b.dataset.day));
+    saveCommuteConfigData({
+      destLat: commutePendingDest.lat,
+      destLon: commutePendingDest.lon,
+      destName: commutePendingDest.name,
+      arrivalTime, days
+    });
+    if (document.getElementById('commuteOverrideCheck').checked) {
+      const overrideTime = document.getElementById('commuteOverrideTime').value;
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      localStorage.setItem('commute_override_' + user.id, JSON.stringify({ date: tomorrow, arrivalTime: overrideTime }));
+    } else {
+      localStorage.removeItem('commute_override_' + user.id);
+    }
+    closeCommuteSetup();
+    initCommute();
+  }
+
+  document.getElementById('commuteDestInput').addEventListener('input', e => {
+    clearTimeout(geocodeTimer);
+    geocodeTimer = setTimeout(() => geocodeSearch(e.target.value), 400);
+  });
+
+  initCommute();
+</script>
+</body>
+</html>

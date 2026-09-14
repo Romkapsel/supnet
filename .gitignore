@@ -1,0 +1,27 @@
+# Hemmeligheter og lokale innstillinger – ALDRI i repo (repoet er offentlig)
+.env
+.env.*
+.vercel/
+.claude/settings.local.json
+*.pem
+*.key
+
+# Jita-roboten: lokale snapshots og ETag-cache
+.etag.json
+*.json.gz
+jita/snapshots/
+jita/.snapshot/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Gamle kopier / OS-støy
+files.zip
+.DS_Store
+Thumbs.db
