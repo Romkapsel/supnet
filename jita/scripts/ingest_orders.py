@@ -60,14 +60,12 @@ def fetch_all_pages(esi: Esi, runlog: RunLog):
             for p, b, lm in ex.map(fetch, todo):
                 if b is not None:
                     results[p] = (b, lm)
-        # flertallets Last-Modified er «sannheten»
-        counts = defaultdict(int)
-        for b, lm in results.values():
-            counts[lm] += 1
-        ref_lm = max(counts, key=counts.get)
+        # NYESTE Last-Modified er «sannheten»: ruller ESI-cachen midt i hentingen, er det de gamle sidene
+        # som skal hentes på nytt (de kommer da i ny versjon) – ikke de nye.
+        ref_lm = max((lm for b, lm in results.values() if lm), default=None)
         todo = [p for p in range(1, pages + 1) if p not in results or results[p][1] != ref_lm]
         if todo:
-            log(f"runde {round_no + 1}: {len(todo)} sider avviker fra Last-Modified {ref_lm} – henter på nytt")
+            log(f"runde {round_no + 1}: {len(todo)} sider eldre enn Last-Modified {ref_lm} – henter på nytt")
             time.sleep(2)
 
     ok_pages = [p for p in range(1, pages + 1) if p in results and results[p][1] == ref_lm]
