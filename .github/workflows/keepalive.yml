@@ -1,0 +1,24 @@
+# GitHub slår av scheduled workflows i offentlige repo etter 60 dager uten commits.
+# Denne jobben gjør en triviell commit den 1. hver måned så Jita-roboten fortsetter å gå.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%Y-%m-%d > jita/.keepalive
+          git config user.name "jita-keepalive"
+          git config user.email "actions@users.noreply.github.com"
+          git add jita/.keepalive
+          git commit -m "keepalive $(cat jita/.keepalive)" || exit 0
+          git push
