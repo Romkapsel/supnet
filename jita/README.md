@@ -53,3 +53,14 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - Discord får melding ved feil, < 95 % sider, ny vare i topp 3, watchlist-endring, DB > 350 MB.
 - 429 fra ESI: roboten venter `Retry-After` og prøver igjen (maks 3). Hyppig 429 = delt runner-IP; se spec del 9.
 - `X-Compatibility-Date` er satt til 2026-09-14 i `common.py`; oppdater ved ESI-endringer.
+
+## Avvik fra spec (bevisste, sept 2026)
+
+- **Regel 5:** implementert som «S2B/dag × fyllingstid ≥ min_qty» + «bfs_trades ≥ terskel». Spec-ens «S2B ≥ antall / fyllingstid» er trivielt sann fordi antall allerede er begrenset av S2B × fyllingstid.
+- **Dager til fylling:** «enheter foran deg» = enhetene innenfor 1 % (bid_qty_1pct / ask_qty_1pct), ikke 0 – konkurrentene på toppen legger seg over deg igjen.
+- **Regel 1x (ny):** margin > `max_margin` (200 %) forkastes – da er «toppbudet» et 0,01-ISK-bud, ikke et marked.
+- **Forfilter:** i tillegg til spread ≥ 5 % kreves ikke-ekskludert vare og ≥ 3 ordrer per side (15 000 → 7 000 varer/time).
+- **ETag** brukes ikke på full-hentingen (412 sider × body ville gitt 50 MB cache); brukes på watchlist og historikk.
+- **Regel 9/1x-avslag lagres ikke** i `candidates` (kan aldri bli «nesten»).
+- **20-min-flyt** brukes bare når ≥ 3 timer er dekket; ellers timestall.
+- **Plan B for cron:** pg_cron-jobben `jita-vakt` kl. :40 starter timesjobben via `/api/scan?fallback=1` hvis den er > 70 min gammel.
