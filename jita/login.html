@@ -13,8 +13,8 @@
     body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text); font-family:'Nunito',system-ui,sans-serif; padding:16px; }
     .box { background:var(--card); border-radius:20px; padding:28px 24px; width:100%; max-width:340px; text-align:center; }
     h1 { margin:0 0 4px; font-size:1.8rem; } .sub { color:var(--muted); font-size:0.9rem; margin-bottom:22px; }
-    .dots { display:flex; justify-content:center; gap:14px; margin:10px 0 18px; }
-    .dot { width:16px; height:16px; border-radius:50%; border:2px solid var(--muted); }
+    .dots { display:flex; justify-content:center; gap:10px; margin:10px 0 18px; }
+    .dot { width:14px; height:14px; border-radius:50%; border:2px solid var(--muted); }
     .dot.on { background:var(--accent); border-color:var(--accent); } .dot.err { border-color:var(--red); background:var(--red); }
     .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
     .pad button { font:inherit; font-size:1.3rem; font-weight:800; padding:14px 0; border:0; border-radius:14px; background:var(--card2); color:var(--text); cursor:pointer; }
@@ -27,7 +27,7 @@
   <div class="box">
     <h1>Jita</h1>
     <div class="sub">EVE Online · station trading</div>
-    <div class="dots"><div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div><div class="dot" id="d3"></div></div>
+    <div class="dots"><div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div><div class="dot" id="d3"></div><div class="dot" id="d4"></div><div class="dot" id="d5"></div></div>
     <div class="pad">
       <button onclick="add('1')">1</button><button onclick="add('2')">2</button><button onclick="add('3')">3</button>
       <button onclick="add('4')">4</button><button onclick="add('5')">5</button><button onclick="add('6')">6</button>
@@ -39,11 +39,11 @@
   </div>
 <script>
   let v = '';
-  const draw = (cls) => { for (let i = 0; i < 4; i++) { const d = document.getElementById('d' + i); d.className = 'dot' + (i < v.length ? ' ' + (cls || 'on') : ''); } };
-  window.add = (c) => { if (v.length >= 4) return; v += c; draw(); if (v.length === 4) setTimeout(submit, 150); };
+  const draw = (cls) => { for (let i = 0; i < 6; i++) { const d = document.getElementById('d' + i); d.className = 'dot' + (i < v.length ? ' ' + (cls || 'on') : ''); } };
+  window.add = (c) => { if (v.length >= 6) return; v += c; draw(); if (v.length === 6) setTimeout(submit, 150); };
   window.del = () => { v = v.slice(0, -1); draw(); };
   window.submit = async () => {
-    if (v.length < 4) return;
+    if (v.length < 6) return;
     document.getElementById('hint').textContent = 'Sjekker…';
     const r = await fetch('/api/summary', { headers: { 'x-jita-pin': v } }).catch(() => null);
     if (r && r.ok) {
@@ -52,7 +52,9 @@
       location.replace('index.html');
     } else {
       draw('err');
-      document.getElementById('hint').textContent = r && r.status === 401 ? 'Feil PIN – prøv igjen' : 'Ingen kontakt med serveren';
+      let msg = 'Ingen kontakt med serveren';
+      if (r) { try { msg = (await r.json()).error || msg; } catch {} }
+      document.getElementById('hint').textContent = msg;
       setTimeout(() => { v = ''; draw(); document.getElementById('hint').textContent = 'Tast PIN'; }, 900);
     }
   };

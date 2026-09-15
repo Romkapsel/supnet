@@ -11,7 +11,7 @@ export async function api(action, { method = 'GET', body, query = {} } = {}) {
     headers: { 'x-jita-pin': PIN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (r.status === 401) { localStorage.removeItem('jita_pin'); location.replace('login.html'); return; }
+  if (r.status === 401 || r.status === 423) { localStorage.removeItem('jita_pin'); location.replace('login.html'); return; }
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;

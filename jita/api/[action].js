@@ -32,14 +32,40 @@ async function readBody(req) {
   });
 }
 
-export default async function handler(req, res) {
-  const pin = process.env.JITA_PIN;
-  if (!pin) return json(res, 500, { error: "JITA_PIN mangler i Vercel" });
-  if ((req.headers["x-jita-pin"] || "") !== pin) return json(res, 401, { error: "Ikke innlogget" });
+import { timingSafeEqual } from "node:crypto";
 
+// PIN-sjekk med sperre: 5 feil → 15 min, dobles for hver runde (30, 60 …). Én global sperre (én bruker).
+async function checkPin(q, given) {
+  const pin = process.env.JITA_PIN;
+  if (!pin) return { status: 500, error: "JITA_PIN mangler i Vercel" };
+  const [lock] = await q`select failures, rounds, locked_until from jita.auth_lock where id = 1`;
+  if (lock?.locked_until && new Date(lock.locked_until) > new Date()) {
+    const min = Math.ceil((new Date(lock.locked_until) - Date.now()) / 60000);
+    return { status: 423, error: `Sperret etter for mange feil – prøv igjen om ${min} min` };
+  }
+  const a = Buffer.from(String(given || "")), b = Buffer.from(pin);
+  const ok = a.length === b.length && timingSafeEqual(a, b);
+  if (ok) {
+    if (lock?.failures) await q`update jita.auth_lock set failures = 0, rounds = 0, locked_until = null where id = 1`;
+    return { status: 200 };
+  }
+  const failures = (lock?.failures || 0) + 1;
+  if (failures >= 5) {
+    const rounds = (lock?.rounds || 0) + 1;
+    const minutes = 15 * 2 ** (rounds - 1);
+    await q`update jita.auth_lock set failures = 0, rounds = ${rounds}, locked_until = now() + ${minutes + " minutes"}::interval, last_fail = now() where id = 1`;
+    return { status: 423, error: `Sperret i ${minutes} min etter 5 feil` };
+  }
+  await q`update jita.auth_lock set failures = ${failures}, last_fail = now() where id = 1`;
+  return { status: 401, error: `Feil PIN (${5 - failures} forsøk igjen)` };
+}
+
+export default async function handler(req, res) {
   const action = req.query.action;
   const q = db();
   try {
+    const auth = await checkPin(q, req.headers["x-jita-pin"]);
+    if (auth.status !== 200) return json(res, auth.status, { error: auth.error });
     switch (action) {
       case "summary": return json(res, 200, await summary(q));
       case "type": return json(res, 200, await typeDetail(q, Number(req.query.id)));

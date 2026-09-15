@@ -242,3 +242,13 @@ select cron.unschedule(jobid) from cron.job where jobname = 'jita-vakt';
 select cron.schedule('jita-vakt', '40 * * * *',
   $$select net.http_post(url := 'https://jita-eve.vercel.app/api/scan?fallback=1',
       headers := '{"x-jita-pin": "0000", "Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb)$$);
+
+-- ── Innloggingssperre (5 feil → 15 min, dobles for hver runde) ───────────────
+create table if not exists jita.auth_lock (
+  id int primary key default 1 check (id = 1),
+  failures int not null default 0,
+  rounds int not null default 0,
+  locked_until timestamptz,
+  last_fail timestamptz
+);
+insert into jita.auth_lock (id) values (1) on conflict (id) do nothing;

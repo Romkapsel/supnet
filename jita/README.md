@@ -20,7 +20,7 @@ Nettside: eget Vercel-prosjekt med rot `jita/` (egen PIN i `login.html`).
 
 **Vercel → prosjektet «jita» → Settings → Environment Variables:**
 - `SUPABASE_DB_URL` – samme som over, men port **6543** (transaction-pooler)
-- `JITA_PIN` – PIN-en login.html sjekker mot
+- `JITA_PIN` – 6-sifret PIN som login.html sjekker mot (5 feil → sperre 15 min, dobles). Endres du den: oppdater også pg_cron-jobben `jita-vakt`
 - `GITHUB_REPO` – `Romkapsel/supnet`
 - `GITHUB_TOKEN` – fine-grained token med *Contents: Read and write* på repoet (for «Scan nå»)
 
