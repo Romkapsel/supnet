@@ -56,8 +56,14 @@ def best_prices(buys, sells) -> dict[int, tuple[float, float]]:
     return out
 
 
-def prefilter(best: dict, min_spread: float) -> set[int]:
-    return {t for t, (bid, ask) in best.items() if bid > 0 and ask / bid - 1 >= min_spread}
+def prefilter(best: dict, min_spread: float, buys=None, sells=None, excluded: set | None = None,
+              min_orders: int = 3) -> set[int]:
+    """Både sider, brutto spread ≥ min_spread, ikke is_excluded, minst min_orders ordrer per side.
+    (Uten de to siste kravene slipper ~15 000 varer gjennom; med dem ~7 000 – spec-ens anslag.)"""
+    excluded = excluded or set()
+    return {t for t, (bid, ask) in best.items()
+            if bid > 0 and ask / bid - 1 >= min_spread and t not in excluded
+            and (buys is None or len(buys[t]) >= min_orders) and (sells is None or len(sells[t]) >= min_orders)}
 
 
 def metrics_for(type_id: int, buys: list, sells: list) -> dict:
@@ -81,11 +87,11 @@ def metrics_for(type_id: int, buys: list, sells: list) -> dict:
     )
 
 
-def compute(orders, jumps, min_spread: float):
+def compute(orders, jumps, min_spread: float, excluded: set | None = None, min_orders: int = 3):
     """→ (rows for type_hourly, prefilter-sett, buys, sells)"""
     buys, sells = split_book(orders, jumps)
     best = best_prices(buys, sells)
-    keep = prefilter(best, min_spread)
+    keep = prefilter(best, min_spread, buys, sells, excluded, min_orders)
     rows = [metrics_for(t, buys[t], sells[t]) for t in keep]
     return rows, keep, buys, sells
 
@@ -102,6 +108,12 @@ def write_type_hourly(conn, rows, snapshot_at):
                               r["ask_qty_3pct"], r["bid_floor_price"], r["bid_floor_qty"]))
 
 
+def load_excluded(conn) -> set[int]:
+    with conn.cursor() as cur:
+        cur.execute("select type_id from jita.types where is_excluded")
+        return {r[0] for r in cur.fetchall()}
+
+
 def load_jumps(conn) -> dict[int, int]:
     with conn.cursor() as cur:
         cur.execute("select system_id, jumps_from_jita from jita.systems")
@@ -116,7 +128,9 @@ if __name__ == "__main__":
         sys.exit("fant ikke snapshot")
     conn = db()
     prof = load_profile(conn)
-    rows, keep, _, _ = compute(snap["orders"], load_jumps(conn), (prof.thresholds or {}).get("prefilter_spread", 0.05))
+    th = prof.thresholds or {}
+    rows, keep, _, _ = compute(snap["orders"], load_jumps(conn), th.get("prefilter_spread", 0.05),
+                               load_excluded(conn), th.get("prefilter_min_orders", 3))
     log(f"{len(rows)} varer i forfilter-settet av {len(snap['orders'])} ordrer")
     write_type_hourly(conn, rows, snap["snapshot_at"])
     conn.commit()

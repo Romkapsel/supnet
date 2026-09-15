@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Jita – Supnet</title>
+  <link rel="manifest" href="/manifest.json"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, price, pct, num, days, ago, dt, el, esc, downtimeWarning, nav, injectCss } from './app.js';
+injectCss();
+
+async function load() {
+  let d;
+  try { d = await api('summary'); } catch (e) { el('app').innerHTML = `<p class="err">Feil: ${esc(e.message)}</p>`; return; }
+  if (!d) return;
+  const p = d.profile;
+  const hourly = d.robot.find((r) => r.job === 'hourly');
+  const hourlyStale = !hourly || !hourly.ok || (Date.now() - new Date(hourly.run_at).getTime()) > 2 * 3600e3;
+
+  const top = d.top.length ? d.top.map((c, i) => `
+    <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
+      <div class="row"><h3>${i + 1}. ${esc(c.name)}</h3><span class="big accent">+${isk(c.expected_profit)} ISK</span></div>
+      <div class="row small">
+        <span>Kjøp <b>${c.qty} stk</b> à <b>${price(c.buy_price)}</b></span>
+        <span>Selg på <b>${price(c.sell_price)}</b></span>
+        <span class="muted">margin ${pct(c.margin)} · netto ${isk(c.net_per_unit)}/stk</span>
+      </div>
+      <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
+      <div class="reason">${esc(c.reason)}</div>
+      <div><button class="ghost small" onclick="event.stopPropagation(); took(${c.type_id}, ${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button></div>
+    </div>`).join('')
+    : `<div class="card muted">Ingen varer passerer alle reglene ennå. ${d.run_at ? 'Roboten trenger ~24 timer med data før flyt-reglene (5) gir mening.' : 'Roboten har ikke kjørt ennå.'}</div>`;
+
+  const nearly = d.nearly.map((c) => `
+    <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
+      <div class="row"><h3>${esc(c.name)}</h3><span class="muted small">${isk(c.net_per_unit)}/stk · ${pct(c.margin)}</span></div>
+      <div>${c.failed_text.map((t) => `<span class="pill bad">${esc(t)}</span>`).join('')}</div>
+    </div>`).join('') || '<div class="card muted">–</div>';
+
+  const robot = d.robot.map((r) => `
+    <div class="row small">
+      <span><span class="pill ${r.ok ? 'ok' : 'bad'}">${esc(r.job)}</span> ${ago(r.run_at)}</span>
+      <span class="muted">${r.pages_ok ?? '–'}/${r.pages_total ?? '–'} sider · ${r.duration_s ?? '–'} s · ratelimit ${r.ratelimit_remaining ?? '–'} · DB ${r.db_bytes ? (r.db_bytes / 1e6).toFixed(0) : '–'} MB</span>
+    </div>${r.message ? `<div class="muted small">${esc(r.message)}</div>` : ''}`).join('') || '<span class="muted">Ingen kjøringer ennå.</span>';
+
+  el('app').innerHTML = `
+    <h1>Jita 4-4 <span class="muted" style="font-size:0.9rem">station trading</span></h1>
+    ${nav('index.html')}
+    ${downtimeWarning() ? '<div class="banner">⏳ Downtime – ikke legg ordrer nå (11:00–11:15)</div>' : ''}
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="l">Kapital</div><div class="v">${isk(p.capital_isk)} ISK</div></div>
+        <div class="stat"><div class="l">Broker / skatt</div><div class="v">${pct(p.broker)} / ${pct(p.tax)}</div></div>
+        <div class="stat"><div class="l">Break-even spread</div><div class="v">${pct(p.break_even)}</div></div>
+        <div class="stat"><div class="l">Maks kjøpspris</div><div class="v">${isk(p.max_buy_price)}</div></div>
+        <div class="stat"><div class="l">Siste dømming</div><div class="v">${ago(d.run_at)}</div></div>
+        <div class="stat"><div class="l">Vurdert</div><div class="v">${d.counts?.passed ?? 0} / ${d.counts?.total ?? 0}</div></div>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
+    </div>
+    <h2>Topp 10</h2>${top}
+    <h2>Nesten</h2>${nearly}
+    <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;
+
+  el('scan').onclick = async () => {
+    el('scan').disabled = true; el('scanmsg').textContent = '…';
+    try { const r = await api('scan', { method: 'POST' }); el('scanmsg').textContent = r.message; }
+    catch (e) { el('scanmsg').textContent = e.message; }
+    el('scan').disabled = false;
+  };
+}
+
+window.took = async (type_id, p, qty, pdays, pnet, btn) => {
+  btn.disabled = true;
+  try { await api('decision', { method: 'POST', body: { type_id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret'; }
+  catch (e) { btn.textContent = 'Feil: ' + e.message; }
+};
+load();
+</script>
+</body>
+</html>

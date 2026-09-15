@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Profil – Jita</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, price, pct, num, days, el, esc, nav, injectCss } from './app.js';
+injectCss();
+
+const FIELDS = [
+  ['capital_isk', 'Kapital i arbeid (ISK)', 'number'],
+  ['positions', 'Antall posisjoner', 'number'],
+  ['target_fill_days', 'Ønsket fyllingstid (dager)', 'number'],
+  ['reserve_share', 'Reserveandel (0,25 = 25 %)', 'number'],
+  ['min_qty', 'Minste antall per posisjon', 'number'],
+  ['broker_relations', 'Broker Relations (0–5)', 'number'],
+  ['accounting', 'Accounting (0–5)', 'number'],
+  ['adv_broker_relations', 'Advanced Broker Relations (0–5)', 'number'],
+  ['trade', 'Trade (0–5)', 'number'],
+  ['retail', 'Retail (0–5)', 'number'],
+  ['wholesale', 'Wholesale (0–5)', 'number'],
+  ['tycoon', 'Tycoon (0–5)', 'number'],
+  ['standing_faction', 'Standing Caldari State (umodifisert)', 'number'],
+  ['standing_corp', 'Standing Caldari Navy (umodifisert)', 'number'],
+  ['broker_fee_override', 'Overstyr broker-sats (f.eks. 0,021, tom = regn ut)', 'number'],
+  ['sales_tax_override', 'Overstyr salgsskatt (tom = regn ut)', 'number'],
+];
+const THRESH = [
+  ['min_margin', 'Regel 1: minste netto margin (0,10 = 10 %)'],
+  ['max_bid_top_qty', 'Regel 2: maks enheter på toppbudet'],
+  ['max_bid_orders_1pct', 'Regel 3: maks budgivere innenfor 1 %'],
+  ['max_ask_qty_1pct', 'Regel 4: maks selgerenheter innenfor 1 %'],
+  ['min_bfs_trades', 'Regel 5: minste antall lift-handler / 24 t'],
+  ['hist_pos_target', 'Regel 6: hist.pos-mål (myk)'],
+  ['hist_pos_weak', 'Regel 6: hist.pos regnet som svakhet under'],
+  ['max_ask_drop_7d', 'Regel 7: maks fall i salgspris 7 d'],
+  ['max_bid_rise_7d', 'Regel 7: maks økning i kjøpspris 7 d'],
+  ['prefilter_spread', 'Forfilter: minste brutto spread'],
+  ['prefilter_min_orders', 'Forfilter: minste antall ordrer per side'],
+];
+
+let profile;
+function form(p) {
+  const th = p.thresholds || {};
+  return `
+    <div class="grid2">${FIELDS.map(([k, l]) => `<div><label>${l}</label><input name="${k}" type="number" step="any" value="${p[k] ?? ''}"/></div>`).join('')}</div>
+    <div class="row" style="margin-top:10px">
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_t2" ${p.allow_t2 ? 'checked' : ''} style="width:auto"/> Tillat T2</label>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_faction" ${p.allow_faction ? 'checked' : ''} style="width:auto"/> Tillat faction/deadspace</label>
+    </div>
+    <h3 style="margin-top:14px">Terskler</h3>
+    <div class="grid2">${THRESH.map(([k, l]) => `<div><label>${l}</label><input name="th.${k}" type="number" step="any" value="${th[k] ?? ''}"/></div>`).join('')}</div>`;
+}
+function read() {
+  const body = { thresholds: { ...(profile.thresholds || {}) } };
+  for (const inp of document.querySelectorAll('#form input')) {
+    if (inp.type === 'checkbox') body[inp.name] = inp.checked;
+    else if (inp.name.startsWith('th.')) { if (inp.value !== '') body.thresholds[inp.name.slice(3)] = Number(inp.value); }
+    else body[inp.name] = inp.value;
+  }
+  return body;
+}
+function calcBox(c, title) {
+  return `<h3>${title}</h3><div class="stats">
+    <div class="stat"><div class="l">Broker</div><div class="v">${pct(c.broker, 2)}</div></div>
+    <div class="stat"><div class="l">Salgsskatt</div><div class="v">${pct(c.tax, 2)}</div></div>
+    <div class="stat"><div class="l">Break-even</div><div class="v">${pct(c.break_even)}</div></div>
+    <div class="stat"><div class="l">Ordreplasser</div><div class="v">${c.order_slots}</div></div>
+    <div class="stat"><div class="l">Posisjonsbudsjett</div><div class="v">${isk(c.budget)}</div></div>
+    <div class="stat"><div class="l">Maks kjøpspris</div><div class="v">${isk(c.max_buy_price)}</div></div>
+    <div class="stat"><div class="l">Min netto/enhet</div><div class="v">${isk(c.min_net_per_unit)}</div></div>
+  </div>`;
+}
+function topList(rows) {
+  return rows.length ? rows.map((c, i) => `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40">
+    <span>${i + 1}. <a href="type.html?id=${c.type_id}">${esc(c.name)}</a></span>
+    <span>${c.qty} à ${price(c.buy_price)} → ${price(c.sell_price)} · <b class="accent">+${isk(c.expected_profit)}</b></span></div>`).join('')
+    : '<span class="muted">Ingen passerer med denne profilen.</span>';
+}
+
+async function load() {
+  const d = await api('profile');
+  if (!d) return;
+  profile = d.profile;
+  const st = (await api('decisions'))?.stats || {};
+  // Skill-ROI: besparelse per omsatt ISK ved Accounting IV/V og BR V, mot siste 7 dagers omsetning
+  const turnover = Number(st.turnover_7d || 0) / 7 * 30;   // månedlig omsetning (kjøpssiden)
+  const roi = (savingPct, cost) => turnover > 0 ? Math.round(cost / (turnover * 2 * savingPct) * 30) : null;  // ×2: gebyr på både kjøp og salg (grovt)
+  const brSave = 0.003 * (5 - Number(profile.broker_relations || 0));
+  const accSave = 0.075 * 0.11 * (5 - Number(profile.accounting || 0)) / 2;
+
+  el('app').innerHTML = `
+    <h1>Profil</h1>${nav('settings.html')}
+    <div class="card"><form id="form" onsubmit="return false">${form(profile)}</form>
+      <div class="row" style="margin-top:14px"><button id="save">Lagre og døm på nytt</button><button class="ghost" id="preview">Hva om? (ikke lagre)</button><span id="msg" class="muted small"></span></div></div>
+    <div class="card" id="calc">${calcBox(profile, 'Beregnet fra profilen')}</div>
+    <div class="card" id="prev" hidden></div>
+    <div class="card"><h3>Skill-ROI <span class="muted small">(fra beslutninger siste 7 d)</span></h3>
+      ${turnover > 0 ? `<div class="small">Omsetning ~${isk(turnover)} ISK/mnd (kjøpssiden).
+        Accounting-bok (6,5 mill) tjener seg inn på ~<b>${roi(accSave, 6.5e6) ?? '–'}</b> dager, Broker Relations V (fra nivå ${profile.broker_relations}) på ~<b>${roi(brSave, 1e6) ?? '–'}</b> dager (regnet med 1 mill for boka).</div>`
+        : '<span class="muted">Trykk «Jeg tok denne» på noen varer først, så regnes det ut her.</span>'}</div>`;
+
+  el('save').onclick = async () => {
+    el('msg').textContent = 'lagrer…';
+    try {
+      const r = await api('profile', { method: 'POST', body: read() });
+      profile = r.profile;
+      el('calc').innerHTML = calcBox(r.profile, 'Beregnet fra profilen');
+      el('msg').textContent = `Lagret. ${r.passed} varer passerer nå.`;
+    } catch (e) { el('msg').textContent = 'Feil: ' + e.message; }
+  };
+  el('preview').onclick = async () => {
+    el('msg').textContent = 'regner…';
+    try {
+      const r = await api('preview', { method: 'POST', body: read() });
+      el('prev').hidden = false;
+      el('prev').innerHTML = calcBox(r.calc, 'Hva om – beregnet') + '<h3 style="margin-top:12px">Hva om – topp 10</h3>' + topList(r.top);
+      el('msg').textContent = '';
+    } catch (e) { el('msg').textContent = 'Feil: ' + e.message; }
+  };
+}
+load();
+</script>
+</body>
+</html>

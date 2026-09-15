@@ -175,7 +175,10 @@ def main():
         jumps = cm.load_jumps(conn)
         if not jumps:
             fail(runlog, "jita.systems er tom – kjør seed_types.py først", conn)
-        min_spread = float((profile.thresholds or {}).get("prefilter_spread", 0.05))
+        th = profile.thresholds or {}
+        min_spread = float(th.get("prefilter_spread", 0.05))
+        min_orders = int(th.get("prefilter_min_orders", 3))
+        excluded = cm.load_excluded(conn)
 
         try:
             orders, snapshot_at = fetch_all_pages(esi, runlog)
@@ -191,7 +194,7 @@ def main():
             runlog.finish(conn, ok=True, message="samme Last-Modified som forrige – ingen ny data")
             return
 
-        rows, keep, _, _ = cm.compute(orders, jumps, min_spread)
+        rows, keep, _, _ = cm.compute(orders, jumps, min_spread, excluded, min_orders)
         keep = keep | load_watchlist(conn)
         cm.write_type_hourly(conn, rows, snapshot_at)
         log(f"type_hourly: {len(rows)} varer i forfilter-settet")

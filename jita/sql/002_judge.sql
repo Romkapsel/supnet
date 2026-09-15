@@ -168,7 +168,7 @@ language sql stable as $$
          dfb, dfs, hp, ratio, sc,
          format('Toppbud %s stk, %s budgivere. ~%s/dag inn, ~%s/dag ut. Netto %s ISK (%s %%).%s',
                 bid_top_qty, bid_orders_1pct, round(s2b::numeric), round(bfs::numeric),
-                to_char(net, 'FM999G999G999'), round((mrg * 100)::numeric, 1),
+                replace(to_char(net, 'FM999,999,999'), ',', ' '), replace(round((mrg * 100)::numeric, 1)::text, '.', ','),
                 case when hp < coalesce((th.t->>'hist_pos_weak')::float8, 0.4) or ratio < 1
                        or dfb > coalesce((p->>'target_fill_days')::float8, 4) or dfs > coalesce((p->>'target_fill_days')::float8, 4)
                   then ' Svakhet: ' || concat_ws(', ',
@@ -202,6 +202,7 @@ begin
   from (
     select *, row_number() over (partition by passed order by score desc nulls last) as rn
     from jita.judge_rows(p)
+    where passed or not ('9' = any(failed_rules))      -- regel 9-avslag lagres ikke (kan aldri bli «nesten»)
   ) r
   where r.passed or r.rn <= 200;
   select count(*) into n from jita.candidates c where c.run_at = ts and c.passed;

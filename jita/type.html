@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Vare – Jita</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, price, pct, num, days, ago, dt, el, esc, nav, injectCss, sparkline } from './app.js';
+injectCss();
+const id = Number(new URLSearchParams(location.search).get('id'));
+const JITA_44 = 60003760, JITA_SYS = 30000142;
+let wlStatus = null;
+
+function tick(p) { return Math.pow(10, Math.floor(Math.log10(p)) - 3); }
+
+async function load() {
+  let d;
+  try { d = await api('type', { query: { id } }); } catch (e) { el('app').innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  if (!d || !d.type) { el('app').innerHTML = '<p class="err">Fant ikke varen.</p>'; return; }
+  const t = d.type, c = d.candidate, p = d.profile;
+  wlStatus = t.wl_status;
+  const kind = t.is_t1 ? 'T1' : t.is_t2 ? 'T2' : t.is_meta ? 'Meta' : t.is_faction ? 'Faction' : t.is_excluded ? 'Ekskludert' : '?';
+
+  // flyt siste 24 t (foretrekk 20-min-oppløsning) og per klokkeslett (14 d)
+  const cut = Date.now() - 25 * 3600e3;
+  const f24 = d.flow.filter((f) => new Date(f.hour).getTime() > cut);
+  const res = f24.some((f) => f.resolution === 20) ? 20 : 60;
+  const sum = (arr, k) => arr.reduce((a, f) => a + Number(f[k] || 0), 0);
+  const fr = f24.filter((f) => f.resolution === res);
+  const hours = Math.max(sum(fr, 'hours_covered'), 1);
+  const s2b = sum(fr, 's2b_qty') / hours * 24, bfs = sum(fr, 'bfs_qty') / hours * 24;
+  const byHour = Array.from({ length: 24 }, () => ({ b: 0, s: 0 }));
+  for (const f of d.flow.filter((f) => f.resolution === 60)) {
+    const h = Number(new Date(f.hour).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit' }).slice(0, 2));
+    byHour[h].b += Number(f.bfs_qty || 0); byHour[h].s += Number(f.s2b_qty || 0);
+  }
+  const maxH = Math.max(1, ...byHour.map((x) => Math.max(x.b, x.s)));
+
+  el('app').innerHTML = `
+    <h1>${esc(t.name)}</h1>
+    <div class="muted small">${esc(t.market_group_path || t.group_name || '')} · <span class="pill">${kind}</span>
+      ${t.wl_status ? `<span class="pill ${t.wl_status === 'follow' ? 'ok' : 'bad'}">${t.wl_status === 'follow' ? 'Følges (20 min)' : 'Ignorert'}</span>` : ''}</div>
+    ${nav('')}
+    ${c ? `<div class="card">
+      <div class="row"><h3>${c.passed ? '<span class="pill ok">Passerer</span>' : '<span class="pill bad">Passerer ikke</span>'} <span class="muted small">dømt ${ago(c.run_at)}</span></h3>
+        <span class="big accent">+${isk(c.expected_profit)} ISK</span></div>
+      ${!c.passed ? `<div>${(c.failed_rules || []).map((r) => `<span class="pill bad">${esc(d.rules[r] || r)}</span>`).join('')}</div>` : ''}
+      <div class="stats" style="margin-top:8px">
+        <div class="stat"><div class="l">Kjøp</div><div class="v">${c.qty} à ${price(c.buy_price)}</div></div>
+        <div class="stat"><div class="l">Selg</div><div class="v">${price(c.sell_price)}</div></div>
+        <div class="stat"><div class="l">Netto / margin</div><div class="v">${isk(c.net_per_unit)} · ${pct(c.margin)}</div></div>
+        <div class="stat"><div class="l">Fylling kjøp / salg</div><div class="v">${days(c.days_to_fill_buy)} / ${days(c.days_to_fill_sell)}</div></div>
+        <div class="stat"><div class="l">Hist.pos / BfS:S2B</div><div class="v">${c.hist_pos == null ? '–' : num(c.hist_pos, 2)} / ${num(c.flow_ratio, 1)}</div></div>
+        <div class="stat"><div class="l">Score</div><div class="v">${isk(c.score)}</div></div>
+      </div>
+      <div class="reason">${esc(c.reason)}</div>
+      <div class="row" style="margin-top:10px">
+        <button onclick="took(${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button>
+        <button class="ghost" onclick="wl('follow')">${t.wl_status === 'follow' ? 'Slutt å følge' : 'Følg (20 min)'}</button>
+        <button class="ghost" onclick="wl('ignore')">${t.wl_status === 'ignore' ? 'Fjern ignorer' : 'Ignorer'}</button>
+      </div></div>` : '<div class="card muted">Ikke dømt ennå (ikke i forfilter-settet siste kjøring).</div>'}
+
+    <h2>Flyt siste 24 t <span class="muted small">(${res}-min-oppløsning)</span></h2>
+    <div class="card"><div class="stats">
+      <div class="stat"><div class="l">Dumpet (S2B)</div><div class="v">${num(s2b)} /dag</div></div>
+      <div class="stat"><div class="l">Liftet (BfS)</div><div class="v">${num(bfs)} /dag</div></div>
+      <div class="stat"><div class="l">Lift-handler</div><div class="v">${sum(fr, 'bfs_trades')}</div></div>
+      <div class="stat"><div class="l">Dump-handler</div><div class="v">${sum(fr, 's2b_trades')}</div></div>
+    </div>
+    <h3 style="margin-top:12px">Per klokkeslett (14 d, norsk tid)</h3>
+    <div style="display:flex;gap:2px;align-items:flex-end;height:70px">${byHour.map((x, h) =>
+      `<div title="kl ${h}: lift ${x.b.toFixed(0)}, dump ${x.s.toFixed(0)}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px">
+        <div style="height:${(x.b / maxH * 60).toFixed(0)}px;background:var(--accent);border-radius:2px"></div>
+        <div style="height:${(x.s / maxH * 60).toFixed(0)}px;background:var(--blue);border-radius:2px"></div></div>`).join('')}</div>
+    <div class="muted small">gul = liftet, blå = dumpet · 0–23</div></div>
+
+    <h2>Bid / ask siste 7 d</h2>
+    <div class="card">${sparkline([d.hourly.map((h) => Number(h.best_ask)), d.hourly.map((h) => Number(h.best_bid))])}
+      <div class="muted small">gul = laveste ask (Jita 4-4), blå = beste bid (dekker 4-4) · ${d.hourly.length} punkter</div></div>
+
+    <h2>Ordrebok nå <span class="muted small">(direkte fra ESI)</span></h2>
+    <div class="card" id="book">Henter…</div>
+
+    <h2>Kalkulator</h2>
+    <div class="card"><div class="grid2">
+      <div><label>Antall</label><input id="cq" type="number" value="${c?.qty ?? 20}"/></div>
+      <div><label>Kjøpspris</label><input id="cb" type="number" step="any" value="${c?.buy_price ?? ''}"/></div>
+      <div><label>Salgspris</label><input id="cs" type="number" step="any" value="${c?.sell_price ?? ''}"/></div>
+    </div><div id="calc" class="reason"></div></div>
+
+    <h2>Historikk (The Forge, ESI)</h2>
+    <div class="card" style="overflow-x:auto">${d.history.length ? `<table><tr><th>Dato</th><th>Snitt</th><th>Lav</th><th>Høy</th><th>Volum</th><th>Ordrer</th></tr>${
+      d.history.slice(0, 14).map((h) => `<tr><td>${h.date}</td><td>${price(h.average)}</td><td>${price(h.lowest)}</td><td>${price(h.highest)}</td><td>${isk(h.volume)}</td><td>${h.order_count}</td></tr>`).join('')}</table>`
+      : '<span class="muted">Ingen historikk hentet ennå (hentes daglig 04:30 UTC for varer som passerer regel 1–4).</span>'}</div>
+
+    ${d.decisions.length ? `<h2>Dine beslutninger</h2><div class="card">${d.decisions.map((x) => `<div class="row small"><span>${dt(x.created_at)} · ${x.side} ${x.qty} à ${price(x.price)}</span><span class="muted">${x.closed_at ? 'lukket' : x.filled_at ? 'fylt' : 'åpen'}</span></div>`).join('')}</div>` : ''}
+  `;
+
+  const calc = () => {
+    const q = Number(el('cq').value), b = Number(el('cb').value), s = Number(el('cs').value);
+    if (!q || !b || !s) { el('calc').textContent = ''; return; }
+    const inn = b * (1 + Number(p.broker)), ut = s * (1 - Number(p.broker) - Number(p.tax));
+    const net = ut - inn;
+    el('calc').innerHTML = `Netto <b>${isk(net)}</b>/stk (${pct(net / inn)}) → <b>${isk(net * q)} ISK</b> totalt. Kapital bundet: ${isk(inn * q)}. ` +
+      `Fylling: kjøp ~<b>${days(q / Math.max(s2b, 0.1))}</b>, salg ~<b>${days(q / Math.max(bfs, 0.1))}</b>.`;
+  };
+  for (const k of ['cq', 'cb', 'cs']) el(k).oninput = calc;
+  calc();
+  loadBook();
+}
+
+async function loadBook() {
+  try {
+    const r = await fetch(`https://esi.evetech.net/markets/10000002/orders/?order_type=all&type_id=${id}`, { headers: { 'X-Compatibility-Date': '2026-09-14' } });
+    const orders = await r.json();
+    const buys = orders.filter((o) => o.is_buy_order && (o.range === 'region' || (o.range === 'station' && o.location_id === JITA_44) || (o.range === 'solarsystem' && o.system_id === JITA_SYS) || (/^\d+$/.test(String(o.range)) && o.system_id === JITA_SYS)))
+      .sort((a, b) => b.price - a.price).slice(0, 12);
+    const sells = orders.filter((o) => !o.is_buy_order && o.location_id === JITA_44).sort((a, b) => a.price - b.price).slice(0, 12);
+    const rng = (o) => o.location_id === JITA_44 ? '4-4' : o.range === 'region' ? 'region' : o.range === 'solarsystem' ? 'Jita' : o.range + ' hopp';
+    const tbl = (rows, buy) => `<table><tr><th>${buy ? 'Kjøp' : 'Selg'}</th><th>Antall</th>${buy ? '<th>Rekkevidde</th>' : ''}</tr>${rows.map((o) =>
+      `<tr><td>${price(o.price)}</td><td>${isk(o.volume_remain)}</td>${buy ? `<td class="muted">${rng(o)}</td>` : ''}</tr>`).join('')}</table>`;
+    el('book').innerHTML = `<div class="grid2" style="grid-template-columns:1fr 1fr">${tbl(buys, true)}${tbl(sells, false)}</div>
+      <div class="muted small">Oppdatert ${new Date(r.headers.get('Last-Modified') || Date.now()).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo' })} · bare kjøpsordrer som dekker Jita 4-4 (grovt: region/system/stasjon), salgsordrer i 4-4</div>`;
+  } catch (e) { el('book').innerHTML = `<span class="muted">Kunne ikke hente ordreboken (${esc(e.message)})</span>`; }
+}
+
+window.took = async (p, qty, pdays, pnet, btn) => {
+  btn.disabled = true;
+  try { await api('decision', { method: 'POST', body: { type_id: id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret'; }
+  catch (e) { btn.textContent = 'Feil: ' + e.message; }
+};
+window.wl = async (status) => {
+  const same = wlStatus === status;
+  let note = null;
+  if (status === 'ignore' && !same) note = prompt('Notat (valgfritt):') || null;
+  try { await api('watchlist', { method: 'POST', body: { type_id: id, status: same ? null : status, note } }); load(); }
+  catch (e) { alert(e.message); }
+};
+load();
+</script>
+</body>
+</html>

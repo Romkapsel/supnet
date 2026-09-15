@@ -33,7 +33,7 @@ def classify(name: str, category_id: int | None, group_name: str | None,
         or "skin" in gname and category_id == 91
         or (meta_group_id in EXCLUDED_META)
     )
-    if meta_group_id is not None:
+    if meta_group_id:                      # 0 fra ESI betyr «ikke satt»
         is_meta = meta_group_id == 1 and (meta_level or 0) > 0
         is_t2 = meta_group_id in T2_META
         is_faction = meta_group_id in FACTION_META

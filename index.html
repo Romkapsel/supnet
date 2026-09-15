@@ -311,6 +311,7 @@
       if (pinValue === currentUser.pin) {
         const { pin: _, ...userToStore } = currentUser;
         sessionStorage.setItem('user', JSON.stringify({ id: Object.keys(users).find(k => users[k] === currentUser), ...userToStore }));
+        sessionStorage.setItem('supnet_pin', pinValue);   // brukes av /api/jita/* (server-side sjekk)
         document.getElementById('pinHint').textContent = '✓ Hei, ' + currentUser.name + '!';
         setTimeout(() => location.href = 'profile.html', 500);
       } else {
