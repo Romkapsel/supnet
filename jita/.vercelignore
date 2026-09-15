@@ -2,6 +2,5 @@ scripts/
 sql/
 snapshots/
 jita-spec.md
-requirements.txt
 .keepalive
 README.md

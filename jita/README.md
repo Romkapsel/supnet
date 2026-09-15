@@ -40,7 +40,7 @@ Lokalt: `.env` i rotmappen med `SUPABASE_DB_URL=…` (ignorert av git).
 ## Lokalt
 
 ```
-pip install -r jita/requirements.txt
+pip install -r jita/scripts/requirements.txt
 set SUPABASE_DB_URL=...      (eller les fra .env)
 set SNAPSHOT_DIR=jita/snapshots
 python jita/scripts/ingest_orders.py

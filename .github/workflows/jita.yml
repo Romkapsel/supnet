@@ -37,8 +37,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: jita/requirements.txt
-      - run: pip install -r jita/requirements.txt
+          cache-dependency-path: jita/scripts/requirements.txt
+      - run: pip install -r jita/scripts/requirements.txt
       - name: Hent forrige snapshot
         uses: actions/cache/restore@v4
         with:
@@ -69,8 +69,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: jita/requirements.txt
-      - run: pip install -r jita/requirements.txt
+          cache-dependency-path: jita/scripts/requirements.txt
+      - run: pip install -r jita/scripts/requirements.txt
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots
@@ -98,8 +98,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: jita/requirements.txt
-      - run: pip install -r jita/requirements.txt
+          cache-dependency-path: jita/scripts/requirements.txt
+      - run: pip install -r jita/scripts/requirements.txt
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots
@@ -121,5 +121,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r jita/requirements.txt
+      - run: pip install -r jita/scripts/requirements.txt
       - run: python jita/scripts/seed_types.py
