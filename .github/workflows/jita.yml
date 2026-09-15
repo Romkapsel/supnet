@@ -1,4 +1,5 @@
 # Jita-roboten (spec v3, blokk 1.1 steg 8). Alle tider er UTC.
+# Merk: GitHub kan bruke opptil en time på å aktivere nye cron-planer, og hopper over kjøringer under høy last.
 name: jita
 
 on:
