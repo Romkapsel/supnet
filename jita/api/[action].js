@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         if (req.method === "POST") return json(res, 200, await saveProfile(q, await readBody(req)));
         return json(res, 200, await getProfile(q));
       case "preview": return json(res, 200, await preview(q, await readBody(req)));
-      case "scan": return json(res, 200, await scan(q));
+      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1"));
       case "rejudge": return json(res, 200, { passed: (await q`select jita.judge() as n`)[0].n });
       case "watchlist": return json(res, 200, await watchlist(q, await readBody(req)));
       case "decision": return json(res, 200, await decision(q, await readBody(req)));
@@ -139,9 +139,13 @@ async function preview(q, body) {
 }
 
 // ── Scan nå ──────────────────────────────────────────────────────────────────
-async function scan(q) {
+async function scan(q, fallback = false) {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
-  if (p.last_manual_scan) {
+  if (fallback) {
+    // Plan B (pg_cron hver time): start bare hvis timesjobben ikke har kjørt på 70 min.
+    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = 'hourly'`;
+    if (r.last && Date.now() - new Date(r.last).getTime() < 70 * 60000) return { ok: true, message: "timesjobben er fersk – ingenting å gjøre" };
+  } else if (p.last_manual_scan) {
     const wait = 10 - (Date.now() - new Date(p.last_manual_scan).getTime()) / 60000;
     if (wait > 0) return { ok: false, message: `vent ${Math.ceil(wait)} min` };
   }

@@ -234,3 +234,11 @@ end $$;
 
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-cleanup';
 select cron.schedule('jita-cleanup', '0 5 * * *', 'select jita.cleanup()');
+
+-- ── Plan B: vaktjobb (pg_cron + pg_net) ──────────────────────────────────────
+-- GitHubs cron kan utebli. Hver time kl. :40 ber databasen Vercel-API-et sjekke om timesjobben
+-- har kjørt siste 70 min, og ellers starte den via repository_dispatch (krever GITHUB_TOKEN i Vercel).
+select cron.unschedule(jobid) from cron.job where jobname = 'jita-vakt';
+select cron.schedule('jita-vakt', '40 * * * *',
+  $$select net.http_post(url := 'https://jita-eve.vercel.app/api/scan?fallback=1',
+      headers := '{"x-jita-pin": "0000", "Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb)$$);
