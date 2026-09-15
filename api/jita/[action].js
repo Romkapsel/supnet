@@ -13,7 +13,7 @@ function db() {
 }
 
 const RULES = {
-  "1": "Margin under terskel", "1b": "Netto/enhet for lav for kapitalen", "2": "Toppbud for stort (mur)",
+  "1": "Margin under terskel", "1b": "Netto/enhet for lav for kapitalen", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
   "3": "For mange budgivere", "4": "Selgere klumpet", "5": "For lite innflyt", "5t": "Liftes for sjelden",
   "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)",
 };
@@ -72,7 +72,7 @@ async function summary(q) {
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last limit 10` : [];
   const nearly = runAt ? await q`
     select c.*, t.name from jita.candidates c join jita.types t using (type_id)
-    where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not ('9' = any(c.failed_rules))
+    where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not (c.failed_rules && array['9','1x'])
     order by cardinality(c.failed_rules), c.score desc nulls last limit 10` : [];
   const robot = await q`
     select distinct on (job) job, run_at, snapshot_at, pages_total, pages_ok, orders_count,

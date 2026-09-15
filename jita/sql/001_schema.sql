@@ -100,6 +100,7 @@ create table if not exists jita.profile (
   allow_t2 boolean default false, allow_faction boolean default false,
   thresholds jsonb default '{
     "min_margin": 0.10,
+    "max_margin": 2.0,
     "max_bid_top_qty": 100,
     "max_bid_orders_1pct": 3,
     "max_ask_qty_1pct": 300,
@@ -108,7 +109,8 @@ create table if not exists jita.profile (
     "hist_pos_weak": 0.4,
     "max_ask_drop_7d": 0.15,
     "max_bid_rise_7d": 0.25,
-    "prefilter_spread": 0.05
+    "prefilter_spread": 0.05,
+    "prefilter_min_orders": 3
   }'::jsonb,
   last_manual_scan timestamptz,
   updated_at timestamptz default now()

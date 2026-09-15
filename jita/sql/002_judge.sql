@@ -142,6 +142,7 @@ language sql stable as $$
            array_remove(array[
              case when mrg < coalesce((th.t->>'min_margin')::float8, 0.10) then '1' end,
              case when net < min_net_per_unit then '1b' end,
+             case when mrg > coalesce((th.t->>'max_margin')::float8, 2.0) then '1x' end,   -- ingen ekte bud (0,01-ISK-bud o.l.)
              case when bid_top_qty > coalesce((th.t->>'max_bid_top_qty')::int, 100) then '2' end,
              case when bid_orders_1pct > coalesce((th.t->>'max_bid_orders_1pct')::int, 3) then '3' end,
              case when ask_qty_1pct > coalesce((th.t->>'max_ask_qty_1pct')::int, 300) then '4' end,
@@ -202,7 +203,7 @@ begin
   from (
     select *, row_number() over (partition by passed order by score desc nulls last) as rn
     from jita.judge_rows(p)
-    where passed or not ('9' = any(failed_rules))      -- regel 9-avslag lagres ikke (kan aldri bli «nesten»)
+    where passed or not (failed_rules && array['9','1x'])   -- regel 9/1x-avslag lagres ikke (kan aldri bli «nesten»)
   ) r
   where r.passed or r.rn <= 200;
   select count(*) into n from jita.candidates c where c.run_at = ts and c.passed;
