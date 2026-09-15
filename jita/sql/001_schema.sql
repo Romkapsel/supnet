@@ -40,7 +40,7 @@ create table if not exists jita.fills (
   kind text not null check (kind in ('partial','gone')),
   weight numeric not null default 1,  -- partial=1; gone: 0.8 nær toppen, 0.5 midt, 0.2 dypt
   resolution int not null default 60, -- 60 = timesjobb, 20 = watchlist-jobb
-  primary key (observed_at, order_id)
+  primary key (observed_at, order_id, resolution)   -- begge jobbene kan se samme ordre samtidig
 );
 create index if not exists fills_type_time on jita.fills (type_id, observed_at);
 

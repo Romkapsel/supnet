@@ -246,6 +246,11 @@ class Esi:
                 log(f"429 på {path} – venter {wait}s (forsøk {attempt + 1}/3)")
                 time.sleep(min(wait, 120))
                 continue
+            if r.status_code == 420:                       # feilgrense nådd – vent til reset
+                reset = int(r.headers.get("X-ESI-Error-Limit-Reset", "60"))
+                log(f"420 på {path} – venter {reset}s")
+                time.sleep(reset + 1)
+                continue
             if r.status_code in (502, 503, 504):
                 time.sleep(3 * (attempt + 1))
                 continue

@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from common import REGION_FORGE, Esi, EsiError, RunLog, db, fail, log
 from ingest_orders import load_watchlist
 
-EARLY_RULES = {"1", "1b", "2", "3", "4"}
+EARLY_RULES = {"1", "1b", "1x", "2", "3", "4", "8"}
 
 
 def target_types(conn) -> set[int]:

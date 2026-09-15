@@ -79,8 +79,11 @@ async function summary(q) {
     select distinct on (job) job, run_at, snapshot_at, pages_total, pages_ok, orders_count,
            ratelimit_remaining, duration_s, db_bytes, ok, message
     from jita.robot_runs order by job, run_at desc`;
-  const [counts] = runAt ? await q`select count(*) filter (where passed) as passed, count(*) as total from jita.candidates where run_at = (select max(run_at) from jita.candidates)` : [{}];
-  return { profile, run_at: runAt, top, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const [counts] = await q`
+    select (select count(*) from jita.candidates where run_at = (select max(run_at) from jita.candidates) and passed) as passed,
+           (select count(*) from jita.type_hourly where snapshot_at = (select max(snapshot_at) from jita.type_hourly)) as evaluated,
+           (select max(snapshot_at) from jita.type_hourly) as snapshot_at`;
+  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
 }
 
 // ── Vare ─────────────────────────────────────────────────────────────────────
@@ -212,6 +215,6 @@ async function decisions(q) {
 // ── Søk (for å legge varer på watchlist manuelt) ─────────────────────────────
 async function search(q, term) {
   if (term.length < 2) return { types: [] };
-  const types = await q`select type_id, name, market_group_path from jita.types where name ilike ${"%" + term + "%"} and not is_excluded order by name limit 20`;
+  const types = await q`select type_id, name, market_group_path from jita.types where name ilike ${"%" + term + "%"} and not is_excluded order by (name ilike ${term + "%"}) desc, length(name), name limit 20`;
   return { types };
 }

@@ -20,8 +20,8 @@ def python_side(p: Profile):
     broker, tax = fees(p)
     buy, sell, net, margin = economics(BID, ASK, broker, tax)
     qty = qty_recommendation(p, buy, S2B)
-    dfb = days_to_fill(0, qty, S2B)
-    dfs = days_to_fill(0, qty, BFS)
+    dfb = days_to_fill(40, qty, S2B)      # 40 = bid_qty_1pct i testraden
+    dfs = days_to_fill(120, qty, BFS)     # 120 = ask_qty_1pct
     sc = score(net, S2B, BFS, dfb + dfs, 0.7)       # ingen historikk → nøytral hist_pos
     return dict(buy_price=buy, sell_price=sell, qty=qty, net_per_unit=net, margin=margin,
                 expected_profit=qty * net, days_to_fill_buy=dfb, days_to_fill_sell=dfs,

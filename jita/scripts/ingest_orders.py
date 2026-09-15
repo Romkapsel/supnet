@@ -97,9 +97,14 @@ def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: di
     for t, l in psells.items():
         pbest[(t, False)] = min(o[cm.O_PRICE] for o in l)
 
+    # bare ordrer som er relevante for Jita 4-4: salgsordrer i 4-4 (alltid, pga. filteret ved henting)
+    # og kjøpsordrer som DEKKER 4-4 – ellers teller vi dumping i stasjoner langt unna som Jita-flyt
+    relevant = {o[cm.O_ID] for l in pbuys.values() for o in l} | {o[cm.O_ID] for l in psells.values() for o in l}
     fills = []
     for o in prev["orders"]:
         oid = o[cm.O_ID]
+        if oid not in relevant:
+            continue
         now_o = cur.get(oid)
         if now_o is not None:
             d = o[cm.O_VOL] - now_o[cm.O_VOL]
@@ -158,9 +163,35 @@ def load_watchlist(conn) -> set[int]:
 
 
 def run_judge(conn):
+    """Kjører dommeren og varsler Discord om endringer (spec del 4, varsler b og c)."""
     with conn.cursor() as cur:
+        cur.execute("""select array_agg(type_id order by score desc nulls last)
+                       from (select type_id, score from jita.candidates
+                             where run_at = (select max(run_at) from jita.candidates) and passed
+                             order by score desc nulls last limit 3) x""")
+        prev_top3 = cur.fetchone()[0] or []
+        cur.execute("""select w.type_id, c.passed from jita.watchlist w
+                       left join jita.candidates c on c.type_id = w.type_id
+                         and c.run_at = (select max(run_at) from jita.candidates)
+                       where w.status = 'follow'""")
+        prev_wl = dict(cur.fetchall())
         cur.execute("select jita.judge()")
-        return cur.fetchone()[0]
+        n = cur.fetchone()[0]
+        cur.execute("""select c.type_id, t.name, c.qty, c.buy_price, c.sell_price, c.expected_profit
+                       from jita.candidates c join jita.types t using (type_id)
+                       where c.run_at = (select max(run_at) from jita.candidates) and c.passed
+                       order by c.score desc nulls last limit 3""")
+        for tid, name, qty, buy, sell, profit in cur.fetchall():
+            if tid not in prev_top3:
+                notify(f"📈 Ny i topp 3: **{name}** – kjøp {qty} à {buy:,.0f}, selg {sell:,.0f} → +{profit:,.0f} ISK")
+        cur.execute("""select w.type_id, t.name, c.passed from jita.watchlist w join jita.types t using (type_id)
+                       left join jita.candidates c on c.type_id = w.type_id
+                         and c.run_at = (select max(run_at) from jita.candidates)
+                       where w.status = 'follow'""")
+        for tid, name, passed in cur.fetchall():
+            if tid in prev_wl and prev_wl[tid] is not None and passed is not None and prev_wl[tid] != passed:
+                notify(f"{'✅' if passed else '❌'} Watchlist: **{name}** {'passerer nå' if passed else 'passerer ikke lenger'}")
+        return n
 
 
 def main():
@@ -194,8 +225,12 @@ def main():
             runlog.finish(conn, ok=True, message="samme Last-Modified som forrige – ingen ny data")
             return
 
-        rows, keep, _, _ = cm.compute(orders, jumps, min_spread, excluded, min_orders)
-        keep = keep | load_watchlist(conn)
+        rows, keep, buys, sells = cm.compute(orders, jumps, min_spread, excluded, min_orders)
+        wl = load_watchlist(conn)
+        for t in wl - keep:                         # fulgte varer dømmes selv om de er utenfor forfilteret
+            if buys.get(t) and sells.get(t):
+                rows.append(cm.metrics_for(t, buys[t], sells[t]))
+        keep = keep | wl
         cm.write_type_hourly(conn, rows, snapshot_at)
         log(f"type_hourly: {len(rows)} varer i forfilter-settet")
 

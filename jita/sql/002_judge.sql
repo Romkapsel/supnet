@@ -78,7 +78,7 @@ language sql stable as $$
     where f.hour >= now() - interval '25 hours'
     group by f.type_id, f.resolution
   ),
-  flow as (select distinct on (type_id) * from fl order by type_id, (resolution = 20) desc),
+  flow as (select distinct on (type_id) * from fl order by type_id, (resolution = 20 and hours >= 3) desc),   -- 20-min-tall bare med ≥ 3 t dekning
   hist as (
     select hd.type_id,
            avg(hd.average) filter (where hd.date >= current_date - 1)::float8  a1,
@@ -96,7 +96,7 @@ language sql stable as $$
   base as (
     select b.type_id, t.name, t.market_group_path,
            b.best_bid::float8 bid, b.best_ask::float8 ask,
-           b.bid_top_qty, b.bid_orders_1pct, b.ask_qty_1pct,
+           b.bid_top_qty, b.bid_orders_1pct, b.bid_qty_1pct, b.ask_qty_1pct,
            t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1,
            coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0)::float8 s2b,
            coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0)::float8 bfs,
@@ -126,8 +126,8 @@ language sql stable as $$
   ),
   e3 as (
     select e2.*,
-           (0 + q) / greatest(s2b, 0.1) as dfb,
-           (0 + q) / greatest(bfs, 0.1) as dfs,
+           (bid_qty_1pct + q) / greatest(s2b, 0.1) as dfb,   -- «foran deg»: budgiverne innenfor 1 % legger seg over deg igjen
+           (ask_qty_1pct + q) / greatest(bfs, 0.1) as dfs,
            bfs / greatest(s2b, 0.1) as ratio,
            case when ask > bid then least(
                   coalesce((coalesce(a1, a5) - bid) / (ask - bid), 9),
@@ -201,7 +201,7 @@ begin
          r.net_per_unit, r.margin, r.expected_profit, r.days_to_fill_buy, r.days_to_fill_sell,
          r.hist_pos, r.flow_ratio, r.score, r.reason
   from (
-    select *, row_number() over (partition by passed order by score desc nulls last) as rn
+    select *, row_number() over (partition by passed order by cardinality(failed_rules), score desc nulls last) as rn
     from jita.judge_rows(p)
     where passed or not (failed_rules && array['9','1x'])   -- regel 9/1x-avslag lagres ikke (kan aldri bli «nesten»)
   ) r
