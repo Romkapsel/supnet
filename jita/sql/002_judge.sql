@@ -49,14 +49,14 @@ do $$ begin
                  where n.nspname = 'jita' and t.typname = 'judgement') then
     execute 'create type jita.judgement as (
   type_id int, passed boolean, failed_rules text[],
-  buy_price double precision, sell_price double precision, qty int,
+  buy_price double precision, sell_price double precision, qty bigint,
   net_per_unit double precision, margin double precision, expected_profit double precision,
   days_to_fill_buy double precision, days_to_fill_sell double precision,
   hist_pos double precision, flow_ratio double precision, score double precision,
   reason text,
   -- ekstra kolonner til «nesten»-lista og type-siden
-  best_bid double precision, best_ask double precision, bid_top_qty int, bid_orders_1pct int,
-  ask_qty_1pct int, s2b_per_day double precision, bfs_per_day double precision, bfs_trades int,
+  best_bid double precision, best_ask double precision, bid_top_qty bigint, bid_orders_1pct int,
+  ask_qty_1pct bigint, s2b_per_day double precision, bfs_per_day double precision, bfs_trades int,
   name text, market_group_path text
 )';
   end if;
@@ -121,7 +121,7 @@ language sql stable as $$
     select econ.*,
            (sell * (1 - broker - tax)) - (buy * (1 + broker)) as net,
            ((sell * (1 - broker - tax)) - (buy * (1 + broker))) / (buy * (1 + broker)) as mrg,
-           greatest(1, trunc(least(floor(budget / buy), s2b * coalesce((p->>'target_fill_days')::float8, 4))))::int as q
+           greatest(1, trunc(least(floor(budget / buy), s2b * coalesce((p->>'target_fill_days')::float8, 4))))::bigint as q
     from econ
   ),
   e3 as (

@@ -36,7 +36,7 @@ create table if not exists jita.fills (
   type_id int not null,
   is_buy boolean not null,            -- true: dumpet (S2B); false: liftet (BfS)
   price numeric not null,
-  qty int not null,
+  qty bigint not null,
   kind text not null check (kind in ('partial','gone')),
   weight numeric not null default 1,  -- partial=1; gone: 0.8 nær toppen, 0.5 midt, 0.2 dypt
   resolution int not null default 60, -- 60 = timesjobb, 20 = watchlist-jobb
@@ -61,9 +61,9 @@ create table if not exists jita.type_hourly (
   type_id int not null,
   snapshot_at timestamptz not null,
   best_bid numeric, best_ask numeric, -- best_bid over alle ordrer som dekker Jita 4-4
-  bid_top_qty int, bid_orders_1pct int, bid_qty_1pct int,
-  ask_orders_1pct int, ask_qty_1pct int, ask_qty_3pct int,
-  bid_floor_price numeric, bid_floor_qty int,
+  bid_top_qty bigint, bid_orders_1pct int, bid_qty_1pct bigint,     -- bigint: ordrer på > 2 mrd enheter finnes
+  ask_orders_1pct int, ask_qty_1pct bigint, ask_qty_3pct bigint,
+  bid_floor_price numeric, bid_floor_qty bigint,
   primary key (type_id, snapshot_at)
 );
 create index if not exists type_hourly_snap on jita.type_hourly (snapshot_at);
@@ -74,7 +74,7 @@ create table if not exists jita.type_daily (
   date date not null,
   best_bid_avg numeric, best_ask_avg numeric,
   bfs_qty numeric, s2b_qty numeric,
-  bid_top_qty_avg int, ask_qty_1pct_avg int,
+  bid_top_qty_avg bigint, ask_qty_1pct_avg bigint,
   primary key (type_id, date)
 );
 
@@ -123,7 +123,7 @@ create table if not exists jita.candidates (
   type_id int not null,
   passed boolean,
   failed_rules text[],
-  buy_price numeric, sell_price numeric, qty int,
+  buy_price numeric, sell_price numeric, qty bigint,
   net_per_unit numeric, margin numeric, expected_profit numeric,
   days_to_fill_buy numeric, days_to_fill_sell numeric,
   hist_pos numeric, flow_ratio numeric, score numeric,
