@@ -583,8 +583,26 @@ EVE SSO via Vercel, henting av egne ordrer/transaksjoner/hangar hver time, FIFO-
 ## Fase 3 – Rådgiveren (1–2 kvelder)
 Reglene i del 2.4 som varsler på dashboardet og i Discord: ulistet lager, utløp, undercut, trend mot deg, flytt kapital. Web Push via Supnets PWA hvis Discord ikke holder. Kalibrering av gone-vekter og regel 5b/6-terskler mot `decisions` og egne faktiske fyllinger.
 
-## Fase 4 – Skalering
-Flere stasjoner/regioner som parameter (Amarr først), hub-til-hub-differ, ukesrapport via Claude API, backtesting av tersklene mot `type_daily` + `history_daily`.
+## Fase 4 – Skalering: flere huber og hauling (planlagt 15. sept 2026)
+
+Bygges i denne rekkefølgen, etter at Jita har gått minst én uke og lære-sløyfen viser at reglene treffer.
+
+**4a – Multi-hub-data i roboten (1 kveld).** Timesjobben henter i tillegg til The Forge: Domain (Amarr VIII – Emperor Family Academy, `60008494`), Sinq Laison (Dodixie IX – Moon 20, `60011866`), Heimatar (Rens VI – Moon 8, `60004588`) og Metropolis (Hek VIII – Moon 12, `60005686`). Hub-liste som tabell `jita.hubs (hub_id, region_id, station_id, system_id, name, active)`. Samme forfilter og samme `type_hourly`-logikk, men med `hub_id` som ekstra nøkkel (`type_hourly_hub`). ESI-kostnad: ~400 sider per hub → ~4 000 tokens/time totalt, innenfor 12 000/15 min. Snapshot per hub i egen cache-nøkkel. Flyt (fills) beregnes bare for Jita inntil videre; for de andre hubene lagres bare beste bid/ask og dybde.
+
+**4b – Prisforskjell-visning (½ kveld).** Side «Huber»: per vare i forfilter-settet, laveste ask og beste bid i hver hub, og differansen mot Jita. Sortert på ISK/m³ (volum fra `jita.types.volume`). Ren visning – ingen anbefaling ennå. Formålet er å se hvor Jita er billigst/dyrest og bygge intuisjon før hauling.
+
+**4c – Station trading i Amarr (½ kveld).** Samme dommer som i dag, kjørt per hub der `hubs.active = true`. Profilen får felt `home_hubs[]`. Topp 10 får en hub-velger. Krever at en karakter (eller alt) står i huben.
+
+**4d – Hauling-dommeren (1–2 kveld). Først når kapitalen er ≥ ~100 mill og Daniel har skip med lasterom (DST/industriell).** Regler som skiller seg fra station trading:
+- Kjøp fra *salgsordrer* i hub A (umiddelbart, ingen broker på kjøp, men full ask-pris); selg til *kjøpsordrer* i hub B (umiddelbart, sales tax) eller egen salgsordre (broker + tax, men høyere pris, og da gjelder dagens flyt-regler i hub B).
+- Netto = salg − kjøp − gebyrer − **fraktrisiko** (parameter, f.eks. 2 % av lastverdi på highsec-ruter med kjente gank-systemer, 0,5 % ellers). Ruter via `/route/` med `flag=secure`; antall hopp og om ruta går gjennom lowsec/Uedama/Niarja lagres per hub-par.
+- Rangering på **ISK per m³** (lasterommet er flaskehalsen) og ISK per hopp, ikke bare ISK per enhet.
+- Antall = minste av (kapital, lasterom / volum, dybde i hub A innenfor 3 % over laveste ask, det hub B faktisk lifter per dag).
+- Side «Hauling»: topp 10 ruter med «Kjøp N stk X i Jita à Y (M m³) → K hopp → selg i Amarr à Z → +ISK, ISK/m³, ISK/hopp, risiko».
+
+**Senere:** ukesrapport via Claude API, backtesting av tersklene mot `type_daily` + `history_daily`.
+
+**Hvorfor denne rekkefølgen:** 4a–4c gir verdi uten risiko og gjenbruker alt som finnes. 4d er der pengene og risikoen er, og bør ikke bygges før kapitalen tåler et tapt lass.
 
 ---
 
