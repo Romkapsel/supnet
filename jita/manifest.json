@@ -1,0 +1,10 @@
+{
+  "name": "Jita",
+  "short_name": "Jita",
+  "description": "EVE Online station trading – Jita 4-4",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "icons": []
+}

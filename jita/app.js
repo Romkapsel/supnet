@@ -1,17 +1,17 @@
 // Jita – felles klientkode for alle sidene under /jita/
-// PIN lagres i sessionStorage av index.html ved innlogging og sendes som header til /api/jita/*.
+// PIN lagres i localStorage av login.html og sendes som header til /api/*.
 
-const PIN = sessionStorage.getItem('supnet_pin');
-if (!PIN) location.replace('/index.html');
+const PIN = localStorage.getItem('jita_pin');
+if (!PIN) location.replace('login.html');
 
 export async function api(action, { method = 'GET', body, query = {} } = {}) {
   const qs = new URLSearchParams(query).toString();
-  const r = await fetch(`/api/jita/${action}${qs ? '?' + qs : ''}`, {
+  const r = await fetch(`/api/${action}${qs ? '?' + qs : ''}`, {
     method,
-    headers: { 'x-supnet-pin': PIN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { 'x-jita-pin': PIN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (r.status === 401) { sessionStorage.removeItem('supnet_pin'); location.replace('/index.html'); return; }
+  if (r.status === 401) { localStorage.removeItem('jita_pin'); location.replace('login.html'); return; }
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
@@ -61,7 +61,7 @@ export function downtimeWarning() {
 export function nav(active) {
   const items = [['index.html', 'Topp 10'], ['decisions.html', 'Beslutninger'], ['settings.html', 'Profil']];
   return `<nav class="jnav">${items.map(([href, label]) =>
-    `<a href="${href}" class="${href === active ? 'on' : ''}">${label}</a>`).join('')}<a href="/profile.html" class="back">← Supnet</a></nav>`;
+    `<a href="${href}" class="${href === active ? 'on' : ''}">${label}</a>`).join('')}<a href="#" class="back" onclick="localStorage.removeItem('jita_pin');location.href='login.html';return false">Logg ut</a></nav>`;
 }
 
 // ── Enkel sparkline (SVG) ────────────────────────────────────────────────────

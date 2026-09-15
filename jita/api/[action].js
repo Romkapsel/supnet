@@ -1,6 +1,6 @@
-// Jita – Vercel-funksjon for alle /api/jita/* (spec del 4, blokk 1.2 og 1.3).
-// Alle kall krever header x-supnet-pin = SUPNET_PIN (server-side PIN-sjekk). Ellers 401.
-// Miljøvariabler: SUPABASE_DB_URL (pooler, port 6543), SUPNET_PIN, GITHUB_TOKEN, GITHUB_REPO.
+// Jita – Vercel-funksjon for alle /api/* (spec del 4, blokk 1.2 og 1.3). Eget Vercel-prosjekt med rot = jita/.
+// Alle kall krever header x-jita-pin = JITA_PIN (server-side PIN-sjekk). Ellers 401.
+// Miljøvariabler: SUPABASE_DB_URL (pooler, port 6543), JITA_PIN, GITHUB_TOKEN, GITHUB_REPO.
 
 import postgres from "postgres";
 
@@ -34,9 +34,9 @@ async function readBody(req) {
 }
 
 export default async function handler(req, res) {
-  const pin = process.env.SUPNET_PIN;
-  if (!pin) return json(res, 500, { error: "SUPNET_PIN mangler i Vercel" });
-  if ((req.headers["x-supnet-pin"] || "") !== pin) return json(res, 401, { error: "Ikke innlogget" });
+  const pin = process.env.JITA_PIN;
+  if (!pin) return json(res, 500, { error: "JITA_PIN mangler i Vercel" });
+  if ((req.headers["x-jita-pin"] || "") !== pin) return json(res, 401, { error: "Ikke innlogget" });
 
   const action = req.query.action;
   try {

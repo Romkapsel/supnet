@@ -1,7 +1,7 @@
 # Jita – drift
 
 Station-trading-verktøy for EVE Online (Jita 4-4). Spesifikasjon: `jita-spec.md`.
-Nettside: https://supnet-oltedal.vercel.app/jita/ (bak Supnets PIN).
+Nettside: eget Vercel-prosjekt med rot `jita/` (egen PIN i `login.html`).
 
 ## Hva som kjører hvor
 
@@ -9,7 +9,7 @@ Nettside: https://supnet-oltedal.vercel.app/jita/ (bak Supnets PIN).
 |---|---|---|
 | Robot | GitHub Actions (`.github/workflows/jita.yml`) | `hourly` (:23 hver time), `watchlist` (:05/:25/:45), `history` (04:30 UTC), `seed` (manuelt) |
 | Database | Supabase «Supnet», skjema `jita` | `sql/001_schema.sql` (tabeller, rydding), `sql/002_judge.sql` (dommeren) |
-| Nettside + API | Vercel | `jita/*.html`, `api/jita/[action].js` (server-side PIN-sjekk) |
+| Nettside + API | Vercel | `jita/*.html`, `jita/api/[action].js` (server-side PIN-sjekk) |
 | Keepalive | `.github/workflows/keepalive.yml` | commit den 1. hver måned så cron ikke slås av |
 
 ## Hemmeligheter
@@ -18,9 +18,9 @@ Nettside: https://supnet-oltedal.vercel.app/jita/ (bak Supnets PIN).
 - `SUPABASE_DB_URL` – `postgresql://postgres.<ref>:<passord>@aws-1-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require` (session-pooler, port 5432)
 - `DISCORD_WEBHOOK` – valgfri; uten den logges varsler bare i jobb-loggen
 
-**Vercel → prosjekt → Settings → Environment Variables:**
+**Vercel → prosjektet «jita» → Settings → Environment Variables:**
 - `SUPABASE_DB_URL` – samme som over, men port **6543** (transaction-pooler)
-- `SUPNET_PIN` – PIN-en sidene sender (samme som i `index.html`)
+- `JITA_PIN` – PIN-en login.html sjekker mot
 - `GITHUB_REPO` – `Romkapsel/supnet`
 - `GITHUB_TOKEN` – fine-grained token med *Contents: Read and write* på repoet (for «Scan nå»)
 

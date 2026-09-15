@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Jita – logg inn</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+  <style>
+    :root { --bg:#0f1117; --card:#1a1d27; --card2:#22263a; --accent:#f0c040; --text:#e8e8f0; --muted:#666880; --red:#e85d5d; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text); font-family:'Nunito',system-ui,sans-serif; padding:16px; }
+    .box { background:var(--card); border-radius:20px; padding:28px 24px; width:100%; max-width:340px; text-align:center; }
+    h1 { margin:0 0 4px; font-size:1.8rem; } .sub { color:var(--muted); font-size:0.9rem; margin-bottom:22px; }
+    .dots { display:flex; justify-content:center; gap:14px; margin:10px 0 18px; }
+    .dot { width:16px; height:16px; border-radius:50%; border:2px solid var(--muted); }
+    .dot.on { background:var(--accent); border-color:var(--accent); } .dot.err { border-color:var(--red); background:var(--red); }
+    .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .pad button { font:inherit; font-size:1.3rem; font-weight:800; padding:14px 0; border:0; border-radius:14px; background:var(--card2); color:var(--text); cursor:pointer; }
+    .pad button:active { background:var(--accent); color:#1a1d27; }
+    .hint { color:var(--muted); font-size:0.85rem; min-height:1.2em; margin-top:12px; }
+    input { position:absolute; opacity:0; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Jita</h1>
+    <div class="sub">EVE Online · station trading</div>
+    <div class="dots"><div class="dot" id="d0"></div><div class="dot" id="d1"></div><div class="dot" id="d2"></div><div class="dot" id="d3"></div></div>
+    <div class="pad">
+      <button onclick="add('1')">1</button><button onclick="add('2')">2</button><button onclick="add('3')">3</button>
+      <button onclick="add('4')">4</button><button onclick="add('5')">5</button><button onclick="add('6')">6</button>
+      <button onclick="add('7')">7</button><button onclick="add('8')">8</button><button onclick="add('9')">9</button>
+      <button onclick="del()">⌫</button><button onclick="add('0')">0</button><button onclick="submit()">OK</button>
+    </div>
+    <div class="hint" id="hint">Tast PIN</div>
+    <input id="inp" type="tel" inputmode="numeric" autocomplete="off"/>
+  </div>
+<script>
+  let v = '';
+  const draw = (cls) => { for (let i = 0; i < 4; i++) { const d = document.getElementById('d' + i); d.className = 'dot' + (i < v.length ? ' ' + (cls || 'on') : ''); } };
+  window.add = (c) => { if (v.length >= 4) return; v += c; draw(); if (v.length === 4) setTimeout(submit, 150); };
+  window.del = () => { v = v.slice(0, -1); draw(); };
+  window.submit = async () => {
+    if (v.length < 4) return;
+    document.getElementById('hint').textContent = 'Sjekker…';
+    const r = await fetch('/api/summary', { headers: { 'x-jita-pin': v } }).catch(() => null);
+    if (r && r.ok) {
+      localStorage.setItem('jita_pin', v);
+      document.getElementById('hint').textContent = '✓';
+      location.replace('index.html');
+    } else {
+      draw('err');
+      document.getElementById('hint').textContent = r && r.status === 401 ? 'Feil PIN – prøv igjen' : 'Ingen kontakt med serveren';
+      setTimeout(() => { v = ''; draw(); document.getElementById('hint').textContent = 'Tast PIN'; }, 900);
+    }
+  };
+  document.addEventListener('keydown', (e) => {
+    if (/^[0-9]$/.test(e.key)) add(e.key);
+    else if (e.key === 'Backspace') del();
+    else if (e.key === 'Enter') submit();
+  });
+  if (localStorage.getItem('jita_pin')) location.replace('index.html');
+</script>
+</body>
+</html>
