@@ -4,12 +4,11 @@
 
 import postgres from "postgres";
 
-let sql;
+// Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
-  if (!sql) {
-    sql = postgres(process.env.SUPABASE_DB_URL, { ssl: "require", prepare: false, max: 1, idle_timeout: 20 });
-  }
-  return sql;
+  return postgres(process.env.SUPABASE_DB_URL, {
+    ssl: "require", prepare: false, max: 1, connect_timeout: 10, idle_timeout: 5,
+  });
 }
 
 const RULES = {
@@ -39,8 +38,8 @@ export default async function handler(req, res) {
   if ((req.headers["x-jita-pin"] || "") !== pin) return json(res, 401, { error: "Ikke innlogget" });
 
   const action = req.query.action;
+  const q = db();
   try {
-    const q = db();
     switch (action) {
       case "summary": return json(res, 200, await summary(q));
       case "type": return json(res, 200, await typeDetail(q, Number(req.query.id)));
@@ -59,6 +58,8 @@ export default async function handler(req, res) {
   } catch (e) {
     console.error(e);
     return json(res, 500, { error: String(e.message || e) });
+  } finally {
+    await q.end({ timeout: 2 }).catch(() => {});
   }
 }
 
