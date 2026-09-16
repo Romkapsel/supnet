@@ -115,7 +115,50 @@ async function summary(q) {
     from jita.decisions d join jita.types t using (type_id)
     left join jita.candidates c on c.type_id = d.type_id and c.run_at = (select max(run_at) from jita.candidates)
     where d.closed_at is null order by d.created_at desc`;
-  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const passedAll = await q`
+    select c.type_id, t.name, t.market_group_path, c.score, c.buy_price, c.sell_price, c.net_per_unit, c.s2b_per_day, c.bfs_per_day, c.days_to_fill_buy
+    from jita.candidates c join jita.types t using (type_id)
+    where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last`;
+  const portfolio = buildPortfolio(profile, passedAll, open);
+  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+}
+
+// ── Porteføljeforslag (spec 1b.4): sysselsett kapitalen der flyten tåler det ──
+// Grådig i score-rekkefølge. Per vare: antall = min(flyt-tak = S2B/dag × fyllingstid, maks andel av kapitalen,
+// det som er igjen). Maks 2 varer per varegruppe (nivå 2). Varer du allerede holder telles som brukt kapital.
+function buildPortfolio(p, cands, open) {
+  const th = p.thresholds || {};
+  const capital = Number(p.capital_isk), reserve = Number(p.reserve_share ?? 0.25);
+  const share = Number(th.max_position_share ?? 0.35), days = Number(p.target_fill_days ?? 4);
+  const investable = capital * (1 - reserve);
+  const bound = (open || []).reduce((a, o) => a + Number(o.price) * Number(o.filled_qty ?? o.qty), 0);
+  const heldQty = {};
+  for (const o of open || []) heldQty[o.type_id] = (heldQty[o.type_id] || 0) + Number(o.filled_qty ?? o.qty);
+  let left = Math.max(0, investable - bound);
+  const groups = {}, picks = [];
+  for (const c of cands) {
+    const g = (c.market_group_path || "").split(" > ").slice(0, 2).join(" > ");
+    const have = heldQty[c.type_id] || 0;
+    if (!have && (groups[g] || 0) >= 2) continue;
+    const buy = Number(c.buy_price);
+    const byFlow = Math.floor(Number(c.s2b_per_day || 0) * days);
+    const byShare = Math.floor(capital * share / buy);
+    const byLeft = Math.floor(left / buy);
+    const potential = Math.min(byFlow, byShare);            // det varen tåler totalt
+    const qty = Math.min(potential - have, byLeft);          // det du kan legge til nå
+    if (qty < 1) continue;
+    const limit = potential - have === byFlow - have ? "flyt" : qty === byLeft ? "kapital" : "andel";
+    picks.push({ type_id: c.type_id, name: c.name, qty, have, buy_price: buy, sell_price: Number(c.sell_price),
+      net_per_unit: Number(c.net_per_unit), expected_profit: qty * Number(c.net_per_unit),
+      cost: qty * buy, limit, days_to_fill_buy: (have + qty) / Math.max(Number(c.s2b_per_day || 0), 0.1),
+      profit_per_day: qty * Number(c.net_per_unit) / (1 + Math.max(Number(c.days_to_fill_buy || 0), 0.1)) });
+    if (!have) groups[g] = (groups[g] || 0) + 1;
+    left -= qty * buy;
+    if (picks.filter((x) => !x.have).length + Object.keys(heldQty).length >= Number(p.positions || 7)) break;
+  }
+  return { investable, bound, used: picks.reduce((a, x) => a + x.cost, 0), left, picks,
+    total_profit: picks.reduce((a, x) => a + x.expected_profit, 0),
+    total_per_day: picks.reduce((a, x) => a + x.profit_per_day, 0) };
 }
 
 // ── Vare ─────────────────────────────────────────────────────────────────────

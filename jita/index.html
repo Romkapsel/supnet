@@ -80,6 +80,18 @@ async function load() {
         <span class="muted">Kapital bundet: <b>${isk(d.open.reduce((a, o) => a + Number(o.price) * Number(o.filled_qty ?? o.qty), 0))} ISK</b> av ${isk(p.capital_isk)}</span>
         <a href="decisions.html">Marker fylt / solgt →</a></div>
     </div>` : ''}
+    ${d.portfolio ? `<h2>Forslag til porteføljen <span class="muted small">(utover det du holder)</span></h2>
+    <div class="card">
+      ${d.portfolio.picks.length ? d.portfolio.picks.map((x) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
+        <span><a href="type.html?id=${x.type_id}">${esc(x.name)}</a> · ${x.have ? `har ${x.have}, <b>legg til ${x.qty}</b>` : `<b>${x.qty} stk</b>`} à ${price(x.buy_price)} <span class="muted">(${isk(x.cost)}, begrenset av ${x.limit})</span></span>
+        <span><b class="accent">+${isk(x.expected_profit)}</b> <span class="muted">· fylling ~${days(x.days_to_fill_buy)}</span>
+          <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="took(${x.type_id}, ${x.buy_price}, ${x.qty}, ${x.days_to_fill_buy}, ${x.net_per_unit}, this)">Tok denne</button></span></div>`).join('')
+        : '<div class="muted small">Ingen flere kandidater som tåler mer kapital akkurat nå.</div>'}
+      <div class="row small" style="margin-top:8px">
+        <span class="muted">Investerbart ${isk(d.portfolio.investable)} · bundet ${isk(d.portfolio.bound)} · forslag ${isk(d.portfolio.used)} · <b>står igjen ${isk(d.portfolio.left)}</b></span>
+        <span class="muted">sum +${isk(d.portfolio.total_profit)} (~${isk(d.portfolio.total_per_day)}/dag)</span></div>
+      ${d.portfolio.left > d.portfolio.investable * 0.3 ? `<div class="muted small" style="margin-top:6px">⚠ ${isk(d.portfolio.left)} kan ikke sysselsettes trygt nå: kandidatene er begrenset av innflyt (det dumpes ikke nok per dag) eller av 35 %-taket per vare. Det er bedre å vente på nye kandidater enn å tvinge kapital inn i døde køer.</div>` : ''}
+    </div>` : ''}
     <h2>Topp 10</h2>${top}
     <h2>Nesten</h2>${nearly}
     <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;

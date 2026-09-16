@@ -196,10 +196,10 @@ begin
   end if;
   insert into jita.candidates (run_at, type_id, passed, failed_rules, buy_price, sell_price, qty,
     net_per_unit, margin, expected_profit, days_to_fill_buy, days_to_fill_sell,
-    hist_pos, flow_ratio, score, reason)
+    hist_pos, flow_ratio, score, s2b_per_day, bfs_per_day, reason)
   select ts, r.type_id, r.passed, r.failed_rules, r.buy_price, r.sell_price, r.qty,
          r.net_per_unit, r.margin, r.expected_profit, r.days_to_fill_buy, r.days_to_fill_sell,
-         r.hist_pos, r.flow_ratio, r.score, r.reason
+         r.hist_pos, r.flow_ratio, r.score, r.s2b_per_day, r.bfs_per_day, r.reason
   from (
     select *, row_number() over (partition by passed order by cardinality(failed_rules), score desc nulls last) as rn
     from jita.judge_rows(p)

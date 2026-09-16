@@ -110,7 +110,8 @@ create table if not exists jita.profile (
     "max_ask_drop_7d": 0.15,
     "max_bid_rise_7d": 0.25,
     "prefilter_spread": 0.05,
-    "prefilter_min_orders": 3
+    "prefilter_min_orders": 3,
+    "max_position_share": 0.35
   }'::jsonb,
   last_manual_scan timestamptz,
   updated_at timestamptz default now()
@@ -127,6 +128,7 @@ create table if not exists jita.candidates (
   net_per_unit numeric, margin numeric, expected_profit numeric,
   days_to_fill_buy numeric, days_to_fill_sell numeric,
   hist_pos numeric, flow_ratio numeric, score numeric,
+  s2b_per_day numeric, bfs_per_day numeric,
   reason text,
   primary key (run_at, type_id)
 );
