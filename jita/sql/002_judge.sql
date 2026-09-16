@@ -83,7 +83,8 @@ language sql stable as $$
     select hd.type_id,
            avg(hd.average) filter (where hd.date >= current_date - 1)::float8  a1,
            avg(hd.average) filter (where hd.date >= current_date - 5)::float8  a5,
-           avg(hd.average) filter (where hd.date >= current_date - 20)::float8 a20
+           avg(hd.average) filter (where hd.date >= current_date - 20)::float8 a20,
+           avg(hd.order_count) filter (where hd.date >= current_date - 5)::float8 oc5   -- ekte handler/dag (hele The Forge)
     from jita.history_daily hd group by hd.type_id
   ),
   d7 as (
@@ -101,7 +102,7 @@ language sql stable as $$
            coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0)::float8 s2b,
            coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0)::float8 bfs,
            coalesce(f.bfs_trades, 0) bfs_trades,
-           h.a1, h.a5, h.a20, d.ask7, d.bid7,
+           h.a1, h.a5, h.a20, h.oc5, d.ask7, d.bid7,
            w.status as wl_status
     from book b
     join jita.types t on t.type_id = b.type_id
@@ -147,7 +148,8 @@ language sql stable as $$
              case when bid_orders_1pct > coalesce((th.t->>'max_bid_orders_1pct')::int, 3) then '3' end,
              case when ask_qty_1pct > coalesce((th.t->>'max_ask_qty_1pct')::int, 300) then '4' end,
              case when s2b * coalesce((p->>'target_fill_days')::float8, 4) < greatest(1, coalesce((p->>'min_qty')::int, 20)) then '5' end,
-             case when bfs_trades < coalesce((th.t->>'min_bfs_trades')::int, 10) then '5t' end,
+             case when bfs_trades < coalesce((th.t->>'min_bfs_trades')::int, 10)
+                   and coalesce(oc5, 0) < 3 * coalesce((th.t->>'min_bfs_trades')::int, 10) then '5t' end,   -- timesdiffen undervurderer; ESI-historikk (regionen) som kryssjekk
              case when ask7 > 0 and (ask7 - ask) / ask7 > coalesce((th.t->>'max_ask_drop_7d')::float8, 0.15) then '7' end,
              case when bid7 > 0 and (bid - bid7) / bid7 > coalesce((th.t->>'max_bid_rise_7d')::float8, 0.25) then '7b' end,
              case when buy > max_buy_price then '8' end,
