@@ -42,12 +42,6 @@ async function load() {
     </div>`).join('')
     : `<div class="card muted">Ingen nye varer passerer alle reglene akkurat nå${(d.open || []).length ? ' – de du holder ligger i beholdningen over' : ''}. Nye kandidater dukker opp etter hvert som flyt-dataene bygger seg opp; sjekk «Nesten» for det som er nærmest.</div>`;
 
-  const nearly = d.nearly.map((c) => `
-    <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
-      <div class="row"><h3>${esc(c.name)}</h3><span class="muted small">${isk(c.net_per_unit)}/stk · ${pct(c.margin)}</span></div>
-      <div>${c.failed_text.map((t) => `<span class="pill bad">${esc(t)}</span>`).join('')}</div>
-    </div>`).join('') || '<div class="card muted">–</div>';
-
   const robot = d.robot.map((r) => `
     <div class="row small">
       <span><span class="pill ${r.ok ? 'ok' : 'bad'}">${esc(r.job)}</span> ${ago(r.run_at)}</span>
@@ -124,20 +118,7 @@ async function load() {
           <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
       </div>`; }).join('')}
     <div class="card small"><span class="muted">Bundet: <b>${isk(p.bound_isk)} ISK</b> · cash ${isk(p.cash_isk ?? 0)} (<a href="settings.html">oppdater</a>) · reserve ${pct(p.reserve_share, 0)} = ${isk(Number(p.capital_isk) * Number(p.reserve_share))} · <b>kan investeres nå: ${isk(d.portfolio?.left)}</b></span></div>` : ''}
-    ${d.portfolio ? `<h2>Forslag til porteføljen <span class="muted small">(nye varer)</span></h2>
-    <div class="card">
-      ${d.portfolio.picks.filter((x) => !x.have).length ? d.portfolio.picks.filter((x) => !x.have).map((x) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
-        <span><a href="type.html?id=${x.type_id}">${esc(x.name)}</a> · ${x.have ? `har ${x.have}, <b>legg til ${x.qty}</b>` : `<b>${x.qty} stk</b>`} à ${price(x.buy_price)} <span class="muted">(${isk(x.cost)}, begrenset av ${x.limit})</span></span>
-        <span><b class="accent">+${isk(x.expected_profit)}</b> <span class="muted">· fylling ~${days(x.days_to_fill_buy)}</span>
-          <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="took(${x.type_id}, ${x.buy_price}, ${x.qty}, ${x.days_to_fill_buy}, ${x.net_per_unit}, this)">Tok denne</button></span></div>`).join('')
-        : '<div class="muted small">Ingen nye kandidater som tåler kapital akkurat nå – se «legg til» i beholdningen.</div>'}
-      <div class="row small" style="margin-top:8px">
-        <span class="muted">Investerbart ${isk(d.portfolio.investable)} · bundet ${isk(d.portfolio.bound)} · forslag ${isk(d.portfolio.used)} · <b>står igjen ${isk(d.portfolio.left)}</b></span>
-        <span class="muted">sum +${isk(d.portfolio.total_profit)} (~${isk(d.portfolio.total_per_day)}/dag)</span></div>
-      ${d.portfolio.left > d.portfolio.investable * 0.3 ? `<div class="muted small" style="margin-top:6px">⚠ ${isk(d.portfolio.left)} kan ikke sysselsettes trygt nå: kandidatene er begrenset av innflyt (det dumpes ikke nok per dag) eller av 35 %-taket per vare. Det er bedre å vente på nye kandidater enn å tvinge kapital inn i døde køer.</div>` : ''}
-    </div>` : ''}
     <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
-    <h2>Nesten</h2>${nearly}
     <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;
 
   let timer;
