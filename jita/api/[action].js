@@ -3,6 +3,7 @@
 // Miljøvariabler: SUPABASE_DB_URL (pooler, port 6543), JITA_PIN, GITHUB_TOKEN, GITHUB_REPO.
 
 import postgres from "postgres";
+import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -60,13 +61,36 @@ async function checkPin(q, given) {
   return { status: 401, error: `Feil PIN (${5 - failures} forsøk igjen)` };
 }
 
+async function discord(text) {
+  const hook = process.env.DISCORD_WEBHOOK;
+  if (!hook) return;
+  await fetch(hook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text.slice(0, 1900) }) }).catch(() => {});
+}
+
 export default async function handler(req, res) {
   const action = req.query.action;
   const q = db();
   try {
+    // SSO-callback kommer fra nettleseren via login.eveonline.com – ingen PIN-header, men signert state
+    if (action === "sso" && req.query.code) {
+      if (!checkState(req.query.state)) return json(res, 400, { error: "ugyldig state" });
+      try {
+        const c = await completeLogin(q, req.query.code);
+        res.statusCode = 302; res.setHeader("Location", `/settings.html?sso=ok&name=${encodeURIComponent(c.name)}`); return res.end();
+      } catch (e) {
+        res.statusCode = 302; res.setHeader("Location", `/settings.html?sso=error&msg=${encodeURIComponent(e.message)}`); return res.end();
+      }
+    }
     const auth = await checkPin(q, req.headers["x-jita-pin"]);
     if (auth.status !== 200) return json(res, auth.status, { error: auth.error });
     switch (action) {
+      case "sso": return json(res, 200, { url: authorizeUrl() });
+      case "sso_status": return json(res, 200, { eve: await ssoStatus(q) });
+      case "character": {
+        const r = await syncCharacter(q, discord);
+        if (r.ok) { const n = (await q`select jita.judge() as n`)[0].n; r.passed = n; }
+        return json(res, 200, r);
+      }
       case "summary": return json(res, 200, await summary(q));
       case "type": return json(res, 200, await typeDetail(q, Number(req.query.id)));
       case "profile":
@@ -135,7 +159,8 @@ async function summary(q) {
     from jita.candidates c join jita.types t using (type_id)
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last`;
   const portfolio = buildPortfolio(profile, passedAll, open);
-  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const eve = await ssoStatus(q);
+  return { profile, eve, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
 }
 
 // ── Porteføljeforslag (spec 1b.4): sysselsett kapitalen der flyten tåler det ──
@@ -211,7 +236,7 @@ function cleanProfile(body) {
 
 async function getProfile(q) {
   const profile = await effectiveProfile(q);
-  return { profile };
+  return { profile, eve: await ssoStatus(q) };
 }
 
 async function saveProfile(q, body) {

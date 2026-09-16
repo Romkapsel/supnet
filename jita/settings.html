@@ -11,11 +11,11 @@
   <div id="app"><p class="muted">Laster…</p></div>
 
 <script type="module">
-import { api, isk, price, pct, num, days, el, esc, nav, injectCss } from './app.js';
+import { api, isk, price, pct, num, days, ago, el, esc, nav, injectCss } from './app.js';
 injectCss();
 
 const FIELDS = [
-  ['cash_isk', 'ISK i wallet nå (cash) – kapital i arbeid = cash + bundet i beholdningen', 'number'],
+  ['cash_isk', 'ISK i wallet (cash) – hentes automatisk fra EVE hvis innlogget', 'number'],
   ['positions', 'Antall posisjoner', 'number'],
   ['target_fill_days', 'Ønsket fyllingstid (dager)', 'number'],
   ['reserve_share', 'Reserveandel (0,25 = 25 %)', 'number'],
@@ -98,8 +98,21 @@ async function load() {
   const brSave = 0.003 * (5 - Number(profile.broker_relations || 0));
   const accSave = 0.075 * 0.11 * (5 - Number(profile.accounting || 0)) / 2;
 
+  const eve = d.eve;
+  const qs = new URLSearchParams(location.search);
+  const ssoMsg = qs.get('sso') === 'ok' ? `<span class="green">✓ Logget inn som ${esc(qs.get('name') || '')}</span>`
+    : qs.get('sso') === 'error' ? `<span class="red">Innlogging feilet: ${esc(qs.get('msg') || '')}</span>` : '';
   el('app').innerHTML = `
     <h1>Profil</h1>${nav('settings.html')}
+    <div class="card">
+      <h3>EVE-konto <span class="muted small">(leser wallet, ordrer, hangar, transaksjoner, skills – handler aldri)</span></h3>
+      ${eve ? `<div class="small"><span class="pill ok">${esc(eve.character_name)}</span> sist synk ${eve.last_sync ? ago(eve.last_sync) : 'aldri'}${eve.last_error ? ` · <span class="red">feil: ${esc(eve.last_error)}</span>` : ''}</div>`
+            : '<div class="muted small">Ingen karakter koblet. Logg inn én gang, så henter roboten alt automatisk hver time.</div>'}
+      <div class="row" style="margin-top:10px">
+        <button id="sso" class="${eve ? 'ghost' : ''}">${eve ? 'Logg inn på nytt' : 'Logg inn med EVE'}</button>
+        ${eve ? '<button id="sync" class="ghost">Oppdater fra EVE nå</button>' : ''}
+        <span id="ssomsg" class="small">${ssoMsg}</span></div>
+    </div>
     <div class="card"><form id="form" onsubmit="return false">${form(profile)}</form>
       <div class="row" style="margin-top:14px"><button id="save">Lagre og døm på nytt</button><button class="ghost" id="preview">Hva om? (ikke lagre)</button><span id="msg" class="muted small"></span></div></div>
     <div class="card" id="calc">${calcBox(profile, 'Beregnet fra profilen')}</div>
@@ -109,6 +122,19 @@ async function load() {
         Accounting-bok (6,5 mill) tjener seg inn på ~<b>${roi(accSave, 6.5e6) ?? '–'}</b> dager, Broker Relations V (fra nivå ${profile.broker_relations}) på ~<b>${roi(brSave, 1e6) ?? '–'}</b> dager (regnet med 1 mill for boka).</div>`
         : '<span class="muted">Trykk «Jeg tok denne» på noen varer først, så regnes det ut her.</span>'}</div>`;
 
+  el('sso').onclick = async () => {
+    el('ssomsg').textContent = 'åpner EVE-innlogging…';
+    try { const r = await api('sso'); location.href = r.url; } catch (e) { el('ssomsg').textContent = e.message; }
+  };
+  if (el('sync')) el('sync').onclick = async () => {
+    el('sync').disabled = true; el('ssomsg').textContent = 'henter fra EVE…';
+    try {
+      const r = await api('character', { method: 'POST' });
+      el('ssomsg').innerHTML = r.ok ? `<span class="green">✓ wallet ${isk(r.wallet)} · ${r.orders} ordrer · ${r.assets} stakker i hangar · ${r.transactions} transaksjoner${r.alerts?.length ? ` · ${r.alerts.length} varsler` : ''}</span>` : esc(r.message);
+      if (r.ok) setTimeout(load, 1200);
+    } catch (e) { el('ssomsg').textContent = 'Feil: ' + e.message; }
+    el('sync').disabled = false;
+  };
   el('save').onclick = async () => {
     el('msg').textContent = 'lagrer…';
     try {

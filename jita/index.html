@@ -64,7 +64,7 @@ async function load() {
         <div class="stat"><div class="l">Broker / skatt</div><div class="v">${pct(p.broker)} / ${pct(p.tax)}</div></div>
         <div class="stat"><div class="l">Break-even spread</div><div class="v">${pct(p.break_even)}</div></div>
         <div class="stat"><div class="l">Maks kjøpspris</div><div class="v">${isk(p.max_buy_price)}</div></div>
-        <div class="stat"><div class="l">Data fra</div><div class="v">${ago(d.snapshot_at)}</div></div>
+        <div class="stat"><div class="l">Data fra</div><div class="v">${ago(d.snapshot_at)}</div>${d.eve ? `<div class="muted" style="font-size:0.7rem">EVE-synk ${d.eve.last_sync ? ago(d.eve.last_sync) : 'aldri'}${d.eve.last_error ? ' ⚠' : ''}</div>` : `<div class="muted" style="font-size:0.7rem"><a href="settings.html">koble EVE-konto</a></div>`}</div>
         <div class="stat"><div class="l">Passerer / vurdert</div><div class="v">${d.counts?.passed ?? 0} / ${d.counts?.evaluated ?? 0}</div></div>
       </div>
       <div class="row" style="margin-top:10px"><input id="search" placeholder="Søk vare… (f.eks. Damage Control)" autocomplete="off"/></div>
