@@ -71,6 +71,15 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
+    ${(d.alerts || []).length ? `<h2>Varsler <span class="muted small">(siste 48 t)</span></h2><div class="card">${d.alerts.map((a) =>
+      `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40"><span>${a.kind === 'unlisted' ? '📦' : a.kind === 'expiry' ? '⏳' : '✅'} ${a.type_id ? `<a href="type.html?id=${a.type_id}">${esc(a.text)}</a>` : esc(a.text)}</span><span class="muted">${ago(a.created_at)}</span></div>`).join('')}</div>` : ''}
+    ${(d.hangar || []).length ? `<h2>Hangar i Jita 4-4 <span class="muted small">(fra EVE)</span></h2><div class="card">${d.hangar.map((h) => {
+      const tick = (p) => Math.pow(10, Math.floor(Math.log10(p)) - 3);
+      const sell = h.best_ask ? Number(h.best_ask) - tick(Number(h.best_ask)) : null;
+      const net = sell ? sell * (1 - Number(p.broker) - Number(p.tax)) : null;
+      return `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
+        <span><a href="type.html?id=${h.type_id}">${esc(h.name)}</a> · <b>${h.qty} stk</b> ${h.listed ? '<span class="pill ok">salgsordre ute</span>' : '<span class="pill warn">ikke lagt ut</span>'}</span>
+        <span class="muted">${sell ? `legg ut à <b class="accent">${price(sell)}</b> (netto ${isk(net)}/stk, ${isk(net * h.qty)} totalt)` : 'ingen pris nå'}</span></div>`; }).join('')}</div>` : ''}
     ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${new Set(d.open.map((o) => o.type_id)).size} posisjoner)</span></h2>
     ${Object.values(d.open.reduce((acc, o) => {   // slå sammen ordrer på samme vare til én posisjon
         const g = acc[o.type_id] ||= { ...o, orders: [], qty: 0, cost: 0 };

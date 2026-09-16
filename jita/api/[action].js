@@ -160,7 +160,19 @@ async function summary(q) {
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last`;
   const portfolio = buildPortfolio(profile, passedAll, open);
   const eve = await ssoStatus(q);
-  return { profile, eve, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const alerts = await q`select a.kind, a.type_id, t.name, a.payload->>'text' as text, a.created_at
+                         from jita.alerts a left join jita.types t using (type_id)
+                         where a.created_at > now() - interval '48 hours' and a.kind in ('unlisted','expiry','overbid_cleared')
+                         order by a.created_at desc limit 20`;
+  const hangar = await q`
+    select a.type_id, t.name, sum(a.quantity)::int as qty, h.best_ask, h.best_bid,
+           exists (select 1 from jita.my_orders o where o.type_id = a.type_id and o.state = 'open' and not o.is_buy) as listed
+    from jita.my_assets a join jita.types t using (type_id)
+    left join jita.type_hourly h on h.type_id = a.type_id and h.snapshot_at = (select max(snapshot_at) from jita.type_hourly)
+    where a.location_id = 60003760 and not t.is_excluded and not (t.is_ship and a.quantity = 1) and t.category_id <> 16
+      and (a.quantity >= 2 or exists (select 1 from jita.my_transactions x where x.type_id = a.type_id and x.is_buy and x.date > now() - interval '60 days'))
+    group by a.type_id, t.name, h.best_ask, h.best_bid order by qty desc`;
+  return { profile, eve, alerts, hangar, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
 }
 
 // ── Porteføljeforslag (spec 1b.4): sysselsett kapitalen der flyten tåler det ──
