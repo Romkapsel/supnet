@@ -72,6 +72,13 @@ async function load() {
         <button class="ghost" onclick="wl('ignore')">${t.wl_status === 'ignore' ? 'Fjern ignorer' : 'Ignorer'}</button>
       </div></div>` : '<div class="card muted">Ikke dømt ennå (ikke i forfilter-settet siste kjøring).</div>'}
 
+    ${(d.my_orders.length || d.my_tx.length || d.stock) ? `<h2>Deg på denne varen <span class="muted small">(fra EVE)</span></h2>
+    <div class="card">
+      ${d.stock ? `<div class="small" style="margin-bottom:6px">I hangaren: <b>${d.stock} stk</b></div>` : ''}
+      ${d.my_orders.filter((o) => o.state === 'open').map((o) => `<div class="row small" style="padding:3px 0"><span><span class="pill ${o.is_buy ? 'ok' : 'warn'}">${o.is_buy ? 'kjøp' : 'salg'}</span> ${o.volume_remain}/${o.volume_total} à ${price(o.price)}</span>
+        <span class="muted">utløper ${dt(new Date(new Date(o.issued).getTime() + o.duration * 864e5))}</span></div>`).join('') || '<div class="muted small">Ingen åpne ordrer.</div>'}
+      ${d.my_tx.length ? `<div class="muted small" style="margin-top:8px">Siste handler:</div>${d.my_tx.slice(0, 10).map((x) => `<div class="row small" style="padding:2px 0"><span>${x.is_buy ? '↓ kjøpt' : '↑ solgt'} ${x.quantity} à ${price(x.unit_price)}</span><span class="muted">${dt(x.date)}</span></div>`).join('')}` : ''}
+    </div>` : ''}
     <h2>Flyt siste 24 t <span class="muted small">(${res}-min-oppløsning)</span></h2>
     <div class="card"><div class="stats">
       <div class="stat"><div class="l">Dumpet (S2B)</div><div class="v">${num(s2b)} /dag</div></div>
