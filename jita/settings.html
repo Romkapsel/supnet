@@ -58,6 +58,7 @@ function form(p) {
     <div class="row" style="margin-top:10px">
       <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_t2" ${p.allow_t2 ? 'checked' : ''} style="width:auto"/> Tillat T2</label>
       <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_faction" ${p.allow_faction ? 'checked' : ''} style="width:auto"/> Tillat faction/deadspace</label>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_npc_seeded" ${p.allow_npc_seeded ? 'checked' : ''} style="width:auto"/> Tillat NPC-seedede varer</label>
     </div>
     <h3 style="margin-top:14px">Terskler</h3>
     <div class="grid2">${THRESH.map(([k, l]) => `<div><label>${l}</label><input name="th.${k}" type="number" step="any" value="${th[k] ?? ''}"/></div>`).join('')}</div>`;

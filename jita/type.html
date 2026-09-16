@@ -29,6 +29,11 @@ async function load() {
   const t = d.type, c = d.candidate, p = d.profile;
   wlStatus = t.wl_status;
   const kind = t.is_t1 ? 'T1' : t.is_t2 ? 'T2' : t.is_meta ? 'Meta' : t.is_faction ? 'Faction' : t.is_excluded ? 'Ekskludert' : '?';
+  const m = d.memory;
+  const memBox = m && m.rounds ? `<div class="card"><h3>Rulleblad <span class="muted small">(dine egne handler)</span></h3>
+    <div class="row small"><span><span class="pill ${m.verdict === 'god' ? 'ok' : m.verdict === 'ok' ? '' : 'bad'}">${esc(m.verdict || 'ok')}</span>
+      ${m.rounds} runder · ${m.sold_qty} solgt · realisert margin <b>${pct(m.realized_margin)}</b> · snitt ${num(m.avg_hold_days, 1)} d fra kjøp til salg</span>
+      <span class="muted">overbudt ${m.overbid_count}× · underbudt ${m.undercut_count}×${m.fill_ratio ? ` · fylling faktisk/spådd ${num(m.fill_ratio, 2)}×` : ''} · score × ${num(m.factor, 2)}</span></div></div>` : '';
 
   // flyt siste 24 t (foretrekk 20-min-oppløsning) og per klokkeslett (14 d)
   const cut = Date.now() - 25 * 3600e3;
@@ -50,6 +55,8 @@ async function load() {
     <div class="muted small">${esc(t.market_group_path || t.group_name || '')} · <span class="pill">${kind}</span>
       ${t.wl_status ? `<span class="pill ${t.wl_status === 'follow' ? 'ok' : 'bad'}">${t.wl_status === 'follow' ? 'Følges (20 min)' : 'Ignorert'}</span>` : ''}</div>
     ${nav('')}
+    ${t.npc_seeded ? `<div class="banner">NPC-seedet vare: spillet selger den selv à ${price(t.npc_seed_price)} i regionen – uendelig tilbud og prislokk. Ikke egnet for station trading.</div>` : ''}
+    ${memBox}
     ${c ? `<div class="card">
       <div class="row"><h3>${c.passed ? '<span class="pill ok">Passerer</span>' : '<span class="pill bad">Passerer ikke</span>'} <span class="muted small">dømt ${ago(c.run_at)}</span></h3>
         <span class="big accent">+${isk(c.expected_profit)} ISK</span></div>

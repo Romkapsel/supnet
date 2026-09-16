@@ -98,7 +98,9 @@ language sql stable as $$
     select b.type_id, t.name, t.market_group_path,
            b.best_bid::float8 bid, b.best_ask::float8 ask,
            b.bid_top_qty, b.bid_orders_1pct, b.bid_qty_1pct, b.ask_qty_1pct,
-           t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1,
+           t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1, t.npc_seeded,
+           mem.verdict as mem_verdict, coalesce(mem.factor, 1)::float8 as mem_factor, mem.rounds as mem_rounds,
+           mem.avg_hold_days::float8 as mem_hold, mem.realized_margin::float8 as mem_margin,
            coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0)::float8 s2b,
            coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0)::float8 bfs,
            coalesce(f.bfs_trades, 0) bfs_trades,
@@ -110,6 +112,7 @@ language sql stable as $$
     left join hist h on h.type_id = b.type_id
     left join d7 d on d.type_id = b.type_id
     left join jita.watchlist w on w.type_id = b.type_id
+    left join jita.type_memory mem on mem.type_id = b.type_id
     where coalesce(w.status, '') <> 'ignore'
   ),
   econ as (
@@ -153,6 +156,7 @@ language sql stable as $$
              case when ask7 > 0 and (ask7 - ask) / ask7 > coalesce((th.t->>'max_ask_drop_7d')::float8, 0.15) then '7' end,
              case when bid7 > 0 and (bid - bid7) / bid7 > coalesce((th.t->>'max_bid_rise_7d')::float8, 0.25) then '7b' end,
              case when buy > max_buy_price then '8' end,
+             case when npc_seeded and not coalesce((p->>'allow_npc_seeded')::boolean, false) then '9n' end,   -- NPC-seedet: uendelig tilbud, prislokk
              case when is_excluded or is_meta
                     or (is_t2 and not coalesce((p->>'allow_t2')::boolean, false))
                     or (is_faction and not coalesce((p->>'allow_faction')::boolean, false)) then '9' end
@@ -163,7 +167,8 @@ language sql stable as $$
     select e4.*,
            net * least(s2b, bfs) / (1 + dfb + dfs)
              * least(1.0, greatest(coalesce(hp, 0.7), 0) / 0.7)
-             * least(1.0, ratio) as sc
+             * least(1.0, ratio)
+             * mem_factor as sc                                   -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75
     from e4
   )
   select type_id, cardinality(failed) = 0 as passed, failed,
@@ -179,7 +184,9 @@ language sql stable as $$
                          case when ratio < 1 then 'mer dumping enn lifting' end,
                          case when dfb > coalesce((p->>'target_fill_days')::float8, 4) then 'tregt inn' end,
                          case when dfs > coalesce((p->>'target_fill_days')::float8, 4) then 'tregt ut' end) || '.'
-                  else '' end) as reason,
+                  else '' end)
+           || case when mem_rounds >= 1 then format(' Erfaring: %s (%s runder, %s %%, ~%s d).', coalesce(mem_verdict, 'ok'), mem_rounds,
+                        round((coalesce(mem_margin, 0) * 100)::numeric), round(coalesce(mem_hold, 0)::numeric, 1)) else '' end as reason,
          bid, ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct, s2b, bfs, bfs_trades, name, market_group_path
   from e5, th
 $$;
@@ -229,7 +236,7 @@ begin
   from (
     select *, row_number() over (partition by passed order by cardinality(failed_rules), score desc nulls last) as rn
     from jita.judge_rows(p)
-    where passed or not (failed_rules && array['9','1x'])   -- regel 9/1x-avslag lagres ikke (kan aldri bli «nesten»)
+    where passed or not (failed_rules && array['9','9n','1x'])   -- regel 9/9n/1x-avslag lagres ikke (kan aldri bli «nesten»)
   ) r
   where r.passed or r.rn <= 200;
   select count(*) into n from jita.candidates c where c.run_at = ts and c.passed;

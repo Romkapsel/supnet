@@ -192,6 +192,7 @@ export async function syncCharacter(q, notify) {
       }
     }
     await recordAlerts(q, out.alerts, notify);
+    await q`select jita.refresh_type_memory()`;          // rullebladet per vare (lag 1)
 
     await q`update jita.sso_tokens set last_sync = now(), last_error = null where character_id = ${cid}`;
     out.ok = true;

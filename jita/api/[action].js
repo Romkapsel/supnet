@@ -16,7 +16,7 @@ function db() {
 const RULES = {
   "1": "Margin under terskel", "1b": "Netto/enhet for lav for kapitalen", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
   "3": "For mange budgivere", "4": "Selgere klumpet", "5": "For lite innflyt", "5t": "Liftes for sjelden",
-  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)",
+  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9n": "NPC-seedet (uendelig tilbud, prislokk)",
 };
 
 function json(res, status, body) {
@@ -133,7 +133,7 @@ async function summary(q) {
     order by c.score desc nulls last limit 10` : [];
   const nearly = runAt ? await q`
     select c.*, t.name from jita.candidates c join jita.types t using (type_id)
-    where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not (c.failed_rules && array['9','1x'])
+    where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not (c.failed_rules && array['9','9n','1x'])
     order by cardinality(c.failed_rules), c.score desc nulls last limit 10` : [];
   const robot = await q`
     select distinct on (job) job, run_at, snapshot_at, pages_total, pages_ok, orders_count,
@@ -325,14 +325,15 @@ async function typeDetail(q, id) {
   const my_orders = await q`select order_id, is_buy, price, volume_remain, volume_total, issued, duration, state from jita.my_orders where type_id = ${id} order by state = 'open' desc, issued desc limit 20`;
   const my_tx = await q`select date, is_buy, unit_price, quantity from jita.my_transactions where type_id = ${id} order by date desc limit 30`;
   const [stock] = await q`select coalesce(sum(quantity), 0)::int as n from jita.my_assets where type_id = ${id} and location_flag = 'Hangar'`;
+  const [memory] = await q`select * from jita.type_memory where type_id = ${id}`;
   const profile = await effectiveProfile(q);
-  return { type, candidate, hourly, flow, history, fills, decisions: decs, my_orders, my_tx, stock: stock?.n || 0, profile, rules: RULES };
+  return { type, candidate, hourly, flow, history, fills, decisions: decs, my_orders, my_tx, stock: stock?.n || 0, memory: memory || null, profile, rules: RULES };
 }
 
 // ── Profil / hva-om ──────────────────────────────────────────────────────────
 const PROFILE_FIELDS = ["cash_isk", "capital_isk", "broker_relations", "accounting", "adv_broker_relations", "trade", "retail",
   "wholesale", "tycoon", "standing_corp", "standing_faction", "broker_fee_override", "sales_tax_override",
-  "positions", "target_fill_days", "reserve_share", "min_qty", "allow_t2", "allow_faction", "thresholds"];
+  "positions", "target_fill_days", "reserve_share", "min_qty", "allow_t2", "allow_faction", "allow_npc_seeded", "thresholds"];
 
 function cleanProfile(body) {
   const out = {};
@@ -340,7 +341,7 @@ function cleanProfile(body) {
     if (!(k in body)) continue;
     let v = body[k];
     if (k === "thresholds") { out[k] = typeof v === "string" ? JSON.parse(v) : v; continue; }
-    if (k === "allow_t2" || k === "allow_faction") { out[k] = !!v; continue; }
+    if (k === "allow_t2" || k === "allow_faction" || k === "allow_npc_seeded") { out[k] = !!v; continue; }
     if (v === "" || v === null || v === undefined) { out[k] = null; continue; }
     out[k] = Number(v);
     if (Number.isNaN(out[k])) throw new Error(`ugyldig tall for ${k}`);

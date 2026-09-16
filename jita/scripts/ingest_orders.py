@@ -72,12 +72,14 @@ def fetch_all_pages(esi: Esi, runlog: RunLog):
     runlog.pages_ok = len(ok_pages)
     if len(ok_pages) < 0.95 * pages:
         raise EsiError(f"bare {len(ok_pages)}/{pages} sider konsistente – skriver ingenting")
-    orders = []
+    orders, npc = [], []
     for p in ok_pages:
         for o in results[p][0]:
             if o["is_buy_order"] or o["location_id"] == JITA_44:
                 orders.append(order_row(o))
-    return orders, ref_lm
+            elif o["duration"] >= 365:                      # NPC-seedede salgsordrer andre steder i regionen
+                npc.append(order_row(o))
+    return orders, ref_lm, npc
 
 
 def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: dict):
@@ -263,6 +265,20 @@ def _alert(conn, kind: str, type_id: int, payload: dict):
                     (kind, type_id, _json.dumps(payload)))
 
 
+def flag_npc_seeded(conn, all_orders_region: list) -> int:
+    """Salgsordrer med 365 dagers varighet finnes bare fra NPC (spillere maks 90). Varen er da NPC-seedet:
+    uendelig tilbud og prislokk. Flagges i jita.types (npc_seeded, npc_seed_price)."""
+    seed = {}
+    for o in all_orders_region:
+        if not o[cm.O_BUY] and o[cm.O_DUR] >= 365:
+            seed[o[cm.O_TYPE]] = min(seed.get(o[cm.O_TYPE], float("inf")), o[cm.O_PRICE])
+    with conn.cursor() as cur:
+        cur.execute("update jita.types set npc_seeded = false, npc_seed_price = null where npc_seeded and not (type_id = any(%s))", (list(seed),))
+        cur.executemany("update jita.types set npc_seeded = true, npc_seed_price = %s where type_id = %s and (not npc_seeded or npc_seed_price is distinct from %s)",
+                        [(p, t, p) for t, p in seed.items()])
+    return len(seed)
+
+
 def load_watchlist(conn) -> set[int]:
     with conn.cursor() as cur:
         cur.execute("select type_id from jita.watchlist where status = 'follow'")
@@ -319,7 +335,7 @@ def main():
         excluded = cm.load_excluded(conn)
 
         try:
-            orders, snapshot_at = fetch_all_pages(esi, runlog)
+            orders, snapshot_at, npc_orders = fetch_all_pages(esi, runlog)
         except EsiError as e:
             fail(runlog, str(e), conn)
         runlog.snapshot_at = snapshot_at
@@ -350,9 +366,11 @@ def main():
             runlog.message = "første kjøring – ingen diff"
         conn.commit()
 
+        n_npc = flag_npc_seeded(conn, orders + npc_orders)
+        conn.commit()
         n_pass = run_judge(conn)
         conn.commit()
-        log(f"judge: {n_pass} kandidater passerte")
+        log(f"judge: {n_pass} kandidater passerte ({n_npc} NPC-seedede varer flagget)")
         runlog.message += f", judge {n_pass} passed"
         n_alerts = check_positions(conn, buys, sells, profile)
         if n_alerts:
