@@ -67,6 +67,7 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
+    <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
     ${(d.todo || []).length ? `<h2>Å gjøre <span class="muted small">(${d.todo.length} · sortert på ISK)</span></h2>
     <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
       <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start">
@@ -120,7 +121,6 @@ async function load() {
           <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
       </div>`; }).join('')}
     <div class="card small"><span class="muted">Bundet: <b>${isk(p.bound_isk)} ISK</b> · cash ${isk(p.cash_isk ?? 0)} (<a href="settings.html">oppdater</a>) · reserve ${pct(p.reserve_share, 0)} = ${isk(Number(p.capital_isk) * Number(p.reserve_share))} · <b>kan investeres nå: ${isk(d.portfolio?.left)}</b></span></div>` : ''}
-    <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
     <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;
 
   let timer;
