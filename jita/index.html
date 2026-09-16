@@ -76,13 +76,20 @@ async function load() {
         const g = acc[o.type_id] ||= { ...o, orders: [], qty: 0, cost: 0 };
         g.orders.push(o); g.qty += Number(o.filled_qty ?? o.qty); g.cost += Number(o.price) * Number(o.filled_qty ?? o.qty);
         g.filled_at = g.orders.every((x) => x.filled_at) ? o.filled_at : null;
+        if (o.alert_kind === 'overbid' && (!g.alert || o.alert_at > g.alert_at)) { g.alert = o.alert; g.alert_at = o.alert_at; g.alert_kind = 'overbid'; }
         g.created_at = g.orders.map((x) => x.created_at).sort()[0];
         return acc; }, {})).map((o) => {
       o.price = o.cost / o.qty;
       const topup = (d.portfolio?.picks || []).find((x) => x.type_id === o.type_id && x.have);
-      const overbid = o.best_bid != null && Number(o.best_bid) > Number(o.price) && !o.filled_at;
+      const overbid = o.best_bid != null && o.orders.some((x) => Number(o.best_bid) > Number(x.price) && !x.filled_at);
       const status = o.filled_at ? '<span class="pill warn">fylt – venter på salg</span>'
         : overbid ? '<span class="pill bad">overbudt – noen ligger over deg</span>' : '<span class="pill ok">kjøpsordre ute</span>';
+      const a = overbid && o.alert_kind === 'overbid' ? o.alert : null;
+      const advice = a ? `<div class="card" style="background:#2a2230;margin:8px 0 0;padding:10px 12px">
+          <b class="${a.action === 'ENDRE' ? 'accent' : a.action === 'TREKK' ? 'red' : 'green'}">${a.action}</b>
+          <span class="small"> – ${esc(a.text)}</span>
+          <div class="muted small" style="margin-top:4px">Toppbud ${price(a.best_bid)} · mur ${a.wall_qty} stk (~${a.days_wall} d) · endring koster ${isk(a.fee)} ISK${a.action === 'ENDRE' ? ` → ny pris <b>${price(a.new_price)}</b>` : ''} · vurdert ${ago(o.alert_at)}</div></div>`
+        : overbid ? '<div class="muted small" style="margin-top:6px">Overbudt siden siste snapshot – råd kommer ved neste robotkjøring (maks 20 min).</div>' : '';
       const dom = o.passed == null ? '<span class="pill">ikke dømt nå</span>'
         : o.passed ? '<span class="pill ok">passerer fortsatt</span>'
         : `<span class="pill bad">passerer ikke lenger</span> ${(o.failed_rules || []).map((r) => `<span class="pill bad">${esc(d.rules[r] || r)}</span>`).join('')}`;
@@ -93,6 +100,7 @@ async function load() {
           <span>Nå: bud <b>${price(o.best_bid)}</b> (${o.bid_top_qty ?? '–'} stk, ${o.bid_orders_1pct ?? '–'} budgivere) · ask <b>${price(o.best_ask)}</b></span>
           <span>${o.net_now != null ? `netto nå ${isk(o.net_now)}/stk (${pct(o.margin_now)})` : ''}${o.bfs_per_day != null ? ` · ${num(o.s2b_per_day)}/dag inn, ${num(o.bfs_per_day)}/dag ut` : ''}</span></div>
         ${o.reason && o.reason.includes('Svakhet') ? `<div class="reason">${esc(o.reason.slice(o.reason.indexOf('Svakhet')))}</div>` : ''}
+        ${advice}
         <div class="row small" style="margin-top:8px">
           <span>${topup ? `<span class="accent">Flyten tåler <b>+${topup.qty}</b> (${isk(topup.cost)}) → +${isk(topup.expected_profit)}</span>
             <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="event.stopPropagation(); took(${topup.type_id}, ${topup.buy_price}, ${topup.qty}, ${topup.days_to_fill_buy}, ${topup.net_per_unit}, this)">La til ${topup.qty}</button>` : ''}</span>

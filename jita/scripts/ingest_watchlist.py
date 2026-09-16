@@ -13,7 +13,8 @@ from concurrent.futures import ThreadPoolExecutor
 import compute_metrics as cm
 from common import (JITA_44, REGION_FORGE, Esi, EsiError, RunLog, db, fail, log,
                     parse_http_date, read_snapshot, write_snapshot)
-from ingest_orders import diff_fills, order_row, run_judge, write_flow, load_watchlist
+from ingest_orders import diff_fills, order_row, run_judge, write_flow, load_watchlist, check_positions
+from common import load_profile
 
 SNAP_NAME = "prev_snapshot_watchlist.json.gz"
 PATH = f"/markets/{REGION_FORGE}/orders/"
@@ -25,6 +26,8 @@ def target_types(conn) -> set[int]:
         cur.execute("""select type_id from jita.candidates
                        where run_at = (select max(run_at) from jita.candidates) and passed
                        order by score desc limit 20""")
+        types |= {r[0] for r in cur.fetchall()}
+        cur.execute("select distinct type_id from jita.decisions where closed_at is null")   # det du holder
         types |= {r[0] for r in cur.fetchall()}
     return types
 
@@ -83,6 +86,10 @@ def main():
         n_pass = run_judge(conn)
         conn.commit()
         runlog.message += f", judge {n_pass} passed"
+        buys, sells = cm.split_book(orders, jumps)
+        n_alerts = check_positions(conn, buys, sells, load_profile(conn))
+        if n_alerts:
+            runlog.message += f", {n_alerts} posisjonsvarsler"
         write_snapshot(SNAP_NAME, {"snapshot_at": snapshot_at.isoformat(), "orders": orders})
         esi.save_etags()
         runlog.finish(conn, ok=True)

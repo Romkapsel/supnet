@@ -115,8 +115,12 @@ async function summary(q) {
     select d.id, d.type_id, t.name, d.side, d.qty, d.price, d.created_at, d.filled_at, d.filled_qty, d.predicted_days, d.predicted_net_per_unit,
            c.sell_price as sell_now, c.buy_price as buy_now, c.passed, c.failed_rules, c.reason, c.net_per_unit as net_now,
            c.days_to_fill_buy, c.days_to_fill_sell, c.s2b_per_day, c.bfs_per_day, c.margin as margin_now,
-           h.best_bid, h.best_ask, h.bid_top_qty, h.bid_orders_1pct
+           h.best_bid, h.best_ask, h.bid_top_qty, h.bid_orders_1pct,
+           a.kind as alert_kind, a.payload as alert, a.created_at as alert_at
     from jita.decisions d join jita.types t using (type_id)
+    left join lateral (select kind, payload, created_at from jita.alerts
+                       where kind in ('overbid', 'overbid_cleared') and (payload->>'decision_id')::bigint = d.id
+                       order by created_at desc limit 1) a on true
     left join jita.candidates c on c.type_id = d.type_id and c.run_at = (select max(run_at) from jita.candidates)
     left join jita.type_hourly h on h.type_id = d.type_id and h.snapshot_at = (select max(snapshot_at) from jita.type_hourly)
     where d.closed_at is null order by d.created_at desc`;

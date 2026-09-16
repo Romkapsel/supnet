@@ -154,6 +154,63 @@ def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int):
     return len(fills), len(agg)
 
 
+def check_positions(conn, buys: dict, sells: dict, profile) -> int:
+    """Overbuds-vakt (spec 2.4): for hver åpen kjøpsordre i jita.decisions – ligger noen over?
+    Regner mur, gebyr og råd (HOLD / ENDRE / TREKK), lagrer i jita.alerts og varsler Discord ved endring."""
+    from common import overbid_advice, isk
+    min_margin = float((profile.thresholds or {}).get("min_margin", 0.10))
+    with conn.cursor() as cur:
+        cur.execute("""select d.id, d.type_id, t.name, d.price::float8, coalesce(d.filled_qty, d.qty)::int
+                       from jita.decisions d join jita.types t using (type_id)
+                       where d.side = 'buy' and d.filled_at is null and d.closed_at is null""")
+        open_buys = cur.fetchall()
+        if not open_buys:
+            return 0
+        cur.execute("""select type_id, coalesce(sum(s2b_qty) / greatest(sum(hours_covered), 1) * 24, 0)::float8
+                       from jita.type_flow_hourly where hour > now() - interval '25 hours' and resolution = 60
+                         and type_id = any(%s) group by type_id""", ([r[1] for r in open_buys],))
+        s2b = dict(cur.fetchall())
+        cur.execute("""select distinct on ((payload->>'decision_id')::bigint) (payload->>'decision_id')::bigint, kind, payload
+                       from jita.alerts where kind in ('overbid', 'overbid_cleared')
+                       order by (payload->>'decision_id')::bigint, created_at desc""")
+        last = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+    n = 0
+    for did, tid, name, p1, remaining in open_buys:
+        bl, sl = buys.get(tid, []), sells.get(tid, [])
+        if not bl or not sl:
+            continue
+        best_bid = max(o[cm.O_PRICE] for o in bl)
+        best_ask = min(o[cm.O_PRICE] for o in sl)
+        prev_kind, prev_payload = last.get(did, (None, {}))
+        if best_bid <= p1 + 1e-9:                       # du ligger på toppen
+            if prev_kind == "overbid":
+                _alert(conn, "overbid_cleared", tid, dict(decision_id=did, price=p1, best_bid=best_bid,
+                       text=f"{name}: du ligger på toppen igjen ({isk(p1)})."))
+                notify(f"✅ {name}: du ligger på toppen igjen ({isk(p1)}).")
+                n += 1
+            continue
+        wall = sum(o[cm.O_VOL] for o in bl if o[cm.O_PRICE] > p1)
+        adv = overbid_advice(profile, p1, remaining, best_bid, wall, s2b.get(tid, 0.0), best_ask, min_margin)
+        payload = dict(decision_id=did, price=p1, remaining=remaining, best_bid=best_bid, best_ask=best_ask, **adv)
+        # varsle bare ved endring: annen anbefaling, eller toppbudet flyttet seg > 0,5 %
+        if (prev_kind == "overbid" and prev_payload.get("action") == adv["action"]
+                and abs(float(prev_payload.get("best_bid", 0)) - best_bid) / best_bid < 0.005):
+            continue
+        _alert(conn, "overbid", tid, payload)
+        notify(f"⚠️ Overbudt: **{name}** – ditt bud {isk(p1)}, toppbud nå {isk(best_bid)} "
+               f"(mur {wall} stk ≈ {adv['days_wall']} d).\nRåd: **{adv['action']}** – {adv['text']}")
+        n += 1
+    conn.commit()
+    return n
+
+
+def _alert(conn, kind: str, type_id: int, payload: dict):
+    import json as _json
+    with conn.cursor() as cur:
+        cur.execute("insert into jita.alerts (kind, type_id, payload) values (%s, %s, %s::jsonb)",
+                    (kind, type_id, _json.dumps(payload)))
+
+
 def load_watchlist(conn) -> set[int]:
     with conn.cursor() as cur:
         cur.execute("select type_id from jita.watchlist where status = 'follow'")
@@ -245,6 +302,9 @@ def main():
         conn.commit()
         log(f"judge: {n_pass} kandidater passerte")
         runlog.message += f", judge {n_pass} passed"
+        n_alerts = check_positions(conn, buys, sells, profile)
+        if n_alerts:
+            log(f"posisjonsvakt: {n_alerts} varsler")
 
         write_snapshot(SNAP_NAME, {"snapshot_at": snapshot_at.isoformat(), "orders": orders})
         esi.save_etags()

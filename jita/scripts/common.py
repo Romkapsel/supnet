@@ -158,6 +158,51 @@ def score(net_per_unit: float, s2b: float, bfs: float, days: float, hist_pos: fl
     return base * min(1.0, max(hist_pos, 0) / 0.7) * min(1.0, ratio)
 
 
+def isk(x: float) -> str:
+    """1234567 → '1 234 567' (norsk tusenskille)."""
+    return f"{x:,.0f}".replace(",", " ")
+
+
+def modify_fee(broker: float, adv_broker_relations: int, p1: float, p2: float, qty: int) -> float:
+    """Gebyr for å endre en ordre fra P1 til P2 (CCP, «Broker Relations» 2020):
+    broker × (P2 − P1) × antall ved prisøkning + (50 % − 6 % × ABR) × broker × P2 × antall (relist)."""
+    relist_discount = 0.5 + 0.06 * max(0, min(5, adv_broker_relations))
+    return max(0.0, broker * (p2 - p1)) * qty + (1 - relist_discount) * broker * p2 * qty
+
+
+def overbid_advice(profile: "Profile", p1: float, remaining: int, best_bid: float, wall_qty: int,
+                   s2b_per_day: float, best_ask: float, min_margin: float = 0.10) -> dict:
+    """Råd når noen ligger over kjøpsordren din (spec 2.4):
+    ENDRE bare hvis forventet ekstra fylling neste 24 t × netto > 2 × gebyr OG muren over deg er > 5 dagers flyt.
+    Ellers HOLD. Blir marginen ved ny pris under terskelen → ikke øk (vurder å trekke)."""
+    broker, tax = fees(profile)
+    p2 = over(best_bid)
+    sell = under(best_ask)
+    net2 = sell * (1 - broker - tax) - p2 * (1 + broker)
+    margin2 = net2 / (p2 * (1 + broker))
+    fee = modify_fee(broker, profile.adv_broker_relations, p1, p2, remaining)
+    days_wall = wall_qty / max(s2b_per_day, 0.1)
+    gain_24h = min(remaining, s2b_per_day) * net2
+    if margin2 < min_margin:
+        action = "TREKK"
+        why = (f"ved {isk(p2)} blir marginen {margin2 * 100:.1f} % (< {min_margin * 100:.0f} %). Ikke øk. "
+               f"Muren over deg er {wall_qty} stk (~{days_wall:.1f} d) – trekk ordren hvis du vil frigjøre kapitalen.")
+    elif days_wall > 5 and gain_24h > 2 * fee:
+        action = "ENDRE"
+        why = (f"endre til {isk(p2)}: gebyr {isk(fee)} ISK, forventet ~{isk(gain_24h)} ISK netto neste 24 t. "
+               f"Muren over deg ({wall_qty} stk) tar ~{days_wall:.1f} d å tømme.")
+    elif days_wall <= 5:
+        action = "HOLD"
+        why = (f"muren over deg ({wall_qty} stk) tømmes på ~{days_wall:.1f} d. "
+               f"Endring ville kostet {isk(fee)} ISK – ikke verdt det.")
+    else:
+        action = "HOLD"
+        why = (f"endring til {isk(p2)} koster {isk(fee)} ISK og ville gitt ~{isk(gain_24h)} ISK neste 24 t – ikke verdt det. "
+               f"Mur {wall_qty} stk (~{days_wall:.1f} d).")
+    return dict(action=action, text=why, new_price=p2, fee=round(fee), margin_at_new=margin2,
+                wall_qty=wall_qty, days_wall=round(days_wall, 1), gain_24h=round(gain_24h))
+
+
 def gone_weight(order_price: float, best_price: float, is_buy: bool) -> float:
     """Hvor nær toppen lå ordren da den forsvant? Nær = sannsynligvis fylt."""
     if best_price <= 0:
