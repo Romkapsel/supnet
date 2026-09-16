@@ -78,3 +78,12 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - **Rulleblad per vare** (`jita.type_memory`, `jita.refresh_type_memory()`): fra egne transaksjoner, beslutninger og varsler – runder, realisert margin, snitt dager kjøp→salg, overbud/undercut. Dom: `god` (×1,2), `ok` (×1), `treg`/`svak` (×0,6), `krangel` (×0,75, ≥ 1,5 varsler per runde). Faktoren ganges inn i score; teksten «Erfaring: …» legges til i begrunnelsen. Oppdateres ved hver EVE-synk og daglig 05:10 UTC. Vises på vare-siden.
 - **NPC-seedet** (`jita.types.npc_seeded`, `npc_seed_price`): salgsordrer med ≥ 365 dagers varighet finnes bare fra NPC. Timesjobben flagger (1 828 varer 16. sept). Regel `9n` stopper dem med mindre `allow_npc_seeded` er på. Eksempel: Oceanic Command Center (NPC 81 336, Jita 96k) – uendelig tilbud, klump av selgere.
 - Neste lag (ikke bygget): zKillboard som etterspørselssignal per varetype; patch-notes via Claude API.
+
+## Optimaliseringsrunde (16. sept 2026, kveld)
+
+- **Krig-indeks:** `type_flow_hourly.bid_mods/ask_mods` = prisendringer på samme ordre innenfor 1 % av toppen, per time. Dommer: regel `10` ved ≥ 3 × `war_mods_per_hour` (4), myk straff `min(1, terskel/mods_per_hour)` i score, «priskrig» i svakhet-teksten.
+- **Målt broker-sats:** `profile.broker_fee_measured` settes ved EVE-synk (journalens `brokers_fee` matchet mot ordre i samme sekund, median av topp 3 siste 30 d). `profile_calc` bruker override > målt > formel.
+- **Flyt-tak:** s2b/bfs begrenses av `history_daily.volume` (5-dagers snitt).
+- **Beste klokkeslett:** `bestHours()` i API – topp 3 timer for dumping/lifting siste 14 d, vist i Topp 10.
+- **Skatt per salg:** journalpost `id = journal_ref_id + 1`.
+- Forsøk på parallelle spørringer mot Supavisor ble forkastet: flere tilkoblinger kostet mer enn de sparte, og kø > pool henger.
