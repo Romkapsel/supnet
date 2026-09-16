@@ -153,9 +153,12 @@ language sql stable as $$
              -- Spec-ens «netto/enhet ≥ kapital/1000» stoppet Amarr Shuttle (6k × 100 stk = 600k) ved 12 mill kapital.
              case when q * net < coalesce((p->>'capital_isk')::float8, 0) * coalesce((th.t->>'min_position_profit_share')::float8, 0.01) then '1b' end,
              case when mrg > coalesce((th.t->>'max_margin')::float8, 2.0) then '1x' end,   -- ingen ekte bud (0,01-ISK-bud o.l.)
-             case when bid_top_qty > coalesce((th.t->>'max_bid_top_qty')::int, 100) then '2' end,
+             -- 2 og 4 (endret 16. sept 2026): en mur/klump er bare et problem hvis den er over terskelen OG tar > wall_days å tømme med dagens flyt
+             case when bid_top_qty > coalesce((th.t->>'max_bid_top_qty')::int, 100)
+                   and bid_top_qty / greatest(s2b, 0.1) > coalesce((th.t->>'wall_days')::float8, 2) then '2' end,
              case when bid_orders_1pct > coalesce((th.t->>'max_bid_orders_1pct')::int, 3) then '3' end,
-             case when ask_qty_1pct > coalesce((th.t->>'max_ask_qty_1pct')::int, 300) then '4' end,
+             case when ask_qty_1pct > coalesce((th.t->>'max_ask_qty_1pct')::int, 300)
+                   and ask_qty_1pct / greatest(bfs, 0.1) > coalesce((th.t->>'wall_days')::float8, 2) then '4' end,
              case when s2b * coalesce((p->>'target_fill_days')::float8, 4) < greatest(1, coalesce((p->>'min_qty')::int, 20)) then '5' end,
              case when bfs_trades < coalesce((th.t->>'min_bfs_trades')::int, 10)
                    and coalesce(oc5, 0) < 3 * coalesce((th.t->>'min_bfs_trades')::int, 10) then '5t' end,   -- timesdiffen undervurderer; ESI-historikk (regionen) som kryssjekk
