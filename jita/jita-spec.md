@@ -190,6 +190,12 @@ Anslag: type_hourly 7 d ≈ 100–150 MB, flow 90 d ≈ 100 MB, fills 7 d ≈ 50
 
 **Kjøpsordrer med rekkevidde (nytt i v3):** en selger i Jita 4-4 som velger «Immediate» treffer den høyest prisede kjøpsordren *hvis rekkevidde dekker 4-4* – uansett hvor ordren står. Snapshotet beholder derfor for kjøpsordrer: `location_id`, `system_id`, `range`. En kjøpsordre «dekker Jita 4-4» hvis: `range = 'region'`; eller `range = 'station'` og `location_id = 60003760`; eller `range = 'solarsystem'` og `system_id = 30000142`; eller `range` er et tall N og `jita.systems.jumps_from_jita ≤ N` for ordrens system. `jita.systems` fylles én gang av `seed_types.py` via `/universe/regions/10000002/` → constellations → systems → `/route/30000142/{system}/`. Salgsordrer: bare `location_id = 60003760`. `min_volume > 1` på kjøpsordrer ignoreres i fase 1 (sjelden på T1-varer).
 
+**Drift (blokk 1.4, 16. sept 2026 – rettelser etter gjennomgang):**
+- *Lagring:* forfilteret slipper gjennom ~7 000 varer/time (ikke 3–5 000). Oppbevaring er derfor strammet til: `type_hourly` og `fills` 3 dager, `type_flow_hourly` 30 dager, `candidates` 14 dager (passed + 100 beste). Rydding er en pg_cron-jobb (`jita-cleanup`, 05:00 UTC), ikke Actions; den feilet stille to netter (grupperingsfeil i `type_daily`-rullingen) og er rettet. Robot-boksen på forsiden viser databasestørrelse (gul > 250 MB, rød > 350 MB) og status per bakgrunnsjobb.
+- *EVE-synk:* kjøres i deler (wallet/skills, ordrer, transaksjoner, journal, hangar, beslutninger, varsler) med feil logget per del i `sso_tokens.last_error`; hangar slettes og skrives i én transaksjon. Årsak til «could not determine data type of parameter $3»: utypet tekstparameter i `concat_ws` ved lukking av ordrer – alle null/tekst-parametre er nå castet.
+- *Historikk:* hentes **hver time** (ikke daglig) for inntil 400 varer, prioritert passed/watchlist/beholdning → uten historikk → eldste; `types.history_fetched_at` styrer rotasjonen. Hele forfilteret dekkes på ~18 t. Begrunnelsen viser «⚠ Mangler historikk» når regel 6/7 ikke kan vurderes.
+- *Portefølje:* når bundet > investerbart vises en tydelig linje øverst i «Å gjøre» («Frigjør X ISK før nye kjøp»).
+
 **Innlogging (fase 2):** EVE SSO (OAuth2, PKCE) via Vercel-funksjon. Scopes: `esi-markets.read_character_orders.v1`, `esi-wallet.read_character_wallet.v1`, `esi-assets.read_assets.v1`, `esi-markets.structure_markets.v1`, `esi-skills.read_skills.v1`, `esi-characters.read_standings.v1`. Refresh-token kun server-side i Supabase (samme regel som Anthropic-nøkkelen). Perimeter TTT er en spillerstruktur og finnes ikke i offentlige data – krever innlogget karakter med docking-tilgang (`/markets/structures/{id}/`).
 
 **Sikkerhet:** siden er bak Supnets eksisterende PIN-innlogging. `/api/jita/scan` og `/api/jita/rejudge` verifiserer PIN-sesjonen server-side og svarer 401 uten. Scan har i tillegg sperre i `jita.profile.last_manual_scan` – < 10 min siden → «vent N min» uten å trigge (ESI-cachen er 5 min, så hyppigere gir ingenting nytt). Supabase RLS: lesetilgang for innlogget bruker; skriving til `profile`, `watchlist`, `decisions` fra Vercel-funksjoner med service-key; alt annet skrives bare fra Actions. Discord-webhook ligger som GitHub Secret.
@@ -680,3 +686,14 @@ Ingenting fra v2 er tapt. Fire ting er *endret i innhold* (regel 5, regel 9, sna
 6. **Tidsestimatene i del 7** (2–3 kvelder for fase 1) er optimistiske gitt at v3 har mer i blokk 1.1. Regn med 3–4 kvelder, og at blokk 1.1 kanskje må deles i 1.1a (steg 1–3) og 1.1b (steg 4–9) hvis Claude Code-økten blir lang.
 
 **Første ting å gjøre:** blokk 0. Ingenting i v3 endrer det.
+
+## 9.3 Blokk 1.4 – driftsfeil funnet 16. sept 2026 (fra gjennomgang utenfra)
+
+| Funn | Status |
+|---|---|
+| Database vokste ~70 MB/dag (spec-anslaget bommet 5×) | Oppbevaring strammet (3 d / 30 d / 14 d); ryddejobb rettet; størrelse og jobbstatus synlig på forsiden |
+| EVE-synk feilet stille («parameter $3»), hangar tom | Typede parametre; synk i deler med feil per del; hangar i transaksjon |
+| Historikk bare for watchlist (39 av 6 988 varer) – regel 6/7 blinde | Hver time, 400 varer, prioritert rotasjon; «mangler historikk» i begrunnelsen |
+| Porteføljeforslag tomt uten forklaring | Tydelig linje med bundet/investerbart/frigjør |
+
+Ingen regler, terskler eller score-formel ble endret i blokk 1.4.

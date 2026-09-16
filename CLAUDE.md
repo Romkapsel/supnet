@@ -34,3 +34,9 @@ En PWA (Progressive Web App) familieside for familien Oltedal. Appen er på nors
 - Dempet tekst: `#666880`
 - Border-radius: `20px`
 - Bruker-farge (standard): `#3a7bd5` (blå)
+
+## Jita (EVE Online station trading) – egen app i `jita/`
+- Eget Vercel-prosjekt `jita-eve` (rot `jita/`, deploy `cd jita && vercel --prod --yes`) → https://jita-eve.vercel.app. Familiesiden er urørt.
+- Spesifikasjon: `jita/jita-spec.md` (v3 + rettelser). Drift, hemmeligheter, avvik fra spec og feillogg: `jita/README.md` – **les den før du endrer noe i jita/**.
+- Datalager: Supabase «Supnet», skjema `jita`. Robot i GitHub Actions (`.github/workflows/jita.yml`), men pg_cron er primær klokke (`jita-vakt*` starter jobbene via `/api/scan?fallback=1&job=…`). EVE-synk (`jita-eve-sync`) hver time via `/api/character`.
+- Regler og terskler ligger i `jita/sql/002_judge.sql` (`jita.judge_rows`) og `jita.profile.thresholds`. Endre dem bare med begrunnelse i README «Avvik fra spec».

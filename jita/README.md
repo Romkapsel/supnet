@@ -89,3 +89,6 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - **Beste klokkeslett:** `bestHours()` i API – topp 3 timer for dumping/lifting siste 14 d, vist i Topp 10.
 - **Skatt per salg:** journalpost `id = journal_ref_id + 1`.
 - Forsøk på parallelle spørringer mot Supavisor ble forkastet: flere tilkoblinger kostet mer enn de sparte, og kø > pool henger.
+
+## Blokk 1.4 (16. sept 2026) – driftsrettelser
+Se spec del 9.3. Kort: rydding 3 d/30 d/14 d + rettet `type_daily`-rulling; EVE-synk i deler med feil per del; historikk hver time (400 varer, `history_fetched_at`); DB-størrelse og cron-status i robot-boksen; forklaring når porteføljen er tom.
