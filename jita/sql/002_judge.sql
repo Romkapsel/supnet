@@ -182,6 +182,17 @@ language sql stable as $$
   from e5, th
 $$;
 
+-- ── Kapital i arbeid = cash + bundet ─────────────────────────────────────────
+create or replace function jita.bound_isk() returns numeric language sql stable as $$
+  select coalesce(sum(price * coalesce(filled_qty, qty)), 0) from jita.decisions where side = 'buy' and closed_at is null
+$$;
+create or replace function jita.effective_profile() returns jsonb language sql stable as $$
+  select to_jsonb(p) || jsonb_build_object(
+           'capital_isk', coalesce(p.cash_isk, p.capital_isk) + case when p.cash_isk is null then 0 else jita.bound_isk() end,
+           'bound_isk', jita.bound_isk())
+  from jita.profile p where p.id = 1
+$$;
+
 -- ── judge(): dømmer med lagret profil og skriver candidates ──────────────────
 create or replace function jita.judge() returns int
 language plpgsql as $$
@@ -190,7 +201,7 @@ declare
   ts timestamptz := now();
   n int;
 begin
-  select to_jsonb(pr) into p from jita.profile pr where id = 1;
+  p := jita.effective_profile();
   if not exists (select 1 from jita.type_hourly) then
     return 0;
   end if;
@@ -214,9 +225,7 @@ end $$;
 create or replace function jita.judge_preview(p jsonb)
 returns setof jita.judgement
 language sql stable as $$
-  select r.* from jita.profile pr,
-       lateral jita.judge_rows(to_jsonb(pr) || coalesce(p, '{}'::jsonb)) r
-  where pr.id = 1
+  select r.* from lateral jita.judge_rows(jita.effective_profile() || coalesce(p, '{}'::jsonb)) r
   order by r.passed desc, r.score desc nulls last
   limit 50
 $$;

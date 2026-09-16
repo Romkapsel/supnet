@@ -60,7 +60,7 @@ async function load() {
     ${downtimeWarning() ? '<div class="banner">⏳ Downtime – ikke legg ordrer nå (11:00–11:15)</div>' : ''}
     <div class="card">
       <div class="stats">
-        <div class="stat"><div class="l">Kapital</div><div class="v">${isk(p.capital_isk)} ISK</div></div>
+        <div class="stat"><div class="l">Kapital i arbeid</div><div class="v">${isk(p.capital_isk)} ISK</div><div class="muted" style="font-size:0.7rem">cash ${isk(p.cash_isk ?? p.capital_isk)} + bundet ${isk(p.bound_isk)}</div></div>
         <div class="stat"><div class="l">Broker / skatt</div><div class="v">${pct(p.broker)} / ${pct(p.tax)}</div></div>
         <div class="stat"><div class="l">Break-even spread</div><div class="v">${pct(p.break_even)}</div></div>
         <div class="stat"><div class="l">Maks kjøpspris</div><div class="v">${isk(p.max_buy_price)}</div></div>
@@ -106,7 +106,7 @@ async function load() {
             <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="event.stopPropagation(); took(${topup.type_id}, ${topup.buy_price}, ${topup.qty}, ${topup.days_to_fill_buy}, ${topup.net_per_unit}, this)">La til ${topup.qty}</button>` : ''}</span>
           <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
       </div>`; }).join('')}
-    <div class="card small"><span class="muted">Kapital bundet: <b>${isk(d.open.reduce((a, o) => a + Number(o.price) * Number(o.filled_qty ?? o.qty), 0))} ISK</b> av ${isk(p.capital_isk)} · investerbart ${isk(d.portfolio?.investable)} · står igjen <b>${isk(d.portfolio?.left)}</b></span></div>` : ''}
+    <div class="card small"><span class="muted">Bundet: <b>${isk(p.bound_isk)} ISK</b> · cash ${isk(p.cash_isk ?? 0)} (<a href="settings.html">oppdater</a>) · reserve ${pct(p.reserve_share, 0)} = ${isk(Number(p.capital_isk) * Number(p.reserve_share))} · <b>kan investeres nå: ${isk(d.portfolio?.left)}</b></span></div>` : ''}
     ${d.portfolio ? `<h2>Forslag til porteføljen <span class="muted small">(nye varer)</span></h2>
     <div class="card">
       ${d.portfolio.picks.filter((x) => !x.have).length ? d.portfolio.picks.filter((x) => !x.have).map((x) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">

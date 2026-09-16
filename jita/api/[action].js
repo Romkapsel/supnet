@@ -89,9 +89,15 @@ export default async function handler(req, res) {
   }
 }
 
+// Profil med kapital i arbeid = cash + bundet (jita.effective_profile) + utledede tall (profile_calc)
+async function effectiveProfile(q) {
+  const [r] = await q`select x.j as profile, to_jsonb(c) as calc from (select jita.effective_profile() as j) x, lateral jita.profile_calc(x.j) c`;
+  return { ...r.profile, ...r.calc };
+}
+
 // ── Forside ──────────────────────────────────────────────────────────────────
 async function summary(q) {
-  const [profile] = await q`select p.*, c.* from jita.profile p, lateral jita.profile_calc(to_jsonb(p)) c where p.id = 1`;
+  const profile = await effectiveProfile(q);
   const [run] = await q`select max(run_at) as run_at from jita.candidates`;
   const runAt = run?.run_at;
   const top = runAt ? await q`
@@ -180,12 +186,12 @@ async function typeDetail(q, id) {
   const history = await q`select date, average, highest, lowest, volume, order_count from jita.history_daily where type_id = ${id} order by date desc limit 30`;
   const fills = await q`select observed_at, is_buy, price, qty, kind, weight, resolution from jita.fills where type_id = ${id} order by observed_at desc limit 200`;
   const decs = await q`select * from jita.decisions where type_id = ${id} order by created_at desc limit 20`;
-  const [profile] = await q`select p.*, c.* from jita.profile p, lateral jita.profile_calc(to_jsonb(p)) c where p.id = 1`;
+  const profile = await effectiveProfile(q);
   return { type, candidate, hourly, flow, history, fills, decisions: decs, profile, rules: RULES };
 }
 
 // ── Profil / hva-om ──────────────────────────────────────────────────────────
-const PROFILE_FIELDS = ["capital_isk", "broker_relations", "accounting", "adv_broker_relations", "trade", "retail",
+const PROFILE_FIELDS = ["cash_isk", "capital_isk", "broker_relations", "accounting", "adv_broker_relations", "trade", "retail",
   "wholesale", "tycoon", "standing_corp", "standing_faction", "broker_fee_override", "sales_tax_override",
   "positions", "target_fill_days", "reserve_share", "min_qty", "allow_t2", "allow_faction", "thresholds"];
 
@@ -204,7 +210,7 @@ function cleanProfile(body) {
 }
 
 async function getProfile(q) {
-  const [profile] = await q`select p.*, c.* from jita.profile p, lateral jita.profile_calc(to_jsonb(p)) c where p.id = 1`;
+  const profile = await effectiveProfile(q);
   return { profile };
 }
 
@@ -221,7 +227,7 @@ async function saveProfile(q, body) {
 async function preview(q, body) {
   const fields = cleanProfile(body);
   const rows = await q`select r.*, t.market_group_path from jita.judge_preview(${q.json(fields)}) r join jita.types t using (type_id) where r.passed order by r.score desc nulls last limit 10`;
-  const [calc] = await q`select * from jita.profile_calc((select to_jsonb(p) || ${q.json(fields)} from jita.profile p where id = 1))`;
+  const [calc] = await q`select * from jita.profile_calc(jita.effective_profile() || ${q.json(fields)})`;
   return { top: rows, calc };
 }
 

@@ -90,7 +90,8 @@ create table if not exists jita.history_daily (
 -- ── Profil (én rad) ──────────────────────────────────────────────────────────
 create table if not exists jita.profile (
   id int primary key default 1 check (id = 1),
-  capital_isk numeric default 4500000,
+  capital_isk numeric default 4500000,   -- brukes bare hvis cash_isk er null
+  cash_isk numeric,                      -- ISK i wallet; kapital i arbeid = cash + bundet (jita.effective_profile)
   broker_relations int default 4, accounting int default 0, adv_broker_relations int default 0,
   trade int default 4, retail int default 3, wholesale int default 0, tycoon int default 0,
   standing_corp numeric default 0, standing_faction numeric default 0,
