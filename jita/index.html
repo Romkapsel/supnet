@@ -57,7 +57,7 @@ async function load() {
   el('app').innerHTML = `
     <h1>Jita 4-4 <span class="muted" style="font-size:0.9rem">station trading</span></h1>
     ${nav('index.html')}
-    ${downtimeWarning() ? '<div class="banner">⏳ Downtime – ikke legg ordrer nå (11:00–11:15)</div>' : ''}
+    ${downtimeWarning() ? '<div class="banner">⏳ Downtime – EVE er nede (11:00 UTC = 13:00 norsk), normalt ~15 min. Ikke legg ordrer nå.</div>' : ''}
     <div class="card">
       <div class="stats">
         <div class="stat"><div class="l">Kapital i arbeid</div><div class="v">${isk(p.capital_isk)} ISK</div><div class="muted" style="font-size:0.7rem">cash ${isk(p.cash_isk ?? p.capital_isk)} + bundet ${isk(p.bound_isk)}</div></div>

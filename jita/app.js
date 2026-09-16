@@ -49,12 +49,11 @@ export const dt = (ts) => ts ? new Date(ts).toLocaleString('nb-NO', { timeZone: 
 export const el = (id) => document.getElementById(id);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// ── Downtime-advarsel (10:50–11:20 norsk tid) ────────────────────────────────
+// ── Downtime-advarsel: EVE er nede 11:00 UTC daglig (13:00 norsk sommertid), normalt 10–15 min ──
 export function downtimeWarning() {
   const now = new Date();
-  const [h, m] = now.toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' }).split(/[:.]/).map(Number);
-  const t = h * 60 + m;
-  return t >= 10 * 60 + 50 && t <= 11 * 60 + 20;
+  const t = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return t >= 10 * 60 + 55 && t <= 11 * 60 + 20;
 }
 
 // ── Navigasjon ───────────────────────────────────────────────────────────────
