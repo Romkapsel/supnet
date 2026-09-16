@@ -208,7 +208,9 @@ end $$;
 -- ── Rydding (pg_cron, daglig 05:00 UTC) ──────────────────────────────────────
 create or replace function jita.cleanup() returns void language plpgsql as $$
 begin
-  -- type_hourly > 7 d → type_daily
+  -- Oppbevaring (strammet 16. sept 2026 – 7 000 varer/time gir ~5 × spec-ens anslag):
+  --   type_hourly 3 d (dommeren bruker nyeste; trend bruker 48 t), fills 3 d, type_flow_hourly 30 d,
+  --   candidates 14 d og bare passed + 100 beste per kjøring, robot_runs 90 d, alerts 90 d.
   insert into jita.type_daily (type_id, date, best_bid_avg, best_ask_avg, bfs_qty, s2b_qty, bid_top_qty_avg, ask_qty_1pct_avg)
   select h.type_id, (h.snapshot_at at time zone 'utc')::date,
          avg(h.best_bid), avg(h.best_ask),
@@ -218,20 +220,26 @@ begin
          (select coalesce(sum(f.s2b_qty),0) from jita.type_flow_hourly f
            where f.type_id = h.type_id and f.resolution = 60
              and (f.hour at time zone 'utc')::date = (h.snapshot_at at time zone 'utc')::date),
-         avg(h.bid_top_qty)::int, avg(h.ask_qty_1pct)::int
+         avg(h.bid_top_qty)::bigint, avg(h.ask_qty_1pct)::bigint
   from jita.type_hourly h
-  where h.snapshot_at < now() - interval '7 days'
+  where h.snapshot_at < now() - interval '3 days'
   group by h.type_id, (h.snapshot_at at time zone 'utc')::date
   on conflict (type_id, date) do update set
     best_bid_avg = excluded.best_bid_avg, best_ask_avg = excluded.best_ask_avg,
     bfs_qty = excluded.bfs_qty, s2b_qty = excluded.s2b_qty,
     bid_top_qty_avg = excluded.bid_top_qty_avg, ask_qty_1pct_avg = excluded.ask_qty_1pct_avg;
 
-  delete from jita.type_hourly where snapshot_at < now() - interval '7 days';
-  delete from jita.fills where observed_at < now() - interval '7 days';
-  delete from jita.type_flow_hourly where hour < now() - interval '90 days';
-  delete from jita.candidates where run_at < now() - interval '30 days';
+  delete from jita.type_hourly where snapshot_at < now() - interval '3 days';
+  delete from jita.fills where observed_at < now() - interval '3 days';
+  delete from jita.type_flow_hourly where hour < now() - interval '30 days';
+  delete from jita.candidates where run_at < now() - interval '14 days';
+  delete from jita.candidates c using (
+    select run_at, type_id, row_number() over (partition by run_at order by cardinality(failed_rules), score desc nulls last) rn
+    from jita.candidates where not passed) x
+  where c.run_at = x.run_at and c.type_id = x.type_id and x.rn > 100;
   delete from jita.robot_runs where run_at < now() - interval '90 days';
+  delete from jita.alerts where created_at < now() - interval '90 days';
+  delete from jita.type_daily where date < current_date - 400;
   delete from jita.history_daily where date < current_date - 400;
 end $$;
 
