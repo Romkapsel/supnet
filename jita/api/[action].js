@@ -109,7 +109,13 @@ async function summary(q) {
     select (select count(*) from jita.candidates where run_at = (select max(run_at) from jita.candidates) and passed) as passed,
            (select count(*) from jita.type_hourly where snapshot_at = (select max(snapshot_at) from jita.type_hourly)) as evaluated,
            (select max(snapshot_at) from jita.type_hourly) as snapshot_at`;
-  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const open = await q`
+    select d.id, d.type_id, t.name, d.side, d.qty, d.price, d.created_at, d.filled_at, d.filled_qty, d.predicted_days, d.predicted_net_per_unit,
+           c.sell_price as sell_now, c.buy_price as buy_now, c.passed
+    from jita.decisions d join jita.types t using (type_id)
+    left join jita.candidates c on c.type_id = d.type_id and c.run_at = (select max(run_at) from jita.candidates)
+    where d.closed_at is null order by d.created_at desc`;
+  return { profile, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
 }
 
 // ── Vare ─────────────────────────────────────────────────────────────────────
@@ -171,9 +177,9 @@ async function preview(q, body) {
 async function scan(q, fallback = false) {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
   if (fallback) {
-    // Plan B (pg_cron hver time): start bare hvis timesjobben ikke har kjørt på 70 min.
+    // Plan B (pg_cron :40 hver time): start hvis timesjobben ikke har kjørt på 50 min (GitHub hopper ofte over :23).
     const [r] = await q`select max(run_at) as last from jita.robot_runs where job = 'hourly'`;
-    if (r.last && Date.now() - new Date(r.last).getTime() < 70 * 60000) return { ok: true, message: "timesjobben er fersk – ingenting å gjøre" };
+    if (r.last && Date.now() - new Date(r.last).getTime() < 50 * 60000) return { ok: true, message: "timesjobben er fersk – ingenting å gjøre" };
   } else if (p.last_manual_scan) {
     const wait = 10 - (Date.now() - new Date(p.last_manual_scan).getTime()) / 60000;
     if (wait > 0) return { ok: false, message: `vent ${Math.ceil(wait)} min` };

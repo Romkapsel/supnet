@@ -63,4 +63,4 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - **ETag** brukes ikke på full-hentingen (412 sider × body ville gitt 50 MB cache); brukes på watchlist og historikk.
 - **Regel 9/1x-avslag lagres ikke** i `candidates` (kan aldri bli «nesten»).
 - **20-min-flyt** brukes bare når ≥ 3 timer er dekket; ellers timestall.
-- **Plan B for cron:** pg_cron-jobben `jita-vakt` kl. :40 starter timesjobben via `/api/scan?fallback=1` hvis den er > 70 min gammel.
+- **Plan B for cron:** pg_cron-jobben `jita-vakt` kl. :40 starter timesjobben via `/api/scan?fallback=1` hvis den er > 50 min gammel.

@@ -60,8 +60,11 @@ async function load() {
         <div class="stat"><div class="l">Score</div><div class="v">${isk(c.score)}</div></div>
       </div>
       <div class="reason">${esc(c.reason)}</div>
+      ${d.decisions.some((x) => !x.closed_at) ? `<div style="margin-top:10px">${d.decisions.filter((x) => !x.closed_at).map((x) =>
+        `<a href="decisions.html" class="pill ${x.filled_at ? 'warn' : 'ok'}">✓ Tatt ${dt(x.created_at)} – ${x.qty} stk à ${price(x.price)}${x.filled_at ? ' · fylt, venter på salg' : ' · kjøpsordre ute'}</a>`).join('')}
+        <div class="muted small" style="margin-top:4px">Ligger i <a href="decisions.html">beholdningen</a>. Marker «Fylt» der når kjøpsordren er fylt.</div></div>` : ''}
       <div class="row" style="margin-top:10px">
-        <button onclick="took(${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button>
+        <button class="${d.decisions.some((x) => !x.closed_at) ? 'ghost' : ''}" onclick="took(${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">${d.decisions.some((x) => !x.closed_at) ? 'Tok en til' : 'Jeg tok denne'}</button>
         <button class="ghost" onclick="wl('follow')">${t.wl_status === 'follow' ? 'Slutt å følge' : 'Følg (20 min)'}</button>
         <button class="ghost" onclick="wl('ignore')">${t.wl_status === 'ignore' ? 'Fjern ignorer' : 'Ignorer'}</button>
       </div></div>` : '<div class="card muted">Ikke dømt ennå (ikke i forfilter-settet siste kjøring).</div>'}
@@ -132,7 +135,7 @@ async function loadBook() {
 
 window.took = async (p, qty, pdays, pnet, btn) => {
   btn.disabled = true;
-  try { await api('decision', { method: 'POST', body: { type_id: id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret'; }
+  try { await api('decision', { method: 'POST', body: { type_id: id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret i beholdningen'; setTimeout(load, 800); }
   catch (e) { btn.textContent = 'Feil: ' + e.message; }
 };
 window.wl = async (status) => {

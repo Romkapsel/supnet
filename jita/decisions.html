@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <meta name="theme-color" content="#0f1117"/>
-  <title>Beslutninger – Jita</title>
+  <title>Beholdning – Jita</title>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
 </head>
 <body>
@@ -34,10 +34,11 @@ async function load() {
         ${x.closed_at ? `<div class="small">Solgt ${dt(x.closed_at)} à ${price(x.sell_price)}</div>` : ''}
         <div style="align-self:end"><button class="ghost small" onclick="if(confirm('Slette?')) upd(${x.id}, {delete:true})">Slett</button></div>
       </div></div>`;
-  }).join('') || '<div class="card muted">Ingen beslutninger ennå. Trykk «Jeg tok denne» på en vare i topp 10.</div>';
+  }).join('') || '<div class="card muted">Tom beholdning. Trykk «Jeg tok denne» på en vare i topp 10.</div>';
 
   el('app').innerHTML = `
-    <h1>Beslutninger</h1>${nav('decisions.html')}
+    <h1>Beholdning</h1>${nav('decisions.html')}
+    <div class="muted small" style="margin:-6px 0 10px">Alt du har trykket «Jeg tok denne» på. Marker <b>Fylt</b> når kjøpsordren er fylt, og <b>Solgt</b> når varene er solgt – det er slik verktøyet lærer.</div>
     <div class="card"><div class="stats">
       <div class="stat"><div class="l">Realisert 7 d</div><div class="v ${Number(s.profit_7d) >= 0 ? 'green' : 'red'}">${isk(s.profit_7d || 0)} ISK</div></div>
       <div class="stat"><div class="l">Realisert 30 d</div><div class="v ${Number(s.profit_30d) >= 0 ? 'green' : 'red'}">${isk(s.profit_30d || 0)} ISK</div></div>
