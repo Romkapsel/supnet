@@ -160,9 +160,11 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
     from common import overbid_advice, isk
     min_margin = float((profile.thresholds or {}).get("min_margin", 0.10))
     with conn.cursor() as cur:
-        cur.execute("""select d.id, d.type_id, t.name, d.price::float8, coalesce(d.filled_qty, d.qty)::int
+        # én vurdering per vare: din HØYESTE egen pris er referansen (egne ordrer skal ikke telle som overbud)
+        cur.execute("""select max(d.id), d.type_id, t.name, max(d.price)::float8, sum(coalesce(d.filled_qty, d.qty))::int
                        from jita.decisions d join jita.types t using (type_id)
-                       where d.side = 'buy' and d.filled_at is null and d.closed_at is null""")
+                       where d.side = 'buy' and d.filled_at is null and d.closed_at is null
+                       group by d.type_id, t.name""")
         open_buys = cur.fetchall()
         if not open_buys:
             return 0
