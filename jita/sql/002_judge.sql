@@ -23,6 +23,7 @@ returns table (broker double precision, tax double precision, break_even double 
 language sql immutable as $$
   with v as (
     select coalesce((p->>'broker_fee_override')::float8,
+             (p->>'broker_fee_measured')::float8,                      -- målt fra journalen (fase 2) slår formelen
              greatest(0.01, 0.03 - 0.003 * coalesce((p->>'broker_relations')::float8, 0)
                                  - 0.0003 * greatest(0, coalesce((p->>'standing_faction')::float8, 0))
                                  - 0.0002 * greatest(0, coalesce((p->>'standing_corp')::float8, 0)))) as broker,
@@ -73,7 +74,8 @@ language sql stable as $$
     select f.type_id, f.resolution,
            sum(f.bfs_qty)::float8 bfs_qty, sum(f.bfs_trades)::int bfs_trades,
            sum(f.s2b_qty)::float8 s2b_qty, sum(f.s2b_trades)::int s2b_trades,
-           sum(f.hours_covered)::float8 hours
+           sum(f.hours_covered)::float8 hours,
+           sum(coalesce(f.bid_mods, 0) + coalesce(f.ask_mods, 0))::float8 mods
     from jita.type_flow_hourly f
     where f.hour >= now() - interval '25 hours'
     group by f.type_id, f.resolution
@@ -84,7 +86,8 @@ language sql stable as $$
            avg(hd.average) filter (where hd.date >= current_date - 1)::float8  a1,
            avg(hd.average) filter (where hd.date >= current_date - 5)::float8  a5,
            avg(hd.average) filter (where hd.date >= current_date - 20)::float8 a20,
-           avg(hd.order_count) filter (where hd.date >= current_date - 5)::float8 oc5   -- ekte handler/dag (hele The Forge)
+           avg(hd.order_count) filter (where hd.date >= current_date - 5)::float8 oc5,  -- ekte handler/dag (hele The Forge)
+           avg(hd.volume) filter (where hd.date >= current_date - 5)::float8 vol5        -- enheter/dag (tak for flyt-anslag)
     from jita.history_daily hd group by hd.type_id
   ),
   d7 as (
@@ -101,10 +104,11 @@ language sql stable as $$
            t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1, t.npc_seeded,
            mem.verdict as mem_verdict, coalesce(mem.factor, 1)::float8 as mem_factor, mem.rounds as mem_rounds,
            mem.avg_hold_days::float8 as mem_hold, mem.realized_margin::float8 as mem_margin,
-           coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0)::float8 s2b,
-           coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0)::float8 bfs,
+           least(coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0), coalesce(h.vol5, 1e12))::float8 s2b,   -- tak: regionens dagsvolum
+           least(coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0), coalesce(h.vol5, 1e12))::float8 bfs,
+           coalesce(f.mods / greatest(f.hours, 1), 0)::float8 mods_per_hour,
            coalesce(f.bfs_trades, 0) bfs_trades,
-           h.a1, h.a5, h.a20, h.oc5, d.ask7, d.bid7,
+           h.a1, h.a5, h.a20, h.oc5, h.vol5, d.ask7, d.bid7,
            w.status as wl_status
     from book b
     join jita.types t on t.type_id = b.type_id
@@ -157,6 +161,8 @@ language sql stable as $$
              case when bid7 > 0 and (bid - bid7) / bid7 > coalesce((th.t->>'max_bid_rise_7d')::float8, 0.25) then '7b' end,
              case when buy > max_buy_price then '8' end,
              case when npc_seeded and not coalesce((p->>'allow_npc_seeded')::boolean, false) then '9n' end,   -- NPC-seedet: uendelig tilbud, prislokk
+             case when mods_per_hour >= 3 * coalesce((th.t->>'war_mods_per_hour')::float8, 4) then '10' end,   -- priskrig: ≥ 3× terskel prisendringer/t nær toppen
+             case when mods_per_hour >= 3 * coalesce((th.t->>'war_mods_per_hour')::float8, 4) then '10' end,   -- priskrig: ≥ 3× terskel prisendringer/t nær toppen
              case when is_excluded or is_meta
                     or (is_t2 and not coalesce((p->>'allow_t2')::boolean, false))
                     or (is_faction and not coalesce((p->>'allow_faction')::boolean, false)) then '9' end
@@ -168,8 +174,9 @@ language sql stable as $$
            net * least(s2b, bfs) / (1 + dfb + dfs)
              * least(1.0, greatest(coalesce(hp, 0.7), 0) / 0.7)
              * least(1.0, ratio)
-             * mem_factor as sc                                   -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75
-    from e4
+             * mem_factor                                          -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75
+             * least(1.0, coalesce((th.t->>'war_mods_per_hour')::float8, 4) / greatest(mods_per_hour, 0.001)) as sc   -- priskrig: myk straff
+    from e4, th
   )
   select type_id, cardinality(failed) = 0 as passed, failed,
          buy, sell, q, net, mrg, q * net,
@@ -179,7 +186,9 @@ language sql stable as $$
                 replace(to_char(net, 'FM999,999,999'), ',', ' '), replace(round((mrg * 100)::numeric, 1)::text, '.', ','),
                 case when hp < coalesce((th.t->>'hist_pos_weak')::float8, 0.4) or ratio < 1
                        or dfb > coalesce((p->>'target_fill_days')::float8, 4) or dfs > coalesce((p->>'target_fill_days')::float8, 4)
+                       or mods_per_hour > coalesce((th.t->>'war_mods_per_hour')::float8, 4)
                   then ' Svakhet: ' || concat_ws(', ',
+                         case when mods_per_hour > coalesce((th.t->>'war_mods_per_hour')::float8, 4) then format('priskrig (%s endringer/t)', round(mods_per_hour::numeric, 1)) end,
                          case when hp < coalesce((th.t->>'hist_pos_weak')::float8, 0.4) then 'handles nær bid' end,
                          case when ratio < 1 then 'mer dumping enn lifting' end,
                          case when dfb > coalesce((p->>'target_fill_days')::float8, 4) then 'tregt inn' end,
@@ -236,7 +245,7 @@ begin
   from (
     select *, row_number() over (partition by passed order by cardinality(failed_rules), score desc nulls last) as rn
     from jita.judge_rows(p)
-    where passed or not (failed_rules && array['9','9n','1x'])   -- regel 9/9n/1x-avslag lagres ikke (kan aldri bli «nesten»)
+    where passed or not (failed_rules && array['9','9n','1x','10'])   -- regel 9/9n/1x-avslag lagres ikke (kan aldri bli «nesten»)
   ) r
   where r.passed or r.rn <= 200;
   select count(*) into n from jita.candidates c where c.run_at = ts and c.passed;

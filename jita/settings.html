@@ -75,7 +75,7 @@ function read() {
 function calcBox(c, title) {
   return `<h3>${title}</h3><div class="stats">
     ${c.capital_isk != null ? `<div class="stat"><div class="l">Kapital i arbeid</div><div class="v">${isk(c.capital_isk)}</div><div class="muted" style="font-size:0.7rem">cash ${isk(c.cash_isk ?? c.capital_isk)} + bundet ${isk(c.bound_isk ?? 0)}</div></div>` : ''}
-    <div class="stat"><div class="l">Broker</div><div class="v">${pct(c.broker, 2)}</div></div>
+    <div class="stat"><div class="l">Broker</div><div class="v">${pct(c.broker, 2)}</div>${c.broker_fee_measured ? `<div class="muted" style="font-size:0.7rem">målt fra journalen ${pct(c.broker_fee_measured, 2)}</div>` : ''}</div>
     <div class="stat"><div class="l">Salgsskatt</div><div class="v">${pct(c.tax, 2)}</div></div>
     <div class="stat"><div class="l">Break-even</div><div class="v">${pct(c.break_even)}</div></div>
     <div class="stat"><div class="l">Ordreplasser</div><div class="v">${c.order_slots}</div></div>

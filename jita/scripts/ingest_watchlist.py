@@ -77,8 +77,9 @@ def main():
         if prev:
             # bare typer som fantes i forrige snapshot kan diffes
             prev_types = {o[cm.O_TYPE] for o in prev["orders"]}
-            fills, hours = diff_fills(prev, orders, snapshot_at, jumps)
-            n_f, n_t = write_flow(conn, fills, snapshot_at, hours, types & prev_types, 20)
+            mods = []
+            fills, hours = diff_fills(prev, orders, snapshot_at, jumps, mods)
+            n_f, n_t = write_flow(conn, fills, snapshot_at, hours, types & prev_types, 20, mods)
             runlog.message = f"{len(types)} varer, {n_f} fills/{n_t} varer, {round(hours, 2)}t"
         else:
             runlog.message = f"{len(types)} varer, første kjøring"

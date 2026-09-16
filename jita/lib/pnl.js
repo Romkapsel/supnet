@@ -9,8 +9,10 @@ export async function computeResults(q, profile) {
   const broker = Number(profile.broker), tax = Number(profile.tax);
   const txs = await q`select t.transaction_id, t.date, t.type_id, y.name, t.is_buy, t.unit_price::float8 as unit_price, t.quantity::int as quantity
                       from jita.my_transactions t join jita.types y using (type_id) order by t.date, t.transaction_id`;
-  const taxRows = await q`select context_id, amount::float8 as amount from jita.my_journal where ref_type = 'transaction_tax' and context_id is not null`;
-  const taxByTx = {}; for (const r of taxRows) taxByTx[r.context_id] = -r.amount;
+  // skatteposten har ikke context_id, men ligger alltid som journal-id + 1 rett etter salgsposten (journal_ref_id)
+  const taxRows = await q`select t.transaction_id, j.amount::float8 as amount from jita.my_transactions t
+                          join jita.my_journal j on j.id = t.journal_ref_id + 1 and j.ref_type = 'transaction_tax' where not t.is_buy`;
+  const taxByTx = {}; for (const r of taxRows) taxByTx[r.transaction_id] = -r.amount;
 
   const lots = {};                 // type_id → [{qty, price, date}]
   const perType = {};              // type_id → aggregat

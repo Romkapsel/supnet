@@ -193,6 +193,17 @@ export async function syncCharacter(q, notify) {
     }
     await recordAlerts(q, out.alerts, notify);
     await q`select jita.refresh_type_memory()`;          // rullebladet per vare (lag 1)
+    // Målt broker-sats: gebyrpost i journalen matchet mot ordre lagt/endret i samme sekund. Plassering gir full sats,
+    // relist gir lavere – derfor brukes den høyeste plausible verdien (median av topp 3) siste 30 d.
+    const meas = await q`
+      select percentile_cont(0.5) within group (order by r desc) as rate, count(*) as n from (
+        select (-j.amount) / (o.price * o.volume_total) as r
+        from jita.my_journal j join jita.my_orders o on abs(extract(epoch from (j.date - o.issued))) <= 2
+        where j.ref_type = 'brokers_fee' and j.date > now() - interval '30 days' and o.price * o.volume_total > 0
+        order by r desc limit 3) x`;
+    if (meas[0]?.n >= 2 && meas[0].rate > 0.005 && meas[0].rate < 0.035)
+      await q`update jita.profile set broker_fee_measured = ${Number(meas[0].rate)}, broker_measured_at = now() where id = 1`;
+    out.broker_measured = meas[0]?.rate ? Number(meas[0].rate) : null;
 
     await q`update jita.sso_tokens set last_sync = now(), last_error = null where character_id = ${cid}`;
     out.ok = true;

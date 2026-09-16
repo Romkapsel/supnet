@@ -39,6 +39,7 @@ async function load() {
         <span class="muted">margin ${pct(c.margin)} · netto ${isk(c.net_per_unit)}/stk</span>
       </div>
       <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
+      ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 14 d)</span></div>` : ''}
       <div class="reason">${esc(c.reason)}</div>
       <div style="margin-top:6px">${openBy[c.type_id] ? taken(c.type_id) : `<button class="ghost small" onclick="event.stopPropagation(); took(${c.type_id}, ${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button>`}</div>
     </div>`).join('')

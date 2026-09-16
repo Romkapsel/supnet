@@ -9,14 +9,14 @@ import { computeResults } from "../lib/pnl.js";
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
   return postgres(process.env.SUPABASE_DB_URL, {
-    ssl: "require", prepare: false, max: 1, connect_timeout: 10, idle_timeout: 5,
+    ssl: "require", prepare: false, max: 1, connect_timeout: 10, idle_timeout: 5,   // én tilkobling, sekvensielle spørringer (parallellitet mot pooleren ga ingen gevinst)
   });
 }
 
 const RULES = {
   "1": "Margin under terskel", "1b": "Netto/enhet for lav for kapitalen", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
   "3": "For mange budgivere", "4": "Selgere klumpet", "5": "For lite innflyt", "5t": "Liftes for sjelden",
-  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9n": "NPC-seedet (uendelig tilbud, prislokk)",
+  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9n": "NPC-seedet (uendelig tilbud, prislokk)", "10": "Priskrig (mange prisendringer/t)",
 };
 
 function json(res, status, body) {
@@ -131,10 +131,6 @@ async function summary(q) {
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed
       and c.type_id not in (select type_id from jita.decisions where closed_at is null)
     order by c.score desc nulls last limit 10` : [];
-  const nearly = runAt ? await q`
-    select c.*, t.name from jita.candidates c join jita.types t using (type_id)
-    where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not (c.failed_rules && array['9','9n','1x'])
-    order by cardinality(c.failed_rules), c.score desc nulls last limit 10` : [];
   const robot = await q`
     select distinct on (job) job, run_at, snapshot_at, pages_total, pages_ok, orders_count,
            ratelimit_remaining, duration_s, db_bytes, ok, message
@@ -160,7 +156,6 @@ async function summary(q) {
     select c.type_id, t.name, t.market_group_path, c.score, c.buy_price, c.sell_price, c.net_per_unit, c.s2b_per_day, c.bfs_per_day, c.days_to_fill_buy
     from jita.candidates c join jita.types t using (type_id)
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last`;
-  const portfolio = buildPortfolio(profile, passedAll, open);
   const eve = await ssoStatus(q);
   const alerts = await q`select a.kind, a.type_id, t.name, a.payload->>'text' as text, a.created_at
                          from jita.alerts a left join jita.types t using (type_id)
@@ -174,8 +169,11 @@ async function summary(q) {
     where a.location_id = 60003760 and not t.is_excluded and not (t.is_ship and a.quantity = 1) and t.category_id <> 16
       and (a.quantity >= 2 or exists (select 1 from jita.my_transactions x where x.type_id = a.type_id and x.is_buy and x.date > now() - interval '60 days'))
     group by a.type_id, t.name, h.best_ask, h.best_bid order by qty desc`;
+  const portfolio = buildPortfolio(profile, passedAll, open);
   const todo = await buildTodo(q, profile, portfolio, hangar);
-  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const timing = await bestHours(q, top.map((c) => c.type_id));
+  for (const c of top) c.timing = timing[c.type_id] || null;
+  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, robot, counts, rules: RULES };
 }
 
 // ── «Å gjøre»: alt som krever handling i spillet, sortert på ISK det gjelder ─
@@ -272,6 +270,25 @@ async function buildTodo(q, p, portfolio, hangar) {
   }
   items.sort((a, b) => b.impact - a.impact);
   return items;
+}
+
+// ── Beste tidspunkt (norsk tid) å legge ordrer: når dumping (kjøp) / lifting (salg) topper, siste 14 d ─
+async function bestHours(q, typeIds) {
+  if (!typeIds.length) return {};
+  const rows = await q`
+    select type_id, extract(hour from hour at time zone 'Europe/Oslo')::int as h, sum(s2b_qty)::float8 s2b, sum(bfs_qty)::float8 bfs
+    from jita.type_flow_hourly where resolution = 60 and hour > now() - interval '14 days' and type_id = any(${typeIds})
+    group by type_id, extract(hour from hour at time zone 'Europe/Oslo')`;
+  const by = {};
+  for (const r of rows) (by[r.type_id] ||= []).push(r);
+  const out = {};
+  for (const [id, hs] of Object.entries(by)) {
+    if (hs.length < 8) continue;                       // for lite data
+    const tot = hs.reduce((a, r) => a + r.s2b, 0), totB = hs.reduce((a, r) => a + r.bfs, 0);
+    const peak = (k) => hs.slice().sort((a, b) => b[k] - a[k]).slice(0, 3).map((r) => r.h).sort((a, b) => a - b);
+    out[id] = { buy_hours: peak('s2b'), sell_hours: peak('bfs'), s2b_share_top3: tot ? hs.slice().sort((a, b) => b.s2b - a.s2b).slice(0, 3).reduce((a, r) => a + r.s2b, 0) / tot : null };
+  }
+  return out;
 }
 
 // ── Porteføljeforslag (spec 1b.4): sysselsett kapitalen der flyten tåler det ──

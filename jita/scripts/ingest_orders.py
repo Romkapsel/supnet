@@ -82,8 +82,9 @@ def fetch_all_pages(esi: Esi, runlog: RunLog):
     return orders, ref_lm, npc
 
 
-def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: dict):
-    """→ (fills, hours_covered). fills = [(order_id, type_id, is_buy, price, qty, kind, weight)]"""
+def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: dict, mods: list | None = None):
+    """→ (fills, hours_covered). fills = [(order_id, type_id, is_buy, price, qty, kind, weight)]
+    mods (valgfri liste) fylles med (type_id, is_buy) for hver ordre som endret PRIS – krig-indeksen."""
     if not prev:
         return [], None
     prev_at = datetime.fromisoformat(prev["snapshot_at"])
@@ -110,6 +111,11 @@ def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: di
             d = o[cm.O_VOL] - now_o[cm.O_VOL]
             if d > 0:
                 fills.append((oid, o[cm.O_TYPE], o[cm.O_BUY], o[cm.O_PRICE], d, "partial", 1.0))
+            if mods is not None and now_o[cm.O_PRICE] != o[cm.O_PRICE]:
+                best = pbest.get((o[cm.O_TYPE], o[cm.O_BUY]))
+                # bare endringer nær toppen teller som «krig» (innenfor 1 % av forrige beste pris)
+                if best and abs(o[cm.O_PRICE] - best) / best <= 0.01:
+                    mods.append((o[cm.O_TYPE], o[cm.O_BUY]))
             continue
         # borte: utløpt?
         try:
@@ -126,10 +132,10 @@ def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: di
     return fills, hours
 
 
-def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int):
-    """Skriver fills + type_flow_hourly for typer i keep."""
+def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int, mods: list | None = None):
+    """Skriver fills + type_flow_hourly (inkl. prisendringer = krig-indeks) for typer i keep."""
     fills = [f for f in fills if f[1] in keep]
-    agg = defaultdict(lambda: [0.0, 0, 0.0, 0])      # bfs_qty, bfs_trades, s2b_qty, s2b_trades
+    agg = defaultdict(lambda: [0.0, 0, 0.0, 0, 0, 0])   # bfs_qty, bfs_trades, s2b_qty, s2b_trades, bid_mods, ask_mods
     for oid, t, is_buy, price, qty, kind, w in fills:
         a = agg[t]
         if is_buy:                                    # kjøpsordre fylt = noen solgte til den = S2B (dumpet)
@@ -138,21 +144,26 @@ def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int):
         else:                                         # salgsordre fylt = noen kjøpte = BfS (liftet)
             a[0] += qty * w
             a[1] += 1
+    for t, is_buy in (mods or []):
+        if t in keep:
+            agg[t][4 if is_buy else 5] += 1
     hour = snapshot_at.replace(minute=0, second=0, microsecond=0)
     with conn.cursor() as cur:
         with cur.copy("copy jita.fills (observed_at, order_id, type_id, is_buy, price, qty, kind, weight, resolution) from stdin") as cp:
             for oid, t, is_buy, price, qty, kind, w in fills:
                 cp.write_row((snapshot_at, oid, t, is_buy, price, qty, kind, w, resolution))
         cur.executemany(
-            """insert into jita.type_flow_hourly (type_id, hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered)
-               values (%s,%s,%s,%s,%s,%s,%s,%s)
+            """insert into jita.type_flow_hourly (type_id, hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered, bid_mods, ask_mods)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                on conflict (type_id, hour, resolution) do update set
                  bfs_qty = jita.type_flow_hourly.bfs_qty + excluded.bfs_qty,
                  bfs_trades = jita.type_flow_hourly.bfs_trades + excluded.bfs_trades,
                  s2b_qty = jita.type_flow_hourly.s2b_qty + excluded.s2b_qty,
                  s2b_trades = jita.type_flow_hourly.s2b_trades + excluded.s2b_trades,
-                 hours_covered = jita.type_flow_hourly.hours_covered + excluded.hours_covered""",
-            [(t, hour, resolution, a[0], a[1], a[2], a[3], hours) for t, a in agg.items()])
+                 hours_covered = jita.type_flow_hourly.hours_covered + excluded.hours_covered,
+                 bid_mods = coalesce(jita.type_flow_hourly.bid_mods, 0) + excluded.bid_mods,
+                 ask_mods = coalesce(jita.type_flow_hourly.ask_mods, 0) + excluded.ask_mods""",
+            [(t, hour, resolution, a[0], a[1], a[2], a[3], hours, a[4], a[5]) for t, a in agg.items()])
     return len(fills), len(agg)
 
 
@@ -357,9 +368,11 @@ def main():
         cm.write_type_hourly(conn, rows, snapshot_at)
         log(f"type_hourly: {len(rows)} varer i forfilter-settet")
 
-        fills, hours = diff_fills(prev, orders, snapshot_at, jumps)
+        mods = []
+        fills, hours = diff_fills(prev, orders, snapshot_at, jumps, mods)
         if prev:
-            n_f, n_t = write_flow(conn, fills, snapshot_at, hours, keep, 60)
+            n_f, n_t = write_flow(conn, fills, snapshot_at, hours, keep, 60, mods)
+            log(f"prisendringer nær toppen: {len(mods)}")
             log(f"fills: {n_f} hendelser på {n_t} varer, {round(hours, 2)} t siden forrige")
             runlog.message = f"{n_f} fills/{n_t} varer, {round(hours, 2)}t"
         else:

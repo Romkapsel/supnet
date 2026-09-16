@@ -52,6 +52,7 @@ create table if not exists jita.type_flow_hourly (
   bfs_qty numeric, bfs_trades int,
   s2b_qty numeric, s2b_trades int,
   hours_covered numeric,              -- faktisk tid mellom snapshots (normalisering)
+  bid_mods int default 0, ask_mods int default 0,   -- prisendringer nær toppen (krig-indeks)
   primary key (type_id, hour, resolution)
 );
 create index if not exists flow_hour on jita.type_flow_hourly (hour);
@@ -96,6 +97,8 @@ create table if not exists jita.profile (
   trade int default 4, retail int default 3, wholesale int default 0, tycoon int default 0,
   standing_corp numeric default 0, standing_faction numeric default 0,
   broker_fee_override numeric, sales_tax_override numeric,
+  broker_fee_measured numeric, broker_measured_at timestamptz,   -- målt fra wallet-journalen (fase 2)
+  broker_fee_measured numeric, broker_measured_at timestamptz,   -- målt fra wallet-journalen (fase 2)
   positions int default 7, target_fill_days numeric default 4, reserve_share numeric default 0.25,
   min_qty int default 20,
   allow_t2 boolean default false, allow_faction boolean default false,
@@ -112,7 +115,8 @@ create table if not exists jita.profile (
     "max_bid_rise_7d": 0.25,
     "prefilter_spread": 0.05,
     "prefilter_min_orders": 3,
-    "max_position_share": 0.35
+    "max_position_share": 0.35,
+    "war_mods_per_hour": 4
   }'::jsonb,
   last_manual_scan timestamptz,
   updated_at timestamptz default now()
