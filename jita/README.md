@@ -63,7 +63,7 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - **ETag** brukes ikke på full-hentingen (412 sider × body ville gitt 50 MB cache); brukes på watchlist og historikk.
 - **Regel 9/1x-avslag lagres ikke** i `candidates` (kan aldri bli «nesten»).
 - **20-min-flyt** brukes bare når ≥ 3 timer er dekket; ellers timestall.
-- **Plan B for cron:** pg_cron-jobben `jita-vakt` kl. :40 starter timesjobben via `/api/scan?fallback=1` hvis den er > 50 min gammel.
+- **Plan B for cron:** pg_cron-jobben `jita-vakt` kl. :23 og :40 starter timesjobben via `/api/scan?fallback=1` hvis den er > 50 min gammel – databasen er nå primær klokke, GitHubs egen cron bare bonus.
 - **Overbuds-vakt (spec 2.4):** kjøres i times- og watchlist-jobben for alle åpne kjøpsordrer i `decisions`, per vare mot din høyeste egen pris. Gebyrformel fra CCP: `broker × (P2 − P1) × antall` (ved økning) `+ (50 % − 6 % × Advanced Broker Relations) × broker × P2 × antall`. Spec-en hadde 10 %/nivå for ABR – rettet til 6 %. Råd: ENDRE bare hvis muren over deg er > 5 dagers flyt *og* forventet netto neste 24 t > 2 × gebyr; TREKK hvis marginen ved ny pris < terskel; ellers HOLD. Lagres i `jita.alerts` (kind `overbid` / `overbid_cleared`), varsles på Discord ved endring.
 
 ## Fase 2 – EVE-innlogging (fra 16. sept 2026)

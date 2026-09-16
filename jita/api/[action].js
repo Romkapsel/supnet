@@ -343,7 +343,7 @@ async function scan(q, fallback = false) {
     body: JSON.stringify({ event_type: "jita-scan" }),
   });
   if (r.status !== 204) return { ok: false, message: `GitHub svarte ${r.status}: ${(await r.text()).slice(0, 200)}` };
-  await q`update jita.profile set last_manual_scan = now() where id = 1`;
+  if (!fallback) await q`update jita.profile set last_manual_scan = now() where id = 1`;   // auto-start skal ikke sperre «Scan nå»
   return { ok: true, message: "kjører… ~3 min" };
 }
 
