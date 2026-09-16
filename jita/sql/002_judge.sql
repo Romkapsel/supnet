@@ -185,9 +185,21 @@ language sql stable as $$
 $$;
 
 -- ── Kapital i arbeid = cash + bundet ─────────────────────────────────────────
+-- Bundet kapital = escrow i åpne kjøpsordrer + lager til kostpris (hangar + varer i salgsordrer, snitt kjøpspris siste 90 d).
+-- Uten EVE-innlogging: gammel tilnærming fra decisions.
 create or replace function jita.bound_isk() returns numeric language sql stable as $$
-  select coalesce(sum(price * case when filled_at is null then qty else coalesce(filled_qty, qty) end), 0)
-  from jita.decisions where side = 'buy' and closed_at is null
+  with esc as (select coalesce(sum(volume_remain * price), 0) as v from jita.my_orders where state = 'open' and is_buy),
+  avgbuy as (select type_id, sum(unit_price * quantity) / sum(quantity) as p from jita.my_transactions
+             where is_buy and date > now() - interval '90 days' group by type_id),
+  stock as (select a.type_id, sum(a.quantity) as n from jita.my_assets a where a.location_flag = 'Hangar' group by a.type_id
+            union all
+            select o.type_id, sum(o.volume_remain) from jita.my_orders o where o.state = 'open' and not o.is_buy group by o.type_id),
+  inv as (select coalesce(sum(s.n * b.p), 0) as v from stock s join avgbuy b using (type_id) join jita.types t using (type_id)
+          where not (t.is_ship and s.n = 1) and t.category_id <> 16)
+  select case when exists (select 1 from jita.sso_tokens)
+              then (select v from esc) + (select v from inv)
+              else coalesce((select sum(price * case when filled_at is null then qty else coalesce(filled_qty, qty) end)
+                             from jita.decisions where side = 'buy' and closed_at is null), 0) end
 $$;
 create or replace function jita.effective_profile() returns jsonb language sql stable as $$
   select to_jsonb(p) || jsonb_build_object(
