@@ -56,6 +56,7 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 
 ## Avvik fra spec (bevisste, sept 2026)
 
+- **Regel 1b (endret 16. sept):** «forventet fortjeneste per posisjon ≥ `min_position_profit_share` × kapital» (1 %) i stedet for «netto/enhet ≥ kapital/1000». Den gamle stoppet Amarr Shuttle (6k × 100 stk) så snart kapitalen passerte ~6 mill. `min_net_per_unit` beregnes fortsatt (vises), men brukes ikke som regel.
 - **Regel 5:** implementert som «S2B/dag × fyllingstid ≥ min_qty» + «bfs_trades ≥ terskel». Spec-ens «S2B ≥ antall / fyllingstid» er trivielt sann fordi antall allerede er begrenset av S2B × fyllingstid.
 - **Dager til fylling:** «enheter foran deg» = enhetene innenfor 1 % (bid_qty_1pct / ask_qty_1pct), ikke 0 – konkurrentene på toppen legger seg over deg igjen.
 - **Regel 1x (ny):** margin > `max_margin` (200 %) forkastes – da er «toppbudet» et 0,01-ISK-bud, ikke et marked.

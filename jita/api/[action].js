@@ -14,7 +14,7 @@ function db() {
 }
 
 const RULES = {
-  "1": "Margin under terskel", "1b": "Netto/enhet for lav for kapitalen", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
+  "1": "Margin under terskel", "1b": "Posisjonen monner ikke (< 1 % av kapitalen)", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
   "3": "For mange budgivere", "4": "Selgere klumpet", "5": "For lite innflyt", "5t": "Liftes for sjelden",
   "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9n": "NPC-seedet (uendelig tilbud, prislokk)", "10": "Priskrig (mange prisendringer/t)",
 };

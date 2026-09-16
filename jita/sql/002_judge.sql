@@ -149,7 +149,9 @@ language sql stable as $$
            case when hp_raw is null or hp_raw = 9 then null else hp_raw end as hp,
            array_remove(array[
              case when mrg < coalesce((th.t->>'min_margin')::float8, 0.10) then '1' end,
-             case when net < min_net_per_unit then '1b' end,
+             -- 1b (endret 16. sept 2026): posisjonen må monne – forventet fortjeneste ≥ andel av kapitalen (1 %).
+             -- Spec-ens «netto/enhet ≥ kapital/1000» stoppet Amarr Shuttle (6k × 100 stk = 600k) ved 12 mill kapital.
+             case when q * net < coalesce((p->>'capital_isk')::float8, 0) * coalesce((th.t->>'min_position_profit_share')::float8, 0.01) then '1b' end,
              case when mrg > coalesce((th.t->>'max_margin')::float8, 2.0) then '1x' end,   -- ingen ekte bud (0,01-ISK-bud o.l.)
              case when bid_top_qty > coalesce((th.t->>'max_bid_top_qty')::int, 100) then '2' end,
              case when bid_orders_1pct > coalesce((th.t->>'max_bid_orders_1pct')::int, 3) then '3' end,

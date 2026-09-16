@@ -116,7 +116,8 @@ create table if not exists jita.profile (
     "prefilter_spread": 0.05,
     "prefilter_min_orders": 3,
     "max_position_share": 0.35,
-    "war_mods_per_hour": 4
+    "war_mods_per_hour": 4,
+    "min_position_profit_share": 0.01
   }'::jsonb,
   last_manual_scan timestamptz,
   updated_at timestamptz default now()
