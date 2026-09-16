@@ -69,6 +69,10 @@ async function load() {
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
     <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
+    ${(() => { const pf = d.portfolio; if (!pf) return '';
+        const over = pf.bound - pf.investable;
+        return over > 0 ? `<div class="banner" style="background:#3a331f;color:var(--accent)">Ingen kjøpsforslag – du har ${isk(pf.bound)} ISK bundet mot ${isk(pf.investable)} investerbart (${pct(p.reserve_share, 0)} reserve). Frigjør ${isk(over)} ISK før nye kjøp.</div>`
+             : !pf.picks.length ? `<div class="muted small" style="margin-bottom:8px">Ingen kjøpsforslag akkurat nå – ${isk(pf.left)} ISK ledig, men ingen kandidat tåler mer kapital (flyt/35 %-tak).</div>` : ''; })()}
     ${(d.todo || []).length ? `<h2>Å gjøre <span class="muted small">(${d.todo.length} · sortert på ISK)</span></h2>
     <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
       <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start">
