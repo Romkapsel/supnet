@@ -96,7 +96,9 @@ async function summary(q) {
   const runAt = run?.run_at;
   const top = runAt ? await q`
     select c.*, t.name, t.market_group_path from jita.candidates c join jita.types t using (type_id)
-    where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last limit 10` : [];
+    where c.run_at = (select max(run_at) from jita.candidates) and c.passed
+      and c.type_id not in (select type_id from jita.decisions where closed_at is null)
+    order by c.score desc nulls last limit 10` : [];
   const nearly = runAt ? await q`
     select c.*, t.name from jita.candidates c join jita.types t using (type_id)
     where c.run_at = (select max(run_at) from jita.candidates) and not c.passed and not (c.failed_rules && array['9','1x'])
@@ -111,9 +113,12 @@ async function summary(q) {
            (select max(snapshot_at) from jita.type_hourly) as snapshot_at`;
   const open = await q`
     select d.id, d.type_id, t.name, d.side, d.qty, d.price, d.created_at, d.filled_at, d.filled_qty, d.predicted_days, d.predicted_net_per_unit,
-           c.sell_price as sell_now, c.buy_price as buy_now, c.passed
+           c.sell_price as sell_now, c.buy_price as buy_now, c.passed, c.failed_rules, c.reason, c.net_per_unit as net_now,
+           c.days_to_fill_buy, c.days_to_fill_sell, c.s2b_per_day, c.bfs_per_day, c.margin as margin_now,
+           h.best_bid, h.best_ask, h.bid_top_qty, h.bid_orders_1pct
     from jita.decisions d join jita.types t using (type_id)
     left join jita.candidates c on c.type_id = d.type_id and c.run_at = (select max(run_at) from jita.candidates)
+    left join jita.type_hourly h on h.type_id = d.type_id and h.snapshot_at = (select max(snapshot_at) from jita.type_hourly)
     where d.closed_at is null order by d.created_at desc`;
   const passedAll = await q`
     select c.type_id, t.name, t.market_group_path, c.score, c.buy_price, c.sell_price, c.net_per_unit, c.s2b_per_day, c.bfs_per_day, c.days_to_fill_buy

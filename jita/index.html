@@ -40,7 +40,7 @@ async function load() {
       <div class="reason">${esc(c.reason)}</div>
       <div style="margin-top:6px">${openBy[c.type_id] ? taken(c.type_id) : `<button class="ghost small" onclick="event.stopPropagation(); took(${c.type_id}, ${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button>`}</div>
     </div>`).join('')
-    : `<div class="card muted">Ingen varer passerer alle reglene ennå. ${d.run_at ? 'Roboten trenger ~24 timer med data før flyt-reglene (5) gir mening.' : 'Roboten har ikke kjørt ennå.'}</div>`;
+    : `<div class="card muted">Ingen nye varer passerer alle reglene akkurat nå${(d.open || []).length ? ' – de du holder ligger i beholdningen over' : ''}. Nye kandidater dukker opp etter hvert som flyt-dataene bygger seg opp; sjekk «Nesten» for det som er nærmest.</div>`;
 
   const nearly = d.nearly.map((c) => `
     <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
@@ -71,28 +71,47 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
-    ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${d.open.length} åpne)</span></h2>
+    ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${new Set(d.open.map((o) => o.type_id)).size} posisjoner)</span></h2>
+    ${Object.values(d.open.reduce((acc, o) => {   // slå sammen ordrer på samme vare til én posisjon
+        const g = acc[o.type_id] ||= { ...o, orders: [], qty: 0, cost: 0 };
+        g.orders.push(o); g.qty += Number(o.filled_qty ?? o.qty); g.cost += Number(o.price) * Number(o.filled_qty ?? o.qty);
+        g.filled_at = g.orders.every((x) => x.filled_at) ? o.filled_at : null;
+        g.created_at = g.orders.map((x) => x.created_at).sort()[0];
+        return acc; }, {})).map((o) => {
+      o.price = o.cost / o.qty;
+      const topup = (d.portfolio?.picks || []).find((x) => x.type_id === o.type_id && x.have);
+      const overbid = o.best_bid != null && Number(o.best_bid) > Number(o.price) && !o.filled_at;
+      const status = o.filled_at ? '<span class="pill warn">fylt – venter på salg</span>'
+        : overbid ? '<span class="pill bad">overbudt – noen ligger over deg</span>' : '<span class="pill ok">kjøpsordre ute</span>';
+      const dom = o.passed == null ? '<span class="pill">ikke dømt nå</span>'
+        : o.passed ? '<span class="pill ok">passerer fortsatt</span>'
+        : `<span class="pill bad">passerer ikke lenger</span> ${(o.failed_rules || []).map((r) => `<span class="pill bad">${esc(d.rules[r] || r)}</span>`).join('')}`;
+      return `<div class="card link" onclick="location.href='type.html?id=${o.type_id}'">
+        <div class="row"><h3>${esc(o.name)}</h3><span class="big accent">${o.qty} stk à ${price(o.price)}</span></div>
+        <div class="row small"><span>${status} ${dom}</span><span class="muted">${o.orders.length > 1 ? o.orders.map((x) => `${x.qty} à ${price(x.price)}`).join(' + ') + ' · ' : ''}tatt ${dt(o.created_at)}</span></div>
+        <div class="row small muted" style="margin-top:4px">
+          <span>Nå: bud <b>${price(o.best_bid)}</b> (${o.bid_top_qty ?? '–'} stk, ${o.bid_orders_1pct ?? '–'} budgivere) · ask <b>${price(o.best_ask)}</b></span>
+          <span>${o.net_now != null ? `netto nå ${isk(o.net_now)}/stk (${pct(o.margin_now)})` : ''}${o.bfs_per_day != null ? ` · ${num(o.s2b_per_day)}/dag inn, ${num(o.bfs_per_day)}/dag ut` : ''}</span></div>
+        ${o.reason && o.reason.includes('Svakhet') ? `<div class="reason">${esc(o.reason.slice(o.reason.indexOf('Svakhet')))}</div>` : ''}
+        <div class="row small" style="margin-top:8px">
+          <span>${topup ? `<span class="accent">Flyten tåler <b>+${topup.qty}</b> (${isk(topup.cost)}) → +${isk(topup.expected_profit)}</span>
+            <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="event.stopPropagation(); took(${topup.type_id}, ${topup.buy_price}, ${topup.qty}, ${topup.days_to_fill_buy}, ${topup.net_per_unit}, this)">La til ${topup.qty}</button>` : ''}</span>
+          <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
+      </div>`; }).join('')}
+    <div class="card small"><span class="muted">Kapital bundet: <b>${isk(d.open.reduce((a, o) => a + Number(o.price) * Number(o.filled_qty ?? o.qty), 0))} ISK</b> av ${isk(p.capital_isk)} · investerbart ${isk(d.portfolio?.investable)} · står igjen <b>${isk(d.portfolio?.left)}</b></span></div>` : ''}
+    ${d.portfolio ? `<h2>Forslag til porteføljen <span class="muted small">(nye varer)</span></h2>
     <div class="card">
-      ${d.open.map((o) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
-        <span><a href="type.html?id=${o.type_id}">${esc(o.name)}</a> · ${o.qty} stk à ${price(o.price)}</span>
-        <span class="muted">${o.filled_at ? '<span class="pill warn">fylt – venter på salg</span>' : '<span class="pill ok">kjøpsordre ute</span>'} ${dt(o.created_at)}</span></div>`).join('')}
-      <div class="row small" style="margin-top:8px">
-        <span class="muted">Kapital bundet: <b>${isk(d.open.reduce((a, o) => a + Number(o.price) * Number(o.filled_qty ?? o.qty), 0))} ISK</b> av ${isk(p.capital_isk)}</span>
-        <a href="decisions.html">Marker fylt / solgt →</a></div>
-    </div>` : ''}
-    ${d.portfolio ? `<h2>Forslag til porteføljen <span class="muted small">(utover det du holder)</span></h2>
-    <div class="card">
-      ${d.portfolio.picks.length ? d.portfolio.picks.map((x) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
+      ${d.portfolio.picks.filter((x) => !x.have).length ? d.portfolio.picks.filter((x) => !x.have).map((x) => `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
         <span><a href="type.html?id=${x.type_id}">${esc(x.name)}</a> · ${x.have ? `har ${x.have}, <b>legg til ${x.qty}</b>` : `<b>${x.qty} stk</b>`} à ${price(x.buy_price)} <span class="muted">(${isk(x.cost)}, begrenset av ${x.limit})</span></span>
         <span><b class="accent">+${isk(x.expected_profit)}</b> <span class="muted">· fylling ~${days(x.days_to_fill_buy)}</span>
           <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="took(${x.type_id}, ${x.buy_price}, ${x.qty}, ${x.days_to_fill_buy}, ${x.net_per_unit}, this)">Tok denne</button></span></div>`).join('')
-        : '<div class="muted small">Ingen flere kandidater som tåler mer kapital akkurat nå.</div>'}
+        : '<div class="muted small">Ingen nye kandidater som tåler kapital akkurat nå – se «legg til» i beholdningen.</div>'}
       <div class="row small" style="margin-top:8px">
         <span class="muted">Investerbart ${isk(d.portfolio.investable)} · bundet ${isk(d.portfolio.bound)} · forslag ${isk(d.portfolio.used)} · <b>står igjen ${isk(d.portfolio.left)}</b></span>
         <span class="muted">sum +${isk(d.portfolio.total_profit)} (~${isk(d.portfolio.total_per_day)}/dag)</span></div>
       ${d.portfolio.left > d.portfolio.investable * 0.3 ? `<div class="muted small" style="margin-top:6px">⚠ ${isk(d.portfolio.left)} kan ikke sysselsettes trygt nå: kandidatene er begrenset av innflyt (det dumpes ikke nok per dag) eller av 35 %-taket per vare. Det er bedre å vente på nye kandidater enn å tvinge kapital inn i døde køer.</div>` : ''}
     </div>` : ''}
-    <h2>Topp 10</h2>${top}
+    <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
     <h2>Nesten</h2>${nearly}
     <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;
 
