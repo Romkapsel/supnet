@@ -99,7 +99,7 @@ export default async function handler(req, res) {
         if (req.method === "POST") return json(res, 200, await saveProfile(q, await readBody(req)));
         return json(res, 200, await getProfile(q));
       case "preview": return json(res, 200, await preview(q, await readBody(req)));
-      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1"));
+      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", req.query.job === "watchlist" ? "watchlist" : "hourly"));
       case "rejudge": return json(res, 200, { passed: (await q`select jita.judge() as n`)[0].n });
       case "watchlist": return json(res, 200, await watchlist(q, await readBody(req)));
       case "decision": return json(res, 200, await decision(q, await readBody(req)));
@@ -389,12 +389,13 @@ async function preview(q, body) {
 }
 
 // ── Scan nå ──────────────────────────────────────────────────────────────────
-async function scan(q, fallback = false) {
+async function scan(q, fallback = false, job = "hourly") {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
   if (fallback) {
-    // Plan B (pg_cron :40 hver time): start hvis timesjobben ikke har kjørt på 50 min (GitHub hopper ofte over :23).
-    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = 'hourly'`;
-    if (r.last && Date.now() - new Date(r.last).getTime() < 50 * 60000) return { ok: true, message: "timesjobben er fersk – ingenting å gjøre" };
+    // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
+    const maxAge = job === "watchlist" ? 15 : 50;
+    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job}`;
+    if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
     const wait = 10 - (Date.now() - new Date(p.last_manual_scan).getTime()) / 60000;
     if (wait > 0) return { ok: false, message: `vent ${Math.ceil(wait)} min` };
@@ -404,7 +405,7 @@ async function scan(q, fallback = false) {
   const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "supnet-jita" },
-    body: JSON.stringify({ event_type: "jita-scan" }),
+    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : "jita-scan" }),
   });
   if (r.status !== 204) return { ok: false, message: `GitHub svarte ${r.status}: ${(await r.text()).slice(0, 200)}` };
   if (!fallback) await q`update jita.profile set last_manual_scan = now() where id = 1`;   // auto-start skal ikke sperre «Scan nå»

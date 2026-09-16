@@ -74,13 +74,13 @@ language sql stable as $$
     select f.type_id, f.resolution,
            sum(f.bfs_qty)::float8 bfs_qty, sum(f.bfs_trades)::int bfs_trades,
            sum(f.s2b_qty)::float8 s2b_qty, sum(f.s2b_trades)::int s2b_trades,
-           sum(f.hours_covered)::float8 hours,
+           sum(f.hours_covered)::float8 hours, count(*)::int runs,
            sum(coalesce(f.bid_mods, 0) + coalesce(f.ask_mods, 0))::float8 mods
     from jita.type_flow_hourly f
     where f.hour >= now() - interval '25 hours'
     group by f.type_id, f.resolution
   ),
-  flow as (select distinct on (type_id) * from fl order by type_id, (resolution = 20 and hours >= 3) desc),   -- 20-min-tall bare med ≥ 3 t dekning
+  flow as (select distinct on (type_id) * from fl order by type_id, (resolution = 20 and hours >= 3 and runs >= 12) desc),   -- 20-min-tall bare når de er TETTE (≥ 12 kjøringer/døgn) – glisne målinger lyver
   hist as (
     select hd.type_id,
            avg(hd.average) filter (where hd.date >= current_date - 1)::float8  a1,
@@ -256,7 +256,8 @@ end $$;
 create or replace function jita.judge_preview(p jsonb)
 returns setof jita.judgement
 language sql stable as $$
-  select r.* from lateral jita.judge_rows(jita.effective_profile() || coalesce(p, '{}'::jsonb)) r
+  -- (select …) evalueres én gang; et rent uttrykk ville blitt inlinet per rad i judge_rows (7 000 × bound_isk)
+  select r.* from lateral jita.judge_rows((select jita.effective_profile() || coalesce(p, '{}'::jsonb))) r
   order by r.passed desc, r.score desc nulls last
   limit 50
 $$;

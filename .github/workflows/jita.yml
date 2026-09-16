@@ -14,7 +14,7 @@ on:
         description: "Hvilken jobb (hourly / watchlist / history / seed)"
         default: "hourly"
   repository_dispatch:
-    types: [jita-scan]
+    types: [jita-scan, jita-watchlist]
 
 env:
   SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -25,7 +25,7 @@ env:
 jobs:
   hourly:
     if: >-
-      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'jita-scan') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'hourly') ||
       (github.event_name == 'schedule' && github.event.schedule == '23 * * * *')
     runs-on: ubuntu-latest
@@ -58,6 +58,7 @@ jobs:
 
   watchlist:
     if: >-
+      (github.event_name == 'repository_dispatch' && github.event.action == 'jita-watchlist') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'watchlist') ||
       (github.event_name == 'schedule' && github.event.schedule == '5,25,45 * * * *')
     runs-on: ubuntu-latest
