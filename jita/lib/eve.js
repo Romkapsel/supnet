@@ -107,6 +107,13 @@ async function esiAll(path, token) {
   return out;
 }
 
+async function bulk(q, table, rows, cols, conflict) {
+  for (let i = 0; i < rows.length; i += 300) {
+    const chunk = rows.slice(i, i + 300);
+    await q`insert into ${q(table)} ${q(chunk, ...cols)} on conflict (${q(conflict)}) do nothing`;
+  }
+}
+
 // ── Synk: wallet, ordrer, transaksjoner, hangar, skills, standings → DB ──────
 export async function syncCharacter(q, notify) {
   const [row] = await q`select * from jita.sso_tokens order by updated_at desc limit 1`;
@@ -115,13 +122,14 @@ export async function syncCharacter(q, notify) {
   const out = { character: row.character_name, alerts: [] };
   try {
     const token = await accessToken(q, row);
-    const [wallet, orders, txs, assets, skills, standings] = await Promise.all([
+    const [wallet, orders, txs, assets, skills, standings, journal] = await Promise.all([
       esi(`/characters/${cid}/wallet/`, token).then((r) => r.data),
       esi(`/characters/${cid}/orders/`, token).then((r) => r.data || []),
       esi(`/characters/${cid}/wallet/transactions/`, token).then((r) => r.data || []),
       esiAll(`/characters/${cid}/assets/`, token),
       esi(`/characters/${cid}/skills/`, token).then((r) => r.data),
       esi(`/characters/${cid}/standings/`, token).then((r) => r.data || []),
+      esiAll(`/characters/${cid}/wallet/journal/`, token),
     ]);
 
     // profil: cash + skills + standings
@@ -148,21 +156,21 @@ export async function syncCharacter(q, notify) {
                            where state = 'open' and character_id = ${cid} and not (order_id = any(${openIds}::bigint[])) returning order_id, type_id, is_buy, volume_remain, volume_total`;
     out.orders = orders.length; out.closed = closed.length;
 
-    // transaksjoner
-    for (const t of txs) {
-      await q`insert into jita.my_transactions (transaction_id, date, type_id, is_buy, unit_price, quantity, location_id, journal_ref_id, character_id, client_id)
-              values (${t.transaction_id}, ${t.date}, ${t.type_id}, ${!!t.is_buy}, ${t.unit_price}, ${t.quantity}, ${t.location_id}, ${t.journal_ref_id}, ${cid}, ${t.client_id})
-              on conflict (transaction_id) do nothing`;
-    }
+    // transaksjoner + journal (bulk)
+    await bulk(q, "jita.my_transactions", txs.map((t) => ({ transaction_id: t.transaction_id, date: t.date, type_id: t.type_id, is_buy: !!t.is_buy,
+      unit_price: t.unit_price, quantity: t.quantity, location_id: t.location_id, journal_ref_id: t.journal_ref_id, character_id: cid, client_id: t.client_id ?? null })),
+      ["transaction_id", "date", "type_id", "is_buy", "unit_price", "quantity", "location_id", "journal_ref_id", "character_id", "client_id"], "transaction_id");
     out.transactions = txs.length;
+    await bulk(q, "jita.my_journal", journal.map((j) => ({ id: j.id, date: j.date, ref_type: j.ref_type, amount: j.amount ?? 0, balance: j.balance ?? null,
+      description: j.description ?? null, context_id: j.context_id ?? null, context_id_type: j.context_id_type ?? null, character_id: cid })),
+      ["id", "date", "ref_type", "amount", "balance", "description", "context_id", "context_id_type", "character_id"], "id");
+    out.journal = journal.length;
 
     // hangar (bare vanlige stasjoner, Hangar-flagget)
     await q`delete from jita.my_assets`;
     const hangar = assets.filter((a) => a.location_flag === "Hangar" && a.location_type === "station");
-    for (const a of hangar) {
-      await q`insert into jita.my_assets (item_id, type_id, quantity, location_id, location_flag, seen_at)
-              values (${a.item_id}, ${a.type_id}, ${a.quantity}, ${a.location_id}, ${a.location_flag}, ${now}) on conflict (item_id) do nothing`;
-    }
+    await bulk(q, "jita.my_assets", hangar.map((a) => ({ item_id: a.item_id, type_id: a.type_id, quantity: a.quantity, location_id: a.location_id, location_flag: a.location_flag, seen_at: now })),
+      ["item_id", "type_id", "quantity", "location_id", "location_flag", "seen_at"], "item_id");
     out.assets = hangar.length;
 
     // beslutninger speiler kjøpsordrene (lære-sløyfen blir automatisk)

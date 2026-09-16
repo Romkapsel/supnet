@@ -4,6 +4,7 @@
 
 import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
+import { computeResults } from "../lib/pnl.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -86,6 +87,7 @@ export default async function handler(req, res) {
     switch (action) {
       case "sso": return json(res, 200, { url: authorizeUrl() });
       case "sso_status": return json(res, 200, { eve: await ssoStatus(q) });
+      case "results": return json(res, 200, await computeResults(q, await effectiveProfile(q)));
       case "character": {
         const r = await syncCharacter(q, discord);
         if (r.ok) { const n = (await q`select jita.judge() as n`)[0].n; r.passed = n; }

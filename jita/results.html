@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Resultat – Jita</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, price, pct, num, days, dt, el, esc, nav, injectCss } from './app.js';
+injectCss();
+
+async function load() {
+  let d;
+  try { d = await api('results'); } catch (e) { el('app').innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  if (!d) return;
+  if (!d.since) { el('app').innerHTML = `<h1>Resultat</h1>${nav('results.html')}<div class="card muted">Ingen transaksjoner ennå. Koble EVE-kontoen på Profil-siden.</div>`; return; }
+  const t = d.totals, f = d.fees || {};
+  const sign = (v) => (Number(v) >= 0 ? 'green' : 'red');
+  const box = (label, p, taxV, brokerV) => `<div class="card">
+    <h3>${label}</h3>
+    <div class="row"><span class="muted small">Netto fortjeneste</span><span class="big ${sign(p.net)}">${Number(p.net) >= 0 ? '+' : ''}${isk(p.net)} ISK</span></div>
+    <div class="muted small" style="margin-top:4px">${p.sales} salg · ${p.qty} enheter · omsetning ${isk(p.revenue)} · brutto ${isk(p.gross)} − skatt ${isk(taxV || 0)} − broker ${isk(brokerV || 0)}</div></div>`;
+
+  const maxDay = Math.max(1, ...d.per_day.map((x) => Math.abs(x.gross - x.tax - x.broker_est)));
+  const chart = d.per_day.slice(-30).map((x) => { const v = x.gross - x.tax - x.broker_est; return `
+    <div title="${x.date}: ${isk(v)} ISK (${x.sold} stk)" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px">
+      <div style="width:100%;height:${(Math.abs(v) / maxDay * 70).toFixed(0)}px;background:${v >= 0 ? 'var(--green)' : 'var(--red)'};border-radius:3px"></div>
+      <div class="muted" style="font-size:0.6rem">${x.date.slice(8)}</div></div>`; }).join('');
+
+  el('app').innerHTML = `
+    <h1>Resultat <span class="muted" style="font-size:0.9rem">fra ${dt(d.since).slice(0, 10)}</span></h1>${nav('results.html')}
+    <div class="grid2">${box('Siste 7 dager', t.d7, f.tax_7d, f.broker_7d)}${box('Siste 30 dager', t.d30, f.tax_30d, f.broker_30d)}${box('Totalt', t.all, f.tax_all, f.broker_all)}</div>
+    <div class="muted small" style="margin:4px 0 10px">Brutto = salg − kostpris (FIFO). Skatt og broker er <b>eksakte</b> tall fra wallet-journalen. Broker-gebyret betales når ordren legges, også for kjøpsordrer som ennå ikke er fylt – derfor kan netto ligge under brutto i starten.</div>
+
+    <h2>Per dag <span class="muted small">(netto, anslått broker per salg)</span></h2>
+    <div class="card"><div style="display:flex;gap:3px;align-items:flex-end;height:90px">${chart || '<span class="muted">–</span>'}</div></div>
+
+    <h2>Gebyrer og skills</h2>
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="l">Skatt / mnd (tempo)</div><div class="v">${isk(d.monthly.tax)}</div></div>
+        <div class="stat"><div class="l">Broker / mnd (tempo)</div><div class="v">${isk(d.monthly.broker)}</div></div>
+      </div>
+      ${d.roi.map((r) => `<div class="row small" style="padding:6px 0;border-top:1px solid #2a2e40;margin-top:6px">
+        <span><b>${esc(r.skill)}</b> <span class="muted">– ${esc(r.note)}</span></span>
+        <span>${r.saving_month != null ? `sparer ~<b>${isk(r.saving_month)}</b>/mnd` : ''}${r.payback_days != null ? (r.payback_days === 0 ? ' · <b class="green">ingen kostnad</b>' : ` · tjener seg inn på <b class="accent">${num(r.payback_days, 0)} dager</b>`) : ''}</span></div>`).join('')}
+    </div>
+
+    <h2>Per vare</h2>
+    <div class="card" style="overflow-x:auto"><table>
+      <tr><th>Vare</th><th>Solgt</th><th>Omsetning</th><th>Kostpris</th><th>Fortjeneste</th><th>Margin</th><th>Snitt dager</th></tr>
+      ${d.per_type.filter((x) => x.sold_qty).map((x) => `<tr><td><a href="type.html?id=${x.type_id}">${esc(x.name)}</a></td><td>${x.sold_qty}</td><td>${isk(x.revenue)}</td><td>${isk(x.cost)}</td>
+        <td class="${sign(x.profit)}">${isk(x.profit)}</td><td>${pct(x.margin)}</td><td>${x.avg_hold_days != null ? num(x.avg_hold_days, 1) : '–'}</td></tr>`).join('')}
+    </table></div>
+
+    <h2>Lager til kostpris <span class="muted small">(kjøpt, ikke solgt – FIFO)</span></h2>
+    <div class="card">${d.inventory.length ? d.inventory.map((x) => `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40">
+      <span><a href="type.html?id=${x.type_id}">${esc(x.name)}</a> · ${x.qty} stk</span><span class="muted">${isk(x.cost)} ISK · eldste kjøp ${dt(x.oldest).slice(0, 10)}</span></div>`).join('')
+      + `<div class="row small" style="margin-top:6px"><span class="muted">Sum</span><b>${isk(d.inventory.reduce((a, x) => a + x.cost, 0))} ISK</b></div>` : '<span class="muted">Tomt.</span>'}</div>
+
+    ${d.used?.length ? `<h2>Kjøpt, men ikke i hangar/salg <span class="muted small">(utstyrt på skip, brukt eller flyttet – ikke regnet som lager)</span></h2>
+    <div class="card">${d.used.map((x) => `<div class="row small" style="padding:3px 0"><span>${esc(x.name)} · ${x.qty} stk</span><span class="muted">${isk(x.cost)} ISK</span></div>`).join('')}</div>` : ''}
+    ${d.unmatched.length ? `<h2>Salg uten kjent kostpris <span class="muted small">(kjøpt før dataene starter)</span></h2>
+    <div class="card">${d.unmatched.map((x) => `<div class="row small"><span>${esc(x.name)} · ${x.qty} stk</span><span class="muted">${isk(x.revenue)} · ${dt(x.date)}</span></div>`).join('')}</div>` : ''}
+
+    <h2>Siste salg</h2>
+    <div class="card" style="overflow-x:auto"><table><tr><th>Når</th><th>Vare</th><th>Antall</th><th>Solgt à</th><th>Kjøpt à</th><th>Fortjeneste</th></tr>
+      ${d.sales.slice(0, 40).map((x) => `<tr><td>${dt(x.date)}</td><td>${esc(x.name)}</td><td>${x.qty}</td><td>${price(x.sell)}</td><td>${price(x.cost)}</td><td class="${sign(x.profit)}">${isk(x.profit)}</td></tr>`).join('')}
+    </table></div>`;
+}
+load();
+</script>
+</body>
+</html>

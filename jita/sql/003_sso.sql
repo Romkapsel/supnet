@@ -34,3 +34,12 @@ select cron.unschedule(jobid) from cron.job where jobname = 'jita-eve-sync';
 select cron.schedule('jita-eve-sync', '50 * * * *',
   $$select net.http_post(url := 'https://jita-eve.vercel.app/api/character',
       headers := '{"x-jita-pin": "<PIN>", "Content-Type": "application/json"}'::jsonb, body := '{}'::jsonb)$$);
+
+-- Wallet-journal: faktiske gebyrer (brokers_fee, transaction_tax) m.m.
+create table if not exists jita.my_journal (
+  id bigint primary key, date timestamptz, ref_type text, amount numeric, balance numeric,
+  description text, context_id bigint, context_id_type text, character_id bigint
+);
+create index if not exists my_journal_date on jita.my_journal (date);
+alter table jita.my_journal enable row level security;
+grant all on all tables in schema jita to service_role;
