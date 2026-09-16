@@ -71,6 +71,14 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
+    ${(d.todo || []).length ? `<h2>Å gjøre <span class="muted small">(${d.todo.length} · sortert på ISK)</span></h2>
+    <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
+      <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start">
+        <span style="flex:1;min-width:220px"><span class="pill ${x.action === 'TREKK' ? 'bad' : x.action === 'ENDRE' || x.action === 'RELIST' ? 'warn' : 'ok'}">${x.action}</span>
+          <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a><div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div></span>
+        <span class="accent" style="white-space:nowrap">~${isk(x.impact)} ISK</span></div>`).join('')}
+      <div class="muted small" style="margin-top:8px">Overbud/undercut med råd HOLD står ikke her – de ligger i beholdningen. Endring av ordrer krever at du er dokket i Jita 4-4.</div></div>`
+    : `<h2>Å gjøre</h2><div class="card muted">Ingenting krever handling akkurat nå.</div>`}
     ${(d.alerts || []).length ? `<h2>Varsler <span class="muted small">(siste 48 t)</span></h2><div class="card">${d.alerts.map((a) =>
       `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40"><span>${a.kind === 'unlisted' ? '📦' : a.kind === 'expiry' ? '⏳' : '✅'} ${a.type_id ? `<a href="type.html?id=${a.type_id}">${esc(a.text)}</a>` : esc(a.text)}</span><span class="muted">${ago(a.created_at)}</span></div>`).join('')}</div>` : ''}
     ${(d.hangar || []).length ? `<h2>Hangar i Jita 4-4 <span class="muted small">(fra EVE)</span></h2><div class="card">${d.hangar.map((h) => {

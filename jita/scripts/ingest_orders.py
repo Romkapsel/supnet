@@ -161,11 +161,12 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
     min_margin = float((profile.thresholds or {}).get("min_margin", 0.10))
     with conn.cursor() as cur:
         # én vurdering per vare: din HØYESTE egen pris er referansen (egne ordrer skal ikke telle som overbud)
-        cur.execute("""select max(d.id), d.type_id, t.name, max(d.price)::float8, sum(coalesce(d.filled_qty, d.qty))::int
+        cur.execute("""select max(d.id), d.type_id, t.name, max(d.price)::float8,
+                              greatest(0, sum(d.qty - coalesce(d.filled_qty, 0)))::int as remaining
                        from jita.decisions d join jita.types t using (type_id)
                        where d.side = 'buy' and d.filled_at is null and d.closed_at is null
                        group by d.type_id, t.name""")
-        open_buys = cur.fetchall()
+        open_buys = [r for r in cur.fetchall() if r[4] > 0]
         if not open_buys:
             return 0
         cur.execute("""select type_id, coalesce(sum(s2b_qty) / greatest(sum(hours_covered), 1) * 24, 0)::float8
@@ -202,7 +203,56 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
         notify(f"⚠️ Overbudt: **{name}** – ditt bud {isk(p1)}, toppbud nå {isk(best_bid)} "
                f"(mur {wall} stk ≈ {adv['days_wall']} d).\nRåd: **{adv['action']}** – {adv['text']}")
         n += 1
+    n += check_sell_orders(conn, buys, sells, profile, min_margin)
     conn.commit()
+    return n
+
+
+def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
+    """Undercut-vakt for dine salgsordrer i Jita 4-4 (fra jita.my_orders, fase 2)."""
+    from common import undercut_advice, isk
+    with conn.cursor() as cur:
+        cur.execute("""select o.order_id, o.type_id, t.name, o.price::float8, o.volume_remain::int
+                       from jita.my_orders o join jita.types t using (type_id)
+                       where o.state = 'open' and not o.is_buy and o.location_id = 60003760""")
+        my_sells = cur.fetchall()
+        if not my_sells:
+            return 0
+        cur.execute("""select type_id, coalesce(sum(bfs_qty) / greatest(sum(hours_covered), 1) * 24, 0)::float8
+                       from jita.type_flow_hourly where hour > now() - interval '25 hours' and resolution = 60
+                         and type_id = any(%s) group by type_id""", ([r[1] for r in my_sells],))
+        bfs = dict(cur.fetchall())
+        cur.execute("""select type_id, sum(unit_price * quantity) / nullif(sum(quantity), 0)
+                       from jita.my_transactions where is_buy and date > now() - interval '90 days'
+                         and type_id = any(%s) group by type_id""", ([r[1] for r in my_sells],))
+        cost = {t: float(c) for t, c in cur.fetchall() if c is not None}
+        cur.execute("""select distinct on ((payload->>'order_id')::bigint) (payload->>'order_id')::bigint, kind, payload
+                       from jita.alerts where kind in ('undercut', 'undercut_cleared')
+                       order by (payload->>'order_id')::bigint, created_at desc""")
+        last = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+    n = 0
+    for oid, tid, name, p1, remaining in my_sells:
+        sl = sells.get(tid, [])
+        if not sl:
+            continue
+        best_ask = min(o[cm.O_PRICE] for o in sl)
+        prev_kind, prev_payload = last.get(oid, (None, {}))
+        if best_ask >= p1 - 1e-9:                       # du er billigst
+            if prev_kind == "undercut":
+                _alert(conn, "undercut_cleared", tid, dict(order_id=oid, price=p1, text=f"{name}: du er billigst igjen ({isk(p1)})."))
+                notify(f"✅ {name}: salgsordren din er billigst igjen ({isk(p1)}).")
+                n += 1
+            continue
+        wall = sum(o[cm.O_VOL] for o in sl if o[cm.O_PRICE] < p1)
+        adv = undercut_advice(profile, p1, remaining, best_ask, wall, bfs.get(tid, 0.0), cost.get(tid), min_margin)
+        payload = dict(order_id=oid, type_id=tid, price=p1, remaining=remaining, best_ask=best_ask, **adv)
+        if (prev_kind == "undercut" and prev_payload.get("action") == adv["action"]
+                and abs(float(prev_payload.get("best_ask", 0)) - best_ask) / best_ask < 0.005):
+            continue
+        _alert(conn, "undercut", tid, payload)
+        notify(f"⚠️ Undercut: **{name}** – din ask {isk(p1)}, laveste nå {isk(best_ask)} (mur {wall} stk ≈ {adv['days_wall']} d).\n"
+               f"Råd: **{adv['action']}** – {adv['text']}")
+        n += 1
     return n
 
 

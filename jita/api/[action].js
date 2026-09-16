@@ -172,7 +172,61 @@ async function summary(q) {
     where a.location_id = 60003760 and not t.is_excluded and not (t.is_ship and a.quantity = 1) and t.category_id <> 16
       and (a.quantity >= 2 or exists (select 1 from jita.my_transactions x where x.type_id = a.type_id and x.is_buy and x.date > now() - interval '60 days'))
     group by a.type_id, t.name, h.best_ask, h.best_bid order by qty desc`;
-  return { profile, eve, alerts, hangar, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+  const todo = await buildTodo(q, profile, portfolio, hangar);
+  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, nearly: nearly.map((r) => ({ ...r, failed_text: (r.failed_rules || []).map((c) => RULES[c] || c) })), robot, counts, rules: RULES };
+}
+
+// ── «Å gjøre»: alt som krever handling i spillet, sortert på ISK det gjelder ─
+async function buildTodo(q, p, portfolio, hangar) {
+  const items = [];
+  const tick = (x) => Math.pow(10, Math.floor(Math.log10(x)) - 3);
+  const br = Number(p.broker), tax = Number(p.tax);
+  // 1) overbud / undercut med råd ENDRE eller TREKK (siste varsel per ordre, ikke ryddet)
+  const ob = await q`
+    select distinct on (coalesce(a.payload->>'decision_id', a.payload->>'order_id')) a.kind, a.type_id, t.name, a.payload, a.created_at
+    from jita.alerts a join jita.types t using (type_id)
+    where a.kind in ('overbid','overbid_cleared','undercut','undercut_cleared') and a.created_at > now() - interval '7 days'
+    order by coalesce(a.payload->>'decision_id', a.payload->>'order_id'), a.created_at desc`;
+  for (const a of ob) {
+    if (!a.kind.endsWith('cleared') && ['ENDRE', 'TREKK'].includes(a.payload.action)) {
+      const buy = a.kind === 'overbid';
+      const [still] = buy ? await q`select 1 from jita.decisions where id = ${Number(a.payload.decision_id)} and closed_at is null and filled_at is null`
+                          : await q`select 1 from jita.my_orders where order_id = ${Number(a.payload.order_id)} and state = 'open'`;
+      if (!still) continue;
+      items.push({ kind: a.kind, type_id: a.type_id, name: a.name, action: a.payload.action,
+        title: a.payload.action === 'TREKK' ? `Vurder å trekke kjøpsordren på ${a.name}`
+             : `${buy ? 'Hev kjøpsordren' : 'Senk salgsordren'} ${a.name} → ${Math.round(a.payload.new_price).toLocaleString('nb-NO')}`,
+        detail: a.payload.text, impact: Number(a.payload.gain_24h || 0), where: 'Jita 4-4 (må være dokket)', at: a.created_at });
+    }
+  }
+  // 2) ulistet lager
+  for (const h of hangar.filter((h) => !h.listed && h.best_ask)) {
+    const sell = Number(h.best_ask) - tick(Number(h.best_ask)), net = sell * (1 - br - tax);
+    items.push({ kind: 'unlisted', type_id: h.type_id, name: h.name, action: 'LEGG UT',
+      title: `Legg ut ${h.qty} × ${h.name} à ${Math.round(sell).toLocaleString('nb-NO')}`,
+      detail: `ett tick under laveste ask ${Math.round(h.best_ask).toLocaleString('nb-NO')} · netto ~${Math.round(net).toLocaleString('nb-NO')}/stk`,
+      impact: net * h.qty, where: 'Jita 4-4 (må være dokket)' });
+  }
+  // 3) ordrer som utløper < 24 t
+  const exp = await q`select o.order_id, o.type_id, t.name, o.is_buy, o.price, o.volume_remain, o.issued, o.duration
+                      from jita.my_orders o join jita.types t using (type_id) where o.state = 'open'`;
+  for (const o of exp) {
+    const left = new Date(o.issued).getTime() + o.duration * 86400e3 - Date.now();
+    if (left < 24 * 3600e3 && o.volume_remain > 0)
+      items.push({ kind: 'expiry', type_id: o.type_id, name: o.name, action: 'RELIST',
+        title: `${o.is_buy ? 'Kjøpsordre' : 'Salgsordre'} ${o.name} utløper om ${Math.max(0, Math.round(left / 3600e3))} t`,
+        detail: `${o.volume_remain} stk à ${Number(o.price).toLocaleString('nb-NO')} – legg ut på nytt på 90 dager (billigere enn 3 × relist)`,
+        impact: Number(o.price) * o.volume_remain * 0.1, where: 'Jita 4-4 (må være dokket)' });
+  }
+  // 4) porteføljeforslag (nye kjøpsordrer / økning)
+  for (const x of portfolio?.picks || []) {
+    items.push({ kind: 'buy', type_id: x.type_id, name: x.name, action: x.have ? 'ØK' : 'KJØP',
+      title: `${x.have ? `Øk ${x.name} med ${x.qty}` : `Legg inn kjøpsordre ${x.name}: ${x.qty} stk`} à ${Math.round(x.buy_price).toLocaleString('nb-NO')}`,
+      detail: `${Math.round(x.cost).toLocaleString('nb-NO')} ISK bundet · forventet +${Math.round(x.expected_profit).toLocaleString('nb-NO')} · fylling ~${x.days_to_fill_buy.toFixed(1)} d`,
+      impact: x.expected_profit, where: 'Jita 4-4 (kjøpsordre med rekkevidde «station»)' });
+  }
+  items.sort((a, b) => b.impact - a.impact);
+  return items;
 }
 
 // ── Porteføljeforslag (spec 1b.4): sysselsett kapitalen der flyten tåler det ──
