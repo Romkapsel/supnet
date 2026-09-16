@@ -72,3 +72,9 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 - App registrert på developers.eveonline.com (callback `https://jita-eve.vercel.app/api/sso`). Vercel env: `EVE_CLIENT_ID`, `EVE_CLIENT_SECRET`.
 - `lib/eve.js`: SSO (authorization code + signert `state`), token-refresh, `syncCharacter()` – wallet → `profile.cash_isk`, skills/standings → profil, ordrer → `my_orders` (+ `decisions` automatisk via `order_id`), transaksjoner → `my_transactions` (lukker beslutninger når solgt), hangar → `my_assets`. Varsler: ulistet lager og utløp < 24 t (`alerts`, Discord hvis `DISCORD_WEBHOOK` er satt i Vercel).
 - Kjøres av pg_cron `jita-eve-sync` kl. :50 og manuelt fra Profil («Oppdater fra EVE nå»). Refresh-token ligger kun i `jita.sso_tokens`.
+
+## Minne og struktur (16. sept 2026)
+
+- **Rulleblad per vare** (`jita.type_memory`, `jita.refresh_type_memory()`): fra egne transaksjoner, beslutninger og varsler – runder, realisert margin, snitt dager kjøp→salg, overbud/undercut. Dom: `god` (×1,2), `ok` (×1), `treg`/`svak` (×0,6), `krangel` (×0,75, ≥ 1,5 varsler per runde). Faktoren ganges inn i score; teksten «Erfaring: …» legges til i begrunnelsen. Oppdateres ved hver EVE-synk og daglig 05:10 UTC. Vises på vare-siden.
+- **NPC-seedet** (`jita.types.npc_seeded`, `npc_seed_price`): salgsordrer med ≥ 365 dagers varighet finnes bare fra NPC. Timesjobben flagger (1 828 varer 16. sept). Regel `9n` stopper dem med mindre `allow_npc_seeded` er på. Eksempel: Oceanic Command Center (NPC 81 336, Jita 96k) – uendelig tilbud, klump av selgere.
+- Neste lag (ikke bygget): zKillboard som etterspørselssignal per varetype; patch-notes via Claude API.
