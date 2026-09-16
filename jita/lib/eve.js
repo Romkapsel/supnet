@@ -171,8 +171,9 @@ export async function syncCharacter(q, notify) {
     // varsler (spec 2.4): ulistet lager, utløp < 24 t
     const unlisted = await q`
       select t.name, a.type_id, sum(a.quantity)::int as qty from jita.my_assets a join jita.types t using (type_id)
-      where a.location_id = ${JITA_44} and not t.is_excluded
+      where a.location_id = ${JITA_44} and not t.is_excluded and not (t.is_ship and a.quantity = 1) and t.category_id <> 16
         and a.type_id not in (select type_id from jita.my_orders where state = 'open' and not is_buy)
+        and (a.quantity >= 2 or exists (select 1 from jita.my_transactions x where x.type_id = a.type_id and x.is_buy and x.date > now() - interval '60 days'))
       group by t.name, a.type_id order by qty desc`;
     for (const u of unlisted) out.alerts.push({ kind: "unlisted", type_id: u.type_id, text: `${u.qty} × ${u.name} i hangaren uten salgsordre` });
     for (const o of orders) {

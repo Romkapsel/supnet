@@ -184,7 +184,8 @@ $$;
 
 -- ── Kapital i arbeid = cash + bundet ─────────────────────────────────────────
 create or replace function jita.bound_isk() returns numeric language sql stable as $$
-  select coalesce(sum(price * coalesce(filled_qty, qty)), 0) from jita.decisions where side = 'buy' and closed_at is null
+  select coalesce(sum(price * case when filled_at is null then qty else coalesce(filled_qty, qty) end), 0)
+  from jita.decisions where side = 'buy' and closed_at is null
 $$;
 create or replace function jita.effective_profile() returns jsonb language sql stable as $$
   select to_jsonb(p) || jsonb_build_object(
