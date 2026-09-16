@@ -199,6 +199,7 @@ language sql stable as $$
                          case when dfb > coalesce((p->>'target_fill_days')::float8, 4) then 'tregt inn' end,
                          case when dfs > coalesce((p->>'target_fill_days')::float8, 4) then 'tregt ut' end) || '.'
                   else '' end)
+           || case when hp is null then ' ⚠ Mangler historikk (regel 6 nøytral, regel 7 ikke vurdert).' else '' end
            || case when mem_rounds >= 1 then format(' Erfaring: %s (%s runder, %s %%, ~%s d).', coalesce(mem_verdict, 'ok'), mem_rounds,
                         round((coalesce(mem_margin, 0) * 100)::numeric), round(coalesce(mem_hold, 0)::numeric, 1)) else '' end as reason,
          bid, ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct, s2b, bfs, bfs_trades, name, market_group_path

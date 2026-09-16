@@ -6,7 +6,7 @@ on:
   schedule:
     - cron: "23 * * * *"        # timesjobb (09:23 UTC = etter downtime)
     - cron: "5,25,45 * * * *"   # watchlist, lett
-    - cron: "30 4 * * *"        # historikk, daglig
+    - cron: "29 * * * *"        # historikk, hver time (inntil 400 varer, roterer over forfilteret)
     - cron: "0 3 1 * *"         # seed av varetyper, månedlig (nye varer i spillet)
   workflow_dispatch:
     inputs:
@@ -14,7 +14,7 @@ on:
         description: "Hvilken jobb (hourly / watchlist / history / seed)"
         default: "hourly"
   repository_dispatch:
-    types: [jita-scan, jita-watchlist]
+    types: [jita-scan, jita-watchlist, jita-history]
 
 env:
   SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -88,8 +88,9 @@ jobs:
 
   history:
     if: >-
+      (github.event_name == 'repository_dispatch' && github.event.action == 'jita-history') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'history') ||
-      (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *')
+      (github.event_name == 'schedule' && github.event.schedule == '29 * * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:

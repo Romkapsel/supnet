@@ -12,6 +12,7 @@ create table if not exists jita.types (
   is_t1 boolean, is_meta boolean, is_t2 boolean, is_faction boolean,
   is_ship boolean, is_excluded boolean,
   volume numeric,
+  history_fetched_at timestamptz,        -- sist ESI-historikk ble hentet (history-jobben roterer på denne)
   updated_at timestamptz default now()
 );
 -- Klassifisering fra dogma (attributt 1692 metaGroupID, 633 metaLevel):
