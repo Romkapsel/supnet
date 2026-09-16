@@ -212,18 +212,15 @@ begin
   --   type_hourly 3 d (dommeren bruker nyeste; trend bruker 48 t), fills 3 d, type_flow_hourly 30 d,
   --   candidates 14 d og bare passed + 100 beste per kjøring, robot_runs 90 d, alerts 90 d.
   insert into jita.type_daily (type_id, date, best_bid_avg, best_ask_avg, bfs_qty, s2b_qty, bid_top_qty_avg, ask_qty_1pct_avg)
-  select h.type_id, (h.snapshot_at at time zone 'utc')::date,
-         avg(h.best_bid), avg(h.best_ask),
-         (select coalesce(sum(f.bfs_qty),0) from jita.type_flow_hourly f
-           where f.type_id = h.type_id and f.resolution = 60
-             and (f.hour at time zone 'utc')::date = (h.snapshot_at at time zone 'utc')::date),
-         (select coalesce(sum(f.s2b_qty),0) from jita.type_flow_hourly f
-           where f.type_id = h.type_id and f.resolution = 60
-             and (f.hour at time zone 'utc')::date = (h.snapshot_at at time zone 'utc')::date),
-         avg(h.bid_top_qty)::bigint, avg(h.ask_qty_1pct)::bigint
-  from jita.type_hourly h
-  where h.snapshot_at < now() - interval '3 days'
-  group by h.type_id, (h.snapshot_at at time zone 'utc')::date
+  with hh as (
+    select type_id, (snapshot_at at time zone 'utc')::date as d, avg(best_bid) bid, avg(best_ask) ask,
+           avg(bid_top_qty)::bigint top_q, avg(ask_qty_1pct)::bigint ask_q
+    from jita.type_hourly where snapshot_at < now() - interval '3 days' group by type_id, (snapshot_at at time zone 'utc')::date),
+  ff as (
+    select type_id, (hour at time zone 'utc')::date as d, sum(bfs_qty) bfs, sum(s2b_qty) s2b
+    from jita.type_flow_hourly where resolution = 60 and hour < now() - interval '3 days' group by type_id, (hour at time zone 'utc')::date)
+  select hh.type_id, hh.d, hh.bid, hh.ask, coalesce(ff.bfs, 0), coalesce(ff.s2b, 0), hh.top_q, hh.ask_q
+  from hh left join ff using (type_id, d)
   on conflict (type_id, date) do update set
     best_bid_avg = excluded.best_bid_avg, best_ask_avg = excluded.best_ask_avg,
     bfs_qty = excluded.bfs_qty, s2b_qty = excluded.s2b_qty,
