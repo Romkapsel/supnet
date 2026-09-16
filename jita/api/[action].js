@@ -135,6 +135,11 @@ async function summary(q) {
     select distinct on (job) job, run_at, snapshot_at, pages_total, pages_ok, orders_count,
            ratelimit_remaining, duration_s, db_bytes, ok, message
     from jita.robot_runs order by job, run_at desc`;
+  const [dbinfo] = await q`
+    select pg_database_size(current_database())::bigint as db_bytes,
+           (select json_agg(x) from (select j.jobname, r.status, r.start_time, left(r.return_message, 80) as msg
+              from cron.job j left join lateral (select status, start_time, return_message from cron.job_run_details d where d.jobid = j.jobid order by start_time desc limit 1) r on true
+              where j.jobname like 'jita%' order by j.jobname) x) as cron`;
   const [counts] = await q`
     select (select count(*) from jita.candidates where run_at = (select max(run_at) from jita.candidates) and passed) as passed,
            (select count(*) from jita.type_hourly where snapshot_at = (select max(snapshot_at) from jita.type_hourly)) as evaluated,
@@ -173,7 +178,7 @@ async function summary(q) {
   const todo = await buildTodo(q, profile, portfolio, hangar);
   const timing = await bestHours(q, top.map((c) => c.type_id));
   for (const c of top) c.timing = timing[c.type_id] || null;
-  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, robot, counts, rules: RULES };
+  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, robot, counts, db: dbinfo, rules: RULES };
 }
 
 // ── «Å gjøre»: alt som krever handling i spillet, sortert på ISK det gjelder ─

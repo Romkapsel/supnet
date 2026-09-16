@@ -122,7 +122,14 @@ async function load() {
           <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
       </div>`; }).join('')}
     <div class="card small"><span class="muted">Bundet: <b>${isk(p.bound_isk)} ISK</b> · cash ${isk(p.cash_isk ?? 0)} (<a href="settings.html">oppdater</a>) · reserve ${pct(p.reserve_share, 0)} = ${isk(Number(p.capital_isk) * Number(p.reserve_share))} · <b>kan investeres nå: ${isk(d.portfolio?.left)}</b></span></div>` : ''}
-    <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}</div>`;
+    <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}
+      <div class="row small" style="margin-top:8px;padding-top:8px;border-top:1px solid #2a2e40">
+        <span>Database: <b class="${(d.db?.db_bytes || 0) > 350e6 ? 'red' : (d.db?.db_bytes || 0) > 250e6 ? 'accent' : ''}">${((d.db?.db_bytes || 0) / 1e6).toFixed(0)} MB</b> av 500 MB
+          ${(d.db?.db_bytes || 0) > 350e6 ? '<span class="pill bad">over 350 MB – rydding må sjekkes</span>' : (d.db?.db_bytes || 0) > 250e6 ? '<span class="pill warn">nærmer seg grensen</span>' : ''}</span>
+        <span class="muted">${(d.db?.cron || []).map((j) => `${esc(j.jobname.replace('jita-', ''))}: ${j.status ? `<span class="${j.status === 'succeeded' ? 'green' : 'red'}">${j.status === 'succeeded' ? 'ok' : 'FEIL'}</span> ${ago(j.start_time)}` : 'ikke kjørt'}`).join(' · ')}</span>
+      </div>
+      ${(d.db?.cron || []).some((j) => j.status && j.status !== 'succeeded') ? `<div class="muted small red" style="margin-top:4px">${(d.db.cron).filter((j) => j.status && j.status !== 'succeeded').map((j) => `${esc(j.jobname)}: ${esc(j.msg || '')}`).join(' · ')}</div>` : ''}
+    </div>`;
 
   let timer;
   el('search').oninput = () => {
