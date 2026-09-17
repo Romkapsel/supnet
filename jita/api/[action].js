@@ -5,6 +5,7 @@
 import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
+import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -181,97 +182,102 @@ async function summary(q) {
   return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, robot, counts, db: dbinfo, rules: RULES };
 }
 
-// ── «Å gjøre»: alt som krever handling i spillet, sortert på ISK det gjelder ─
+// ── «Å gjøre»: alt som krever handling i spillet, regnet LIVE fra dine ordrer (EVE) mot siste ordrebok ─
+// Bare klare verb: HEV, SENK, TREKK, SELG, KJØP, ØK, RELIST. HOLD-tilfeller vises i beholdningen, ikke her.
 async function buildTodo(q, p, portfolio, hangar) {
   const items = [];
-  const tick = (x) => Math.pow(10, Math.floor(Math.log10(x)) - 3);
+  const tick = tickOf;
   const br = Number(p.broker), tax = Number(p.tax);
-  // 1) overbud / undercut med råd ENDRE eller TREKK (siste varsel per ordre, ikke ryddet)
-  const ob = await q`
-    select distinct on (coalesce(a.payload->>'decision_id', a.payload->>'order_id')) a.kind, a.type_id, t.name, a.payload, a.created_at
-    from jita.alerts a join jita.types t using (type_id)
-    where a.kind in ('overbid','overbid_cleared','undercut','undercut_cleared') and a.created_at > now() - interval '7 days'
-    order by coalesce(a.payload->>'decision_id', a.payload->>'order_id'), a.created_at desc`;
-  for (const a of ob) {
-    if (!a.kind.endsWith('cleared') && ['ENDRE', 'TREKK'].includes(a.payload.action)) {
-      const buy = a.kind === 'overbid';
-      const [still] = buy ? await q`select 1 from jita.decisions where id = ${Number(a.payload.decision_id)} and closed_at is null and filled_at is null`
-                          : await q`select 1 from jita.my_orders where order_id = ${Number(a.payload.order_id)} and state = 'open'`;
-      if (!still) continue;
-      items.push({ kind: a.kind, type_id: a.type_id, name: a.name, action: a.payload.action,
-        title: a.payload.action === 'TREKK' ? `Vurder å trekke kjøpsordren på ${a.name}`
-             : `${buy ? 'Hev kjøpsordren' : 'Senk salgsordren'} ${a.name} → ${Math.round(a.payload.new_price).toLocaleString('nb-NO')}`,
-        detail: a.payload.text, impact: Number(a.payload.gain_24h || 0), where: 'Jita 4-4 (må være dokket)', at: a.created_at });
+  const minMargin = Number(p.thresholds?.min_margin ?? 0.10);
+  const JITA = 60003760;
+
+  // Dine åpne ordrer i Jita 4-4 med siste ordrebok, flyt og (om ferskt) robotens eksakte mur-tall
+  const mine = await q`
+    select o.order_id, o.type_id, t.name, o.is_buy, o.price::float8 as price, o.volume_remain::int as remaining, o.volume_total, o.issued, o.duration,
+           h.best_bid::float8 as best_bid, h.best_ask::float8 as best_ask, h.bid_qty_1pct::bigint as bid_qty_1pct, h.ask_qty_1pct::bigint as ask_qty_1pct, h.bid_top_qty::bigint as bid_top_qty,
+           c.s2b_per_day::float8 as s2b, c.bfs_per_day::float8 as bfs, c.score::float8 as score, c.days_to_fill_buy::float8 as dtf,
+           (select sum(unit_price * quantity) / nullif(sum(quantity), 0) from jita.my_transactions x where x.type_id = o.type_id and x.is_buy and x.date > now() - interval '90 days')::float8 as cost,
+           a.payload as alert
+    from jita.my_orders o join jita.types t using (type_id)
+    left join jita.type_hourly h on h.type_id = o.type_id and h.snapshot_at = (select max(snapshot_at) from jita.type_hourly)
+    left join jita.candidates c on c.type_id = o.type_id and c.run_at = (select max(run_at) from jita.candidates)
+    left join lateral (select payload from jita.alerts al where al.type_id = o.type_id and al.kind in ('overbid', 'undercut')
+                       and al.created_at > now() - interval '3 hours' order by al.created_at desc limit 1) a on true
+    where o.state = 'open' and o.location_id = ${JITA}`;
+
+  for (const o of mine) {
+    if (!o.best_bid || !o.best_ask || o.remaining <= 0) continue;
+    const fresh = o.alert && Math.abs(Number(o.alert.price) - o.price) < 1e-6
+      && Math.abs(Number(o.is_buy ? o.alert.best_bid : o.alert.best_ask) - (o.is_buy ? o.best_bid : o.best_ask)) / (o.is_buy ? o.best_bid : o.best_ask) < 0.003;
+    if (o.is_buy && o.best_bid > o.price + 1e-9) {
+      // mur = enheter over deg; robotens eksakte tall hvis ferskt, ellers anslag fra ordreboken (innenfor 1 %)
+      const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.bid_qty_1pct || 0) - (o.price >= o.best_bid * 0.99 ? o.remaining : 0));
+      const adv = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "HEV" : o.alert.action } : overbidAdvice(p, o.price, o.remaining, o.best_bid, wall, o.s2b || 0, o.best_ask, minMargin);
+      if (adv.action === "HEV") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "HEV",
+        title: `Hev kjøpsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
+      else if (adv.action === "TREKK") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "TREKK",
+        title: `Trekk kjøpsordren ${o.name} (${o.remaining} stk)`, detail: adv.text, impact: o.price * o.remaining * 0.1, where: "Jita 4-4 (må være dokket)" });
+    }
+    if (!o.is_buy && o.best_ask < o.price - 1e-9) {
+      const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.ask_qty_1pct || 0) - (o.price <= o.best_ask * 1.01 ? o.remaining : 0));
+      const adv = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "SENK" : o.alert.action } : undercutAdvice(p, o.price, o.remaining, o.best_ask, wall, o.bfs || 0, o.cost, minMargin);
+      if (adv.action === "SENK") items.push({ kind: "undercut", type_id: o.type_id, name: o.name, action: "SENK",
+        title: `Senk salgsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
+    }
+    // utløper < 24 t
+    const left = new Date(o.issued).getTime() + o.duration * 86400e3 - Date.now();
+    if (left < 24 * 3600e3)
+      items.push({ kind: "expiry", type_id: o.type_id, name: o.name, action: "RELIST",
+        title: `${o.is_buy ? "Kjøpsordre" : "Salgsordre"} ${o.name} utløper om ${Math.max(0, Math.round(left / 3600e3))} t – legg ut på nytt (90 dager)`,
+        detail: `${o.remaining} stk à ${o.price.toLocaleString("nb-NO")} · ny ordre koster fullt broker-gebyr, så velg 90 dager`, impact: o.price * o.remaining * 0.1, where: "Jita 4-4 (må være dokket)" });
+    // kjøpsordre som sitter fast mens en dobbelt så god kandidat finnes (spec 2.4)
+    if (o.is_buy && o.dtf > 14) {
+      const [b] = await q`select t.name, c.score::float8 as score from jita.candidates c join jita.types t using (type_id)
+        where c.run_at = (select max(run_at) from jita.candidates) and c.passed and c.type_id not in (select type_id from jita.my_orders where state = 'open')
+        order by c.score desc nulls last limit 1`;
+      if (b && b.score > 2 * (o.score || 0) && !items.some((x) => x.type_id === o.type_id && x.action === "TREKK"))
+        items.push({ kind: "move", type_id: o.type_id, name: o.name, action: "TREKK",
+          title: `Trekk kjøpsordren ${o.name} (${o.remaining} stk) og flytt kapitalen`,
+          detail: `fyllingstid ~${o.dtf.toFixed(0)} d; ${b.name} har over dobbel score. Broker-gebyret er tapt uansett – ${Math.round(o.price * o.remaining).toLocaleString("nb-NO")} ISK frigjøres`,
+          impact: o.price * o.remaining * 0.1, where: "Jita 4-4 (må være dokket)" });
     }
   }
-  // 2) ulistet lager
+
+  // Ulistet lager → SELG
   for (const h of hangar.filter((h) => !h.listed && h.best_ask)) {
     const sell = Number(h.best_ask) - tick(Number(h.best_ask)), net = sell * (1 - br - tax);
-    items.push({ kind: 'unlisted', type_id: h.type_id, name: h.name, action: 'LEGG UT',
-      title: `Legg ut ${h.qty} × ${h.name} à ${Math.round(sell).toLocaleString('nb-NO')}`,
-      detail: `ett tick under laveste ask ${Math.round(h.best_ask).toLocaleString('nb-NO')} · netto ~${Math.round(net).toLocaleString('nb-NO')}/stk`,
-      impact: net * h.qty, where: 'Jita 4-4 (må være dokket)' });
+    items.push({ kind: "unlisted", type_id: h.type_id, name: h.name, action: "SELG",
+      title: `Legg ut ${h.qty} × ${h.name} à ${Math.round(sell).toLocaleString("nb-NO")}`,
+      detail: `ett tick under laveste ask ${Math.round(h.best_ask).toLocaleString("nb-NO")} · netto ~${Math.round(net).toLocaleString("nb-NO")}/stk`,
+      impact: net * h.qty, where: "Jita 4-4 (må være dokket)" });
   }
-  // 3) ordrer som utløper < 24 t
-  const exp = await q`select o.order_id, o.type_id, t.name, o.is_buy, o.price, o.volume_remain, o.issued, o.duration
-                      from jita.my_orders o join jita.types t using (type_id) where o.state = 'open'`;
-  for (const o of exp) {
-    const left = new Date(o.issued).getTime() + o.duration * 86400e3 - Date.now();
-    if (left < 24 * 3600e3 && o.volume_remain > 0)
-      items.push({ kind: 'expiry', type_id: o.type_id, name: o.name, action: 'RELIST',
-        title: `${o.is_buy ? 'Kjøpsordre' : 'Salgsordre'} ${o.name} utløper om ${Math.max(0, Math.round(left / 3600e3))} t`,
-        detail: `${o.volume_remain} stk à ${Number(o.price).toLocaleString('nb-NO')} – legg ut på nytt på 90 dager (billigere enn 3 × relist)`,
-        impact: Number(o.price) * o.volume_remain * 0.1, where: 'Jita 4-4 (må være dokket)' });
-  }
-  // 4) porteføljeforslag (nye kjøpsordrer / økning)
-  for (const x of portfolio?.picks || []) {
-    items.push({ kind: 'buy', type_id: x.type_id, name: x.name, action: x.have ? 'ØK' : 'KJØP',
-      title: `${x.have ? `Øk ${x.name} med ${x.qty}` : `Legg inn kjøpsordre ${x.name}: ${x.qty} stk`} à ${Math.round(x.buy_price).toLocaleString('nb-NO')}`,
-      detail: `${Math.round(x.cost).toLocaleString('nb-NO')} ISK bundet · forventet +${Math.round(x.expected_profit).toLocaleString('nb-NO')} · fylling ~${x.days_to_fill_buy.toFixed(1)} d`,
-      impact: x.expected_profit, where: 'Jita 4-4 (kjøpsordre med rekkevidde «station»)' });
-  }
-  // 5) trend mot deg (spec 2.4): varer du sitter med der ask har falt > 5 % på 48 t eller selgerklyngen er tredoblet
+
+  // Trend mot deg på varer du sitter med og har salgsordre for → SENK (spec 2.4). Uten salgsordre dekkes det av SELG over.
   const trend = await q`
-    with held as (
-      select type_id, sum(n)::int as n from (
-        select type_id, quantity as n from jita.my_assets where location_flag = 'Hangar'
-        union all select type_id, volume_remain from jita.my_orders where state = 'open' and not is_buy) x group by type_id)
-    select held.type_id, t.name, held.n,
-           now_.best_ask::float8 as ask_now, then_.best_ask::float8 as ask_then,
-           now_.ask_orders_1pct as cl_now, then_.ask_orders_1pct as cl_then,
-           (select price::float8 from jita.my_orders o where o.type_id = held.type_id and o.state = 'open' and not o.is_buy order by price limit 1) as my_ask
-    from held join jita.types t on t.type_id = held.type_id
-    join lateral (select best_ask, ask_orders_1pct from jita.type_hourly where type_id = held.type_id order by snapshot_at desc limit 1) now_ on true
-    join lateral (select best_ask, ask_orders_1pct from jita.type_hourly where type_id = held.type_id and snapshot_at <= now() - interval '48 hours' order by snapshot_at desc limit 1) then_ on true
-    where held.n > 10 and not (t.is_ship and held.n = 1) and t.category_id <> 16`;
+    select o.type_id, t.name, o.price::float8 as my_ask, o.volume_remain::int as remaining,
+           now_.best_ask::float8 as ask_now, then_.best_ask::float8 as ask_then, now_.ask_orders_1pct as cl_now, then_.ask_orders_1pct as cl_then
+    from jita.my_orders o join jita.types t using (type_id)
+    join lateral (select best_ask, ask_orders_1pct from jita.type_hourly where type_id = o.type_id order by snapshot_at desc limit 1) now_ on true
+    join lateral (select best_ask, ask_orders_1pct from jita.type_hourly where type_id = o.type_id and snapshot_at <= now() - interval '48 hours' order by snapshot_at desc limit 1) then_ on true
+    where o.state = 'open' and not o.is_buy and o.location_id = ${JITA} and o.volume_remain > 10`;
   for (const r of trend) {
     const drop = r.ask_then > 0 ? (r.ask_then - r.ask_now) / r.ask_then : 0;
     const cluster = r.cl_then > 0 && r.cl_now >= 3 * r.cl_then;
-    if (drop > 0.05 || cluster) {
+    if ((drop > 0.05 || cluster) && r.my_ask > r.ask_now && !items.some((x) => x.type_id === r.type_id && x.action === "SENK")) {
       const target = r.ask_now - tick(r.ask_now);
-      items.push({ kind: 'trend', type_id: r.type_id, name: r.name, action: 'VURDER',
-        title: `${r.name}: markedet går mot deg – vurder å følge ned én gang${r.my_ask ? ` (din ask ${Math.round(r.my_ask).toLocaleString('nb-NO')} → ${Math.round(target).toLocaleString('nb-NO')})` : ''}`,
-        detail: `${drop > 0.05 ? `laveste ask falt ${(drop * 100).toFixed(1).replace('.', ',')} % på 48 t (${Math.round(r.ask_then).toLocaleString('nb-NO')} → ${Math.round(r.ask_now).toLocaleString('nb-NO')})` : ''}${drop > 0.05 && cluster ? ' · ' : ''}${cluster ? `selgere innenfor 1 % gikk fra ${r.cl_then} til ${r.cl_now}` : ''} · du sitter med ${r.n} stk`,
-        impact: r.n * r.ask_now * Math.max(drop, 0.05), where: 'Jita 4-4 (må være dokket)' });
+      items.push({ kind: "trend", type_id: r.type_id, name: r.name, action: "SENK",
+        title: `Senk salgsordren ${r.name} → ${Math.round(target).toLocaleString("nb-NO")} (markedet går mot deg)`,
+        detail: `${drop > 0.05 ? `laveste ask falt ${(drop * 100).toFixed(1).replace(".", ",")} % på 48 t (${Math.round(r.ask_then).toLocaleString("nb-NO")} → ${Math.round(r.ask_now).toLocaleString("nb-NO")})` : ""}${drop > 0.05 && cluster ? " · " : ""}${cluster ? `selgere innenfor 1 % gikk fra ${r.cl_then} til ${r.cl_now}` : ""} · følg ned én gang, ikke jag`,
+        impact: r.remaining * r.ask_now * Math.max(drop, 0.05), where: "Jita 4-4 (må være dokket)" });
     }
   }
-  // 6) flytt kapitalen (spec 2.4): kjøpsordre med > 14 dagers fylling mens en kandidat med dobbel score finnes
-  const stuck = await q`
-    select d.type_id, t.name, d.qty - coalesce(d.filled_qty, 0) as remaining, d.price::float8 as price,
-           c.days_to_fill_buy::float8 as dtf, c.score::float8 as score,
-           (select max(c2.score)::float8 from jita.candidates c2 where c2.run_at = c.run_at and c2.passed
-              and c2.type_id not in (select type_id from jita.decisions where closed_at is null)) as best_other,
-           (select t2.name from jita.candidates c2 join jita.types t2 using (type_id) where c2.run_at = c.run_at and c2.passed
-              and c2.type_id not in (select type_id from jita.decisions where closed_at is null) order by c2.score desc nulls last limit 1) as best_name
-    from jita.decisions d join jita.types t using (type_id)
-    join jita.candidates c on c.type_id = d.type_id and c.run_at = (select max(run_at) from jita.candidates)
-    where d.side = 'buy' and d.closed_at is null and d.filled_at is null`;
-  for (const r of stuck) {
-    if (r.dtf > 14 && r.best_other && r.best_other > 2 * (r.score || 0) && r.remaining > 0)
-      items.push({ kind: 'move', type_id: r.type_id, name: r.name, action: 'TREKK',
-        title: `Trekk kjøpsordren ${r.name} (${r.remaining} stk) og flytt kapitalen`,
-        detail: `fyllingstid ~${r.dtf.toFixed(0)} d; ${r.best_name} har over dobbel score. Broker-gebyret er tapt uansett – kapitalen (${Math.round(r.remaining * r.price).toLocaleString('nb-NO')} ISK) frigjøres`,
-        impact: r.remaining * r.price * 0.1, where: 'Jita 4-4 (må være dokket)' });
+
+  // Porteføljeforslag → KJØP / ØK
+  for (const x of portfolio?.picks || []) {
+    items.push({ kind: "buy", type_id: x.type_id, name: x.name, action: x.have ? "ØK" : "KJØP",
+      title: `${x.have ? `Øk ${x.name} med ${x.qty}` : `Legg inn kjøpsordre ${x.name}: ${x.qty} stk`} à ${Math.round(x.buy_price).toLocaleString("nb-NO")}`,
+      detail: `${Math.round(x.cost).toLocaleString("nb-NO")} ISK bundet · forventet +${Math.round(x.expected_profit).toLocaleString("nb-NO")} · fylling ~${x.days_to_fill_buy.toFixed(1)} d · 90 dagers varighet`,
+      impact: x.expected_profit, where: "Jita 4-4 (kjøpsordre med rekkevidde «station»)" });
   }
   items.sort((a, b) => b.impact - a.impact);
   return items;

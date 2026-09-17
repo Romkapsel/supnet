@@ -92,3 +92,6 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 
 ## Blokk 1.4 (16. sept 2026) – driftsrettelser
 Se spec del 9.3. Kort: rydding 3 d/30 d/14 d + rettet `type_daily`-rulling; EVE-synk i deler med feil per del; historikk hver time (400 varer, `history_fetched_at`); DB-størrelse og cron-status i robot-boksen; forklaring når porteføljen er tom.
+
+## «Å gjøre» (17. sept 2026)
+Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, ikke fra lagrede varsler (som ble stående etter at ordren var endret). Robotens eksakte mur-tall (`alerts`, < 3 t gamle og med samme pris/toppbud) brukes når de finnes, ellers anslag fra ordreboken. Rådlogikken er speilet i `lib/advice.js` (= `common.py`). Bare klare verb: HEV, SENK, TREKK, SELG, KJØP, ØK, RELIST – HOLD vises i beholdningen. Reserve senket til 10 % (karakteren er ren trader; cash trengs bare til gebyrer og én ny posisjon).
