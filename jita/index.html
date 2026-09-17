@@ -28,7 +28,7 @@ async function load() {
   const openBy = {};
   for (const o of d.open || []) (openBy[o.type_id] ||= []).push(o);
   const taken = (type_id) => (openBy[type_id] || []).map((o) =>
-    `<a href="decisions.html" class="pill ${o.filled_at ? 'warn' : 'ok'}">✓ Tatt ${dt(o.created_at).slice(0, 5)} – ${o.qty} stk à ${price(o.price)}${o.filled_at ? ' · fylt, venter på salg' : ''}</a>`).join('');
+    `<span class="pill ${o.filled_at ? 'warn' : 'ok'}">✓ Din ordre ${o.qty} stk à ${price(o.price)}${o.filled_at ? ' · fylt' : ''}</span>`).join('');
 
   const top = d.top.length ? d.top.map((c, i) => `
     <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
@@ -41,7 +41,7 @@ async function load() {
       <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
       ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 14 d)</span></div>` : ''}
       <div class="reason">${esc(c.reason)}</div>
-      <div style="margin-top:6px">${openBy[c.type_id] ? taken(c.type_id) : `<button class="ghost small" onclick="event.stopPropagation(); took(${c.type_id}, ${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">Jeg tok denne</button>`}</div>
+      ${openBy[c.type_id] ? `<div style="margin-top:6px">${taken(c.type_id)}</div>` : ''}
     </div>`).join('')
     : `<div class="card muted">Ingen nye varer passerer alle reglene akkurat nå${(d.open || []).length ? ' – de du holder ligger i beholdningen over' : ''}. Nye kandidater dukker opp av seg selv når reglene slår til.</div>`;
 
@@ -68,7 +68,7 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
-    <h2>Topp 10 <span class="muted small">(nye muligheter – det du holder ligger i beholdningen)</span></h2>${top}
+    <h2>Topp 10 <span class="muted small">(nye muligheter – dine egne posisjoner står lenger ned)</span></h2>${top}
     ${(() => { const pf = d.portfolio; if (!pf) return '';
         const over = pf.bound - pf.investable;
         return over > 0 ? `<div class="banner" style="background:#3a331f;color:var(--accent)">Ingen kjøpsforslag – du har ${isk(pf.bound)} ISK bundet mot ${isk(pf.investable)} investerbart (${pct(p.reserve_share, 0)} reserve). Frigjør ${isk(over)} ISK før nye kjøp.</div>`
@@ -90,7 +90,7 @@ async function load() {
       return `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
         <span><a href="type.html?id=${h.type_id}">${esc(h.name)}</a> · <b>${h.qty} stk</b> ${h.listed ? '<span class="pill ok">salgsordre ute</span>' : '<span class="pill warn">ikke lagt ut</span>'}</span>
         <span class="muted">${sell ? `legg ut à <b class="accent">${price(sell)}</b> (netto ${isk(net)}/stk, ${isk(net * h.qty)} totalt)` : 'ingen pris nå'}</span></div>`; }).join('')}</div>` : ''}
-    ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${new Set(d.open.map((o) => o.type_id)).size} posisjoner)</span></h2>
+    ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${new Set(d.open.map((o) => o.type_id)).size} posisjoner · fra EVE, oppdateres automatisk)</span></h2>
     ${Object.values(d.open.reduce((acc, o) => {   // slå sammen ordrer på samme vare til én posisjon
         const g = acc[o.type_id] ||= { ...o, orders: [], qty: 0, cost: 0 };
         g.orders.push(o); g.qty += Number(o.filled_qty ?? o.qty); g.cost += Number(o.price) * Number(o.filled_qty ?? o.qty);
@@ -120,10 +120,7 @@ async function load() {
           <span>${o.net_now != null ? `netto nå ${isk(o.net_now)}/stk (${pct(o.margin_now)})` : ''}${o.bfs_per_day != null ? ` · ${num(o.s2b_per_day)}/dag inn, ${num(o.bfs_per_day)}/dag ut` : ''}</span></div>
         ${o.reason && o.reason.includes('Svakhet') ? `<div class="reason">${esc(o.reason.slice(o.reason.indexOf('Svakhet')))}</div>` : ''}
         ${advice}
-        <div class="row small" style="margin-top:8px">
-          <span>${topup ? `<span class="accent">Flyten tåler <b>+${topup.qty}</b> (${isk(topup.cost)}) → +${isk(topup.expected_profit)}</span>
-            <button class="ghost small" style="padding:4px 10px;margin-left:6px" onclick="event.stopPropagation(); took(${topup.type_id}, ${topup.buy_price}, ${topup.qty}, ${topup.days_to_fill_buy}, ${topup.net_per_unit}, this)">La til ${topup.qty}</button>` : ''}</span>
-          <a href="decisions.html" onclick="event.stopPropagation()">${o.filled_at ? 'Marker solgt →' : 'Marker fylt →'}</a></div>
+        ${topup ? `<div class="row small" style="margin-top:8px"><span class="accent">Flyten tåler <b>+${topup.qty}</b> (${isk(topup.cost)}) → +${isk(topup.expected_profit)} – legg en ny kjøpsordre i spillet, den fanges opp ved neste synk</span></div>` : ''}
       </div>`; }).join('')}
     <div class="card small"><span class="muted">Bundet: <b>${isk(p.bound_isk)} ISK</b> · cash ${isk(p.cash_isk ?? 0)} (<a href="settings.html">oppdater</a>) · reserve ${pct(p.reserve_share, 0)} = ${isk(Number(p.capital_isk) * Number(p.reserve_share))} · <b>kan investeres nå: ${isk(d.portfolio?.left)}</b></span></div>` : ''}
     <h2>Robot</h2><div class="card ${hourlyStale ? 'red' : ''}">${hourlyStale ? '<div class="pill bad">Timesjobben er > 2 t gammel eller feilet</div>' : ''}${robot}
@@ -155,11 +152,7 @@ async function load() {
   };
 }
 
-window.took = async (type_id, p, qty, pdays, pnet, btn) => {
-  btn.disabled = true;
-  try { await api('decision', { method: 'POST', body: { type_id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret i beholdningen'; setTimeout(load, 800); }
-  catch (e) { btn.textContent = 'Feil: ' + e.message; }
-};
+
 load();
 // auto-oppdatering hvert 5. minutt når fanen er synlig
 setInterval(() => { if (document.visibilityState === 'visible' && !el('search')?.value) load(); }, 5 * 60000);

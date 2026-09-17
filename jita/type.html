@@ -71,10 +71,8 @@ async function load() {
       </div>
       <div class="reason">${esc(c.reason)}</div>
       ${d.decisions.some((x) => !x.closed_at) ? `<div style="margin-top:10px">${d.decisions.filter((x) => !x.closed_at).map((x) =>
-        `<a href="decisions.html" class="pill ${x.filled_at ? 'warn' : 'ok'}">✓ Tatt ${dt(x.created_at)} – ${x.qty} stk à ${price(x.price)}${x.filled_at ? ' · fylt, venter på salg' : ' · kjøpsordre ute'}</a>`).join('')}
-        <div class="muted small" style="margin-top:4px">Ligger i <a href="decisions.html">beholdningen</a>. Marker «Fylt» der når kjøpsordren er fylt.</div></div>` : ''}
+        `<span class="pill ${x.filled_at ? 'warn' : 'ok'}">✓ Din ordre ${x.qty} stk à ${price(x.price)}${x.filled_at ? ' · fylt' : ' · kjøpsordre ute'}</span>`).join('')}</div>` : ''}
       <div class="row" style="margin-top:10px">
-        <button class="${d.decisions.some((x) => !x.closed_at) ? 'ghost' : ''}" onclick="took(${c.buy_price}, ${c.qty}, ${c.days_to_fill_buy ?? 'null'}, ${c.net_per_unit ?? 'null'}, this)">${d.decisions.some((x) => !x.closed_at) ? 'Tok en til' : 'Jeg tok denne'}</button>
         <button class="ghost" onclick="wl('follow')">${t.wl_status === 'follow' ? 'Slutt å følge' : 'Følg (20 min)'}</button>
         <button class="ghost" onclick="wl('ignore')">${t.wl_status === 'ignore' ? 'Fjern ignorer' : 'Ignorer'}</button>
       </div></div>` : '<div class="card muted">Ikke dømt ennå (ikke i forfilter-settet siste kjøring).</div>'}
@@ -119,7 +117,7 @@ async function load() {
       d.history.slice(0, 14).map((h) => `<tr><td>${h.date}</td><td>${price(h.average)}</td><td>${price(h.lowest)}</td><td>${price(h.highest)}</td><td>${isk(h.volume)}</td><td>${h.order_count}</td></tr>`).join('')}</table>`
       : '<span class="muted">Ingen historikk hentet ennå (hentes daglig 04:30 UTC for varer som passerer regel 1–4).</span>'}</div>
 
-    ${d.decisions.length ? `<h2>Dine beslutninger</h2><div class="card">${d.decisions.map((x) => `<div class="row small"><span>${dt(x.created_at)} · ${x.side} ${x.qty} à ${price(x.price)}</span><span class="muted">${x.closed_at ? 'lukket' : x.filled_at ? 'fylt' : 'åpen'}</span></div>`).join('')}</div>` : ''}
+
   `;
 
   const calc = () => {
@@ -150,11 +148,7 @@ async function loadBook() {
   } catch (e) { el('book').innerHTML = `<span class="muted">Kunne ikke hente ordreboken (${esc(e.message)})</span>`; }
 }
 
-window.took = async (p, qty, pdays, pnet, btn) => {
-  btn.disabled = true;
-  try { await api('decision', { method: 'POST', body: { type_id: id, side: 'buy', price: p, qty, predicted_days: pdays, predicted_net_per_unit: pnet } }); btn.textContent = '✓ Lagret i beholdningen'; setTimeout(load, 800); }
-  catch (e) { btn.textContent = 'Feil: ' + e.message; }
-};
+
 window.wl = async (status) => {
   const same = wlStatus === status;
   let note = null;
