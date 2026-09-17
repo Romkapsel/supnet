@@ -58,6 +58,7 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 
 - **Regel 1b (endret 16. sept):** «forventet fortjeneste per posisjon ≥ `min_position_profit_share` × kapital» (1 %) i stedet for «netto/enhet ≥ kapital/1000». Den gamle stoppet Amarr Shuttle (6k × 100 stk) så snart kapitalen passerte ~6 mill. `min_net_per_unit` beregnes fortsatt (vises), men brukes ikke som regel.
 - **Regel 2 og 4 (endret 16. sept):** absolutt terskel *og* `wall_days` (2): mur/klump stopper bare hvis den tar > 2 dager å tømme med dagens flyt. Tracking Speed Script (klump 500, liftes 447/dag) og Light Neutron Blaster (mur, dumpes 972/dag) ble feilaktig stoppet av absolutte tall.
+- **Score (17. sept):** `antall × netto / (1 + dager)` × straffer – posisjonens ISK/dag, ikke markedets. v3 brukte flyt i stedet for antall.
 - **Regel 5:** implementert som «S2B/dag × fyllingstid ≥ min_qty» + «bfs_trades ≥ terskel». Spec-ens «S2B ≥ antall / fyllingstid» er trivielt sann fordi antall allerede er begrenset av S2B × fyllingstid.
 - **Dager til fylling:** «enheter foran deg» = enhetene innenfor 1 % (bid_qty_1pct / ask_qty_1pct), ikke 0 – konkurrentene på toppen legger seg over deg igjen.
 - **Regel 1x (ny):** margin > `max_margin` (200 %) forkastes – da er «toppbudet» et 0,01-ISK-bud, ikke et marked.

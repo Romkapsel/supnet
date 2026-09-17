@@ -176,7 +176,9 @@ language sql stable as $$
   ),
   e5 as (
     select e4.*,
-           net * least(s2b, bfs) / (1 + dfb + dfs)
+           -- score (endret 17. sept 2026) = forventet ISK per dag for DIN posisjon: (antall × netto) / (1 + dager kjøp + dager salg).
+           -- v3-formelen brukte markedets flyt i stedet for antall og rangerte bulkvarer over det du faktisk tjener mest på.
+           q * net / (1 + dfb + dfs)
              * least(1.0, greatest(coalesce(hp, 0.7), 0) / 0.7)
              * least(1.0, ratio)
              * mem_factor                                          -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75

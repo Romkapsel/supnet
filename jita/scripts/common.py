@@ -73,6 +73,7 @@ class Profile:
     standing_corp: float = 0.0
     standing_faction: float = 0.0
     broker_fee_override: float | None = None
+    broker_fee_measured: float | None = None      # målt fra wallet-journalen (fase 2)
     sales_tax_override: float | None = None
     positions: int = 7
     target_fill_days: float = 4
@@ -88,7 +89,7 @@ class Profile:
         for k, v in list(fields.items()):
             if k != "thresholds" and not isinstance(v, (bool, dict)):
                 fields[k] = float(v) if k in ("capital_isk", "standing_corp", "standing_faction",
-                                              "broker_fee_override", "sales_tax_override",
+                                              "broker_fee_override", "broker_fee_measured", "sales_tax_override",
                                               "target_fill_days", "reserve_share") else int(v)
         return cls(**fields)
 
@@ -97,6 +98,8 @@ def fees(profile: Profile) -> tuple[float, float]:
     """Broker: 3 % − 0,3 pp/nivå BR − 0,03 pp/faction-standing − 0,02 pp/corp-standing, gulv 1 %.
     Sales tax: 7,5 % × (1 − 0,11 × Accounting)."""
     broker = profile.broker_fee_override
+    if broker is None:
+        broker = profile.broker_fee_measured            # override > målt > formel (som jita.profile_calc)
     if broker is None:
         broker = max(0.01,
                      0.03 - 0.003 * profile.broker_relations
@@ -152,8 +155,10 @@ def flow_per_day(sum_qty: float, hours_covered: float) -> float:
     return sum_qty / max(hours_covered, 1) * 24
 
 
-def score(net_per_unit: float, s2b: float, bfs: float, days: float, hist_pos: float) -> float:
-    base = net_per_unit * min(s2b, bfs) / (1 + days)
+def score(net_per_unit: float, s2b: float, bfs: float, days: float, hist_pos: float, qty: float | None = None) -> float:
+    """Forventet ISK per dag for POSISJONEN (17. sept 2026): antall × netto / (1 + dager), straffet av svake tegn.
+    (v3 brukte min(s2b, bfs) i stedet for antall – det rangerte bulkvarer over det du faktisk tjener mest på.)"""
+    base = net_per_unit * (qty if qty is not None else min(s2b, bfs)) / (1 + days)
     ratio = bfs / max(s2b, 0.1)
     return base * min(1.0, max(hist_pos, 0) / 0.7) * min(1.0, ratio)
 

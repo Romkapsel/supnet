@@ -64,10 +64,13 @@ Dette er regelsettet som ble brukt manuelt 13.–14. september, og som verktøye
 ## 2.2 Rangering av dem som består
 
 ```
-score = netto per enhet × min(dumpet/dag, liftet/dag) / (1 + dager til fylling)
+score = (antall × netto per enhet) / (1 + dager til fylling kjøp + dager til fylling salg)
         × min(1, hist_pos / 0,7)          (regel 6, myk)
         × min(1, BfS/S2B)                 (regel 5b, myk)
+        × rulleblad-faktor                (0,6–1,2, fra egne handler)
+        × min(1, terskel / prisendringer per time)   (regel 10, myk)
 ```
+*(Rettet 17. sept 2026: v3 brukte `min(dumpet/dag, liftet/dag)` i stedet for `antall`. Det ga «markedets ISK/dag», ikke posisjonens, og rangerte bulkvarer med enorm flyt over det Daniel faktisk tjener mest på med sitt budsjett. Nå er score = forventet ISK per dag for posisjonen, slik teksten under alltid har sagt.)*
 Altså: **forventet ISK per dag for posisjonen, straffet av ventetid og av svake tegn.** Dette rangerer Tracking Speed Script (18k netto, mye flyt, kort kø) over Small Thermal (10k netto, lite flyt) – som stemmer med erfaringen.
 
 ## 2.3 Anbefalingen per vare
