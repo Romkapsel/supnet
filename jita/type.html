@@ -70,6 +70,7 @@ async function load() {
         <div class="stat"><div class="l">Score</div><div class="v">${isk(c.score)}</div></div>
       </div>
       <div class="reason">${esc(c.reason)}</div>
+      ${c.factors ? `<div class="muted small" style="margin-top:6px">Score = ${isk(c.factors.isk_per_day)}/dag × historie ${num(c.factors.hist, 2)} × etterspørsel ${num(c.factors.demand, 2)} × momentum ${num(c.factors.momentum, 2)} × stabil ${num(c.factors.stable, 2)} × rulleblad ${num(c.factors.memory, 2)} × krig ${num(c.factors.war, 2)} = <b>${isk(c.score)}</b></div>` : ''}
       ${d.decisions.some((x) => !x.closed_at) ? `<div style="margin-top:10px">${d.decisions.filter((x) => !x.closed_at).map((x) =>
         `<span class="pill ${x.filled_at ? 'warn' : 'ok'}">✓ Din ordre ${x.qty} stk à ${price(x.price)}${x.filled_at ? ' · fylt' : ' · kjøpsordre ute'}</span>`).join('')}</div>` : ''}
       <div class="row" style="margin-top:10px">

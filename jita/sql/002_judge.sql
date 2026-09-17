@@ -58,7 +58,7 @@ do $$ begin
   -- ekstra kolonner til «nesten»-lista og type-siden
   best_bid double precision, best_ask double precision, bid_top_qty bigint, bid_orders_1pct int,
   ask_qty_1pct bigint, s2b_per_day double precision, bfs_per_day double precision, bfs_trades int,
-  name text, market_group_path text
+  name text, market_group_path text, factors jsonb
 )';
   end if;
 end $$;
@@ -87,7 +87,9 @@ language sql stable as $$
            avg(hd.average) filter (where hd.date >= current_date - 5)::float8  a5,
            avg(hd.average) filter (where hd.date >= current_date - 20)::float8 a20,
            avg(hd.order_count) filter (where hd.date >= current_date - 5)::float8 oc5,  -- ekte handler/dag (hele The Forge)
-           avg(hd.volume) filter (where hd.date >= current_date - 5)::float8 vol5        -- enheter/dag (tak for flyt-anslag)
+           avg(hd.volume) filter (where hd.date >= current_date - 5)::float8 vol5,       -- enheter/dag (tak for flyt-anslag)
+           avg(hd.volume) filter (where hd.date >= current_date - 20)::float8 vol20,     -- momentum: vol5/vol20
+           avg((hd.highest - hd.lowest) / nullif(hd.average, 0)) filter (where hd.date >= current_date - 5)::float8 range5   -- stabilitet: dagsintervall/snitt
     from jita.history_daily hd group by hd.type_id
   ),
   d7 as (
@@ -108,7 +110,7 @@ language sql stable as $$
            least(coalesce(f.bfs_qty / greatest(f.hours, 1) * 24, 0), coalesce(h.vol5, 1e12))::float8 bfs,
            coalesce(f.mods / greatest(f.hours, 1), 0)::float8 mods_per_hour,
            coalesce(f.bfs_trades, 0) bfs_trades,
-           h.a1, h.a5, h.a20, h.oc5, h.vol5, d.ask7, d.bid7,
+           h.a1, h.a5, h.a20, h.oc5, h.vol5, h.vol20, h.range5, d.ask7, d.bid7,
            w.status as wl_status
     from book b
     join jita.types t on t.type_id = b.type_id
@@ -178,12 +180,22 @@ language sql stable as $$
     select e4.*,
            -- score (endret 17. sept 2026) = forventet ISK per dag for DIN posisjon: (antall × netto) / (1 + dager kjøp + dager salg).
            -- v3-formelen brukte markedets flyt i stedet for antall og rangerte bulkvarer over det du faktisk tjener mest på.
-           q * net / (1 + dfb + dfs)
-             * least(1.0, greatest(coalesce(hp, 0.7), 0) / 0.7)
-             * least(1.0, ratio)
-             * mem_factor                                          -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75
-             * least(1.0, coalesce((th.t->>'war_mods_per_hour')::float8, 4) / greatest(mods_per_hour, 0.001)) as sc   -- priskrig: myk straff
+           least(1.0, greatest(coalesce(hp, 0.7), 0) / 0.7) as f_hist,                                    -- historie: handles på ask-siden?
+           least(1.0, ratio) as f_demand,                                                                -- etterspørsel: liftet ≥ dumpet
+           mem_factor as f_memory,                                                                       -- rulleblad: god 1,2 · ok 1 · treg/svak 0,6 · krangel 0,75
+           least(1.0, coalesce((th.t->>'war_mods_per_hour')::float8, 4) / greatest(mods_per_hour, 0.001)) as f_war,   -- priskrig
+           case when vol5 > 0 and vol20 > 0 then least(1.3, greatest(0.7, vol5 / vol20)) else 1.0 end as f_momentum,   -- selger mer nå enn før?
+           case when range5 is null then 1.0 else greatest(0.7, least(1.0, 1.0 - (range5 - 0.2) * 0.75)) end as f_stable, -- dagsintervall > 20 % straffes, gulv 0,7
+           q * net / (1 + dfb + dfs) as isk_per_day
     from e4, th
+  ),
+  e6 as (
+    select e5.*, isk_per_day * f_hist * f_demand * f_memory * f_war * f_momentum * f_stable as sc,
+           jsonb_build_object('isk_per_day', round(isk_per_day::numeric), 'hist', round(f_hist::numeric, 2), 'demand', round(f_demand::numeric, 2),
+                              'memory', round(f_memory::numeric, 2), 'war', round(f_war::numeric, 2), 'momentum', round(f_momentum::numeric, 2),
+                              'stable', round(f_stable::numeric, 2), 'hist_pos', round(hp::numeric, 2), 'vol5', round(vol5::numeric), 'vol20', round(vol20::numeric),
+                              'range5', round(range5::numeric, 2), 'mods_per_hour', round(mods_per_hour::numeric, 1)) as factors
+    from e5
   )
   select type_id, cardinality(failed) = 0 as passed, failed,
          buy, sell, q, net, mrg, q * net,
@@ -204,8 +216,8 @@ language sql stable as $$
            || case when hp is null then ' ⚠ Mangler historikk (regel 6 nøytral, regel 7 ikke vurdert).' else '' end
            || case when mem_rounds >= 1 then format(' Erfaring: %s (%s runder, %s %%, ~%s d).', coalesce(mem_verdict, 'ok'), mem_rounds,
                         round((coalesce(mem_margin, 0) * 100)::numeric), round(coalesce(mem_hold, 0)::numeric, 1)) else '' end as reason,
-         bid, ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct, s2b, bfs, bfs_trades, name, market_group_path
-  from e5, th
+         bid, ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct, s2b, bfs, bfs_trades, name, market_group_path, factors
+  from e6, th
 $$;
 
 -- ── Kapital i arbeid = cash + bundet ─────────────────────────────────────────
@@ -246,10 +258,10 @@ begin
   end if;
   insert into jita.candidates (run_at, type_id, passed, failed_rules, buy_price, sell_price, qty,
     net_per_unit, margin, expected_profit, days_to_fill_buy, days_to_fill_sell,
-    hist_pos, flow_ratio, score, s2b_per_day, bfs_per_day, reason)
+    hist_pos, flow_ratio, score, s2b_per_day, bfs_per_day, reason, factors)
   select ts, r.type_id, r.passed, r.failed_rules, r.buy_price, r.sell_price, r.qty,
          r.net_per_unit, r.margin, r.expected_profit, r.days_to_fill_buy, r.days_to_fill_sell,
-         r.hist_pos, r.flow_ratio, r.score, r.s2b_per_day, r.bfs_per_day, r.reason
+         r.hist_pos, r.flow_ratio, r.score, r.s2b_per_day, r.bfs_per_day, r.reason, r.factors
   from (
     select *, row_number() over (partition by passed order by cardinality(failed_rules), score desc nulls last) as rn
     from jita.judge_rows(p)

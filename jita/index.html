@@ -17,6 +17,18 @@
 import { api, isk, price, pct, num, days, ago, dt, el, esc, downtimeWarning, nav, injectCss } from './app.js';
 injectCss();
 
+// Faktorene bak scoren: grønn = løfter, grå = nøytral, rød = trekker ned
+function factorPills(f) {
+  const pill = (label, v, note) => { const x = Number(v); const cls = x > 1.02 ? 'ok' : x < 0.98 ? 'bad' : ''; return `<span class="pill ${cls}" title="${note || ''}">${label} ×${x.toFixed(2).replace('.', ',')}</span>`; };
+  return `<span class="pill" title="antall × netto ÷ (1 + dager)">${isk(f.isk_per_day)}/dag</span>`
+    + pill('historie', f.hist, f.hist_pos != null ? `hist_pos ${f.hist_pos} (1 = handles på ask, 0 = på bid)` : 'mangler historikk')
+    + pill('etterspørsel', f.demand, 'liftet ÷ dumpet, tak 1')
+    + pill('momentum', f.momentum, `volum siste 5 d ${isk(f.vol5)} mot 20 d ${isk(f.vol20)}`)
+    + pill('stabil', f.stable, `dagsintervall (høy−lav)/snitt ${f.range5 != null ? (f.range5 * 100).toFixed(0) + ' %' : '–'}`)
+    + pill('rulleblad', f.memory, 'dine egne handler med varen')
+    + pill('krig', f.war, `${f.mods_per_hour} prisendringer/t nær toppen`);
+}
+
 async function load() {
   let d;
   try { d = await api('summary'); } catch (e) { el('app').innerHTML = `<p class="err">Feil: ${esc(e.message)}</p>`; return; }
@@ -39,6 +51,7 @@ async function load() {
         <span class="muted">margin ${pct(c.margin)} · netto ${isk(c.net_per_unit)}/stk</span>
       </div>
       <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
+      ${c.factors ? `<div style="margin-top:4px">${factorPills(c.factors)}</div>` : ''}
       ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 14 d)</span></div>` : ''}
       <div class="reason">${esc(c.reason)}</div>
       ${openBy[c.type_id] ? `<div style="margin-top:6px">${taken(c.type_id)}</div>` : ''}
@@ -68,7 +81,7 @@ async function load() {
       <div id="searchres"></div>
       <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
     </div>
-    <h2>Topp 10 <span class="muted small">(nye muligheter – dine egne posisjoner står lenger ned)</span></h2>${top}
+    <h2>Topp 10 <span class="muted small">(rangert på ISK/dag for posisjonen × historie × etterspørsel × momentum × stabilitet × rulleblad × krig)</span></h2>${top}
     ${(() => { const pf = d.portfolio; if (!pf) return '';
         const over = pf.bound - pf.investable;
         return over > 0 ? `<div class="banner" style="background:#3a331f;color:var(--accent)">Ingen kjøpsforslag – du har ${isk(pf.bound)} ISK bundet mot ${isk(pf.investable)} investerbart (${pct(p.reserve_share, 0)} reserve). Frigjør ${isk(over)} ISK før nye kjøp.</div>`
