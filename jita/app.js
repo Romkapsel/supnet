@@ -56,6 +56,17 @@ export function downtimeWarning() {
   return t >= 10 * 60 + 55 && t <= 11 * 60 + 20;
 }
 
+// ── Kopier varenavn (til søkefeltet i spillet) ───────────────────────────────
+export function copyBtn(name) {
+  return `<button class="copy" title="Kopier «${esc(name)}»" onclick="event.stopPropagation(); event.preventDefault(); window.jitaCopy(this, ${JSON.stringify(name).replace(/"/g, '&quot;')})">⧉</button>`;
+}
+window.jitaCopy = async (btn, text) => {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  const old = btn.textContent; btn.textContent = '✓'; btn.classList.add('done');
+  setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1200);
+};
+
 // ── Navigasjon ───────────────────────────────────────────────────────────────
 export function nav(active) {
   const items = [['index.html', 'Topp 10'], ['results.html', 'Resultat'], ['settings.html', 'Profil']];
@@ -106,6 +117,7 @@ table { width:100%; border-collapse:collapse; font-size:0.85rem; } th, td { text
 th { color:var(--muted); font-weight:700; }
 .reason { font-size:0.85rem; color:#b8bacb; margin-top:6px; }
 .err { color:var(--red); font-weight:700; }
+button.copy { background:var(--card2); color:var(--muted); border-radius:8px; padding:2px 8px; font-size:0.85rem; margin-left:6px; vertical-align:middle; line-height:1.2; } button.copy:hover { color:var(--accent); } button.copy.done { background:#1f3a2a; color:var(--green); }
 @media (max-width:480px) { body { padding:12px; } h1 { font-size:1.35rem; } }
 `;
 export function injectCss() {

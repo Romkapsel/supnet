@@ -14,7 +14,7 @@
   <div id="app"><p class="muted">Laster…</p></div>
 
 <script type="module">
-import { api, isk, price, pct, num, days, ago, dt, el, esc, nav, injectCss, sparkline } from './app.js';
+import { api, isk, price, pct, num, days, ago, dt, el, esc, nav, injectCss, sparkline, copyBtn } from './app.js';
 injectCss();
 const id = Number(new URLSearchParams(location.search).get('id'));
 const JITA_44 = 60003760, JITA_SYS = 30000142;
@@ -51,7 +51,7 @@ async function load() {
   const maxH = Math.max(1, ...byHour.map((x) => Math.max(x.b, x.s)));
 
   el('app').innerHTML = `
-    <h1>${esc(t.name)}</h1>
+    <h1>${esc(t.name)}${copyBtn(t.name)}</h1>
     <div class="muted small">${esc(t.market_group_path || t.group_name || '')} · <span class="pill">${kind}</span>
       ${t.wl_status ? `<span class="pill ${t.wl_status === 'follow' ? 'ok' : 'bad'}">${t.wl_status === 'follow' ? 'Følges (20 min)' : 'Ignorert'}</span>` : ''}</div>
     ${nav('')}

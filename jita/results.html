@@ -14,7 +14,7 @@
   <div id="app"><p class="muted">Laster…</p></div>
 
 <script type="module">
-import { api, isk, price, pct, num, days, dt, el, esc, nav, injectCss } from './app.js';
+import { api, isk, price, pct, num, days, dt, el, esc, nav, injectCss, copyBtn } from './app.js';
 injectCss();
 
 async function load() {
@@ -57,7 +57,7 @@ async function load() {
     <h2>Per vare</h2>
     <div class="card" style="overflow-x:auto"><table>
       <tr><th>Vare</th><th>Solgt</th><th>Omsetning</th><th>Kostpris</th><th>Fortjeneste</th><th>Margin</th><th>Snitt dager</th></tr>
-      ${d.per_type.filter((x) => x.sold_qty).map((x) => `<tr><td><a href="type.html?id=${x.type_id}">${esc(x.name)}</a></td><td>${x.sold_qty}</td><td>${isk(x.revenue)}</td><td>${isk(x.cost)}</td>
+      ${d.per_type.filter((x) => x.sold_qty).map((x) => `<tr><td><a href="type.html?id=${x.type_id}">${esc(x.name)}</a>${copyBtn(x.name)}</td><td>${x.sold_qty}</td><td>${isk(x.revenue)}</td><td>${isk(x.cost)}</td>
         <td class="${sign(x.profit)}">${isk(x.profit)}</td><td>${pct(x.margin)}</td><td>${x.avg_hold_days != null ? num(x.avg_hold_days, 1) : '–'}</td></tr>`).join('')}
     </table></div>
 

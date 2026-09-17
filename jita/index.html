@@ -14,7 +14,7 @@
   <div id="app"><p class="muted">Laster…</p></div>
 
 <script type="module">
-import { api, isk, price, pct, num, days, ago, dt, el, esc, downtimeWarning, nav, injectCss } from './app.js';
+import { api, isk, price, pct, num, days, ago, dt, el, esc, downtimeWarning, nav, injectCss, copyBtn } from './app.js';
 injectCss();
 
 // Faktorene bak scoren: grønn = løfter, grå = nøytral, rød = trekker ned
@@ -44,7 +44,7 @@ async function load() {
 
   const top = d.top.length ? d.top.map((c, i) => `
     <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
-      <div class="row"><h3>${i + 1}. ${esc(c.name)}</h3><span class="big accent">+${isk(c.expected_profit)} ISK</span></div>
+      <div class="row"><h3>${i + 1}. ${esc(c.name)}${copyBtn(c.name)}</h3><span class="big accent">+${isk(c.expected_profit)} ISK</span></div>
       <div class="row small">
         <span>Kjøp <b>${c.qty} stk</b> à <b>${price(c.buy_price)}</b></span>
         <span>Selg på <b>${price(c.sell_price)}</b></span>
@@ -90,7 +90,7 @@ async function load() {
     <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
       <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start">
         <span style="flex:1;min-width:220px"><span class="pill ${x.action === 'TREKK' ? 'bad' : ['HEV', 'SENK', 'RELIST'].includes(x.action) ? 'warn' : 'ok'}">${x.action}</span>
-          <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a><div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div></span>
+          <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a>${copyBtn(x.name)}<div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div></span>
         <span class="accent" style="white-space:nowrap">~${isk(x.impact)} ISK</span></div>`).join('')}
       <div class="muted small" style="margin-top:8px">Regnet nå fra dine ordrer i EVE mot siste ordrebok. Ordrer der rådet er «hold» står ikke her. Endring av ordrer krever at du er dokket i Jita 4-4.</div></div>`
     : `<h2>Å gjøre</h2><div class="card muted">Ingenting krever handling akkurat nå.</div>`}
@@ -101,7 +101,7 @@ async function load() {
       const sell = h.best_ask ? Number(h.best_ask) - tick(Number(h.best_ask)) : null;
       const net = sell ? sell * (1 - Number(p.broker) - Number(p.tax)) : null;
       return `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40">
-        <span><a href="type.html?id=${h.type_id}">${esc(h.name)}</a> · <b>${h.qty} stk</b> ${h.listed ? '<span class="pill ok">salgsordre ute</span>' : '<span class="pill warn">ikke lagt ut</span>'}</span>
+        <span><a href="type.html?id=${h.type_id}">${esc(h.name)}</a>${copyBtn(h.name)} · <b>${h.qty} stk</b> ${h.listed ? '<span class="pill ok">salgsordre ute</span>' : '<span class="pill warn">ikke lagt ut</span>'}</span>
         <span class="muted">${sell ? `legg ut à <b class="accent">${price(sell)}</b> (netto ${isk(net)}/stk, ${isk(net * h.qty)} totalt)` : 'ingen pris nå'}</span></div>`; }).join('')}</div>` : ''}
     ${(d.open || []).length ? `<h2>Beholdning <span class="muted small">(${new Set(d.open.map((o) => o.type_id)).size} posisjoner · fra EVE, oppdateres automatisk)</span></h2>
     ${Object.values(d.open.reduce((acc, o) => {   // slå sammen ordrer på samme vare til én posisjon
@@ -126,7 +126,7 @@ async function load() {
         : o.passed ? '<span class="pill ok">passerer fortsatt</span>'
         : `<span class="pill bad">passerer ikke lenger</span> ${(o.failed_rules || []).map((r) => `<span class="pill bad">${esc(d.rules[r] || r)}</span>`).join('')}`;
       return `<div class="card link" onclick="location.href='type.html?id=${o.type_id}'">
-        <div class="row"><h3>${esc(o.name)}</h3><span class="big accent">${o.qty} stk à ${price(o.price)}</span></div>
+        <div class="row"><h3>${esc(o.name)}${copyBtn(o.name)}</h3><span class="big accent">${o.qty} stk à ${price(o.price)}</span></div>
         <div class="row small"><span>${status} ${dom}</span><span class="muted">${o.orders.length > 1 ? o.orders.map((x) => `${x.qty} à ${price(x.price)}`).join(' + ') + ' · ' : ''}tatt ${dt(o.created_at)}</span></div>
         <div class="row small muted" style="margin-top:4px">
           <span>Nå: bud <b>${price(o.best_bid)}</b> (${o.bid_top_qty ?? '–'} stk, ${o.bid_orders_1pct ?? '–'} budgivere) · ask <b>${price(o.best_ask)}</b></span>
@@ -153,7 +153,7 @@ async function load() {
     timer = setTimeout(async () => {
       const r = await api('search', { query: { q: term } });
       el('searchres').innerHTML = (r?.types || []).map((t) =>
-        `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40"><a href="type.html?id=${t.type_id}">${esc(t.name)}</a><span class="muted">${esc((t.market_group_path || '').split(' > ').slice(-2).join(' > '))}</span></div>`).join('')
+        `<div class="row small" style="padding:5px 0;border-bottom:1px solid #2a2e40"><span><a href="type.html?id=${t.type_id}">${esc(t.name)}</a>${copyBtn(t.name)}</span><span class="muted">${esc((t.market_group_path || '').split(' > ').slice(-2).join(' > '))}</span></div>`).join('')
         || '<div class="muted small">Ingen treff</div>';
     }, 250);
   };
