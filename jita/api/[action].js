@@ -235,7 +235,7 @@ async function buildTodo(q, p, portfolio, hangar) {
       const [b] = await q`select t.name, c.score::float8 as score from jita.candidates c join jita.types t using (type_id)
         where c.run_at = (select max(run_at) from jita.candidates) and c.passed and c.type_id not in (select type_id from jita.my_orders where state = 'open')
         order by c.score desc nulls last limit 1`;
-      if (b && b.score > 2 * (o.score || 0) && !items.some((x) => x.type_id === o.type_id && x.action === "TREKK"))
+      if (b && b.score > 2 * (o.score || 0) && !items.some((x) => x.type_id === o.type_id && ["TREKK", "HEV", "RELIST"].includes(x.action)))
         items.push({ kind: "move", type_id: o.type_id, name: o.name, action: "TREKK",
           title: `Trekk kjøpsordren ${o.name} (${o.remaining} stk) og flytt kapitalen`,
           detail: `fyllingstid ~${o.dtf.toFixed(0)} d; ${b.name} har over dobbel score. Broker-gebyret er tapt uansett – ${Math.round(o.price * o.remaining).toLocaleString("nb-NO")} ISK frigjøres`,
@@ -279,8 +279,16 @@ async function buildTodo(q, p, portfolio, hangar) {
       detail: `${Math.round(x.cost).toLocaleString("nb-NO")} ISK bundet · forventet +${Math.round(x.expected_profit).toLocaleString("nb-NO")} · fylling ~${x.days_to_fill_buy.toFixed(1)} d · 90 dagers varighet`,
       impact: x.expected_profit, where: "Jita 4-4 (kjøpsordre med rekkevidde «station»)" });
   }
-  items.sort((a, b) => b.impact - a.impact);
-  return items;
+  // Én anbefaling per vare og side (kjøp/salg). Utløper ordren, er RELIST svaret uansett (ny ordre til riktig pris,
+  // ikke relist-gebyr på en ordre som dør). Ellers: HEV/SENK før TREKK – kan heving løse det, skal ordren ikke trekkes.
+  const PRIO = { RELIST: 0, HEV: 1, SENK: 1, TREKK: 2, SELG: 3, KJØP: 3, ØK: 3 };
+  const side = (x) => (["SENK", "SELG"].includes(x.action) || (x.kind === "expiry" && /^Salgsordre/.test(x.title))) ? "sell" : "buy";
+  const best = {};
+  for (const x of items) {
+    const k = `${x.type_id}:${side(x)}`;
+    if (!best[k] || PRIO[x.action] < PRIO[best[k].action] || (PRIO[x.action] === PRIO[best[k].action] && x.impact > best[k].impact)) best[k] = x;
+  }
+  return Object.values(best).sort((a, b) => b.impact - a.impact);
 }
 
 // ── Beste tidspunkt (norsk tid) å legge ordrer: når dumping (kjøp) / lifting (salg) topper, siste 14 d ─
