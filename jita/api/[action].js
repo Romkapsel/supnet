@@ -90,7 +90,7 @@ export default async function handler(req, res) {
       case "sso_status": return json(res, 200, { eve: await ssoStatus(q) });
       case "results": return json(res, 200, await computeResults(q, await effectiveProfile(q)));
       case "character": {
-        const r = await syncCharacter(q, discord);
+        const r = await syncCharacter(q, discord, req.query.light === "1");
         if (r.ok) { const n = (await q`select jita.judge() as n`)[0].n; r.passed = n; }
         return json(res, 200, r);
       }

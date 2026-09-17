@@ -116,7 +116,7 @@ async function bulk(q, table, rows, cols, conflict) {
 }
 
 // ── Synk: wallet, ordrer, transaksjoner, hangar, skills, standings → DB ──────
-export async function syncCharacter(q, notify) {
+export async function syncCharacter(q, notify, light = false) {   // light: bare wallet + ordrer (ESI-cache 2/20 min); full hver time
   const [row] = await q`select * from jita.sso_tokens order by updated_at desc limit 1`;
   if (!row) return { ok: false, message: "Ingen EVE-karakter er logget inn" };
   const cid = row.character_id;
@@ -131,10 +131,16 @@ export async function syncCharacter(q, notify) {
 
   // ESI-kall parallelt; hver returnerer null ved feil (håndteres per del)
   const get = (path, all = false) => (all ? esiAll(path, token) : esi(path, token).then((r) => r.data)).catch((e) => { out.errors["esi " + path.split("/")[3]] = String(e.message || e).slice(0, 200); return null; });
+  const none = Promise.resolve(null);
   const [wallet, orders, txs, assets, skills, standings, journal] = await Promise.all([
-    get(`/characters/${cid}/wallet/`), get(`/characters/${cid}/orders/`), get(`/characters/${cid}/wallet/transactions/`),
-    get(`/characters/${cid}/assets/`, true), get(`/characters/${cid}/skills/`), get(`/characters/${cid}/standings/`), get(`/characters/${cid}/wallet/journal/`, true),
+    get(`/characters/${cid}/wallet/`), get(`/characters/${cid}/orders/`),
+    light ? none : get(`/characters/${cid}/wallet/transactions/`),
+    light ? none : get(`/characters/${cid}/assets/`, true),
+    light ? none : get(`/characters/${cid}/skills/`),
+    light ? none : get(`/characters/${cid}/standings/`),
+    light ? none : get(`/characters/${cid}/wallet/journal/`, true),
   ]);
+  out.light = light;
 
   await part("wallet/skills/standings", async () => {
     const prof = { updated_at: now };
@@ -186,7 +192,7 @@ export async function syncCharacter(q, notify) {
     out.assets = hangar.length;
   });
 
-  await part("beslutninger", async () => { if (orders && txs) await syncDecisions(q, orders, closed, txs, now); });
+  await part("beslutninger", async () => { if (orders) await syncDecisions(q, orders, closed, txs || [], now); });
 
   await part("varsler", async () => {
     const unlisted = await q`
@@ -206,8 +212,8 @@ export async function syncCharacter(q, notify) {
     await recordAlerts(q, out.alerts, notify);
   });
 
-  await part("rulleblad", async () => { await q`select jita.refresh_type_memory()`; });
-  await part("broker-sats", async () => {
+  if (!light) await part("rulleblad", async () => { await q`select jita.refresh_type_memory()`; });
+  if (!light) await part("broker-sats", async () => {
     // Målt broker-sats: gebyrpost matchet mot ordre lagt/endret i samme sekund; plassering gir full sats (median av topp 3, 30 d)
     const meas = await q`
       select percentile_cont(0.5) within group (order by r desc) as rate, count(*) as n from (

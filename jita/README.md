@@ -74,7 +74,7 @@ python jita/scripts/test_judge.py     # SQL-dommer = Python-formler?
 
 - App registrert på developers.eveonline.com (callback `https://jita-eve.vercel.app/api/sso`). Vercel env: `EVE_CLIENT_ID`, `EVE_CLIENT_SECRET`.
 - `lib/eve.js`: SSO (authorization code + signert `state`), token-refresh, `syncCharacter()` – wallet → `profile.cash_isk`, skills/standings → profil, ordrer → `my_orders` (+ `decisions` automatisk via `order_id`), transaksjoner → `my_transactions` (lukker beslutninger når solgt), hangar → `my_assets`. Varsler: ulistet lager og utløp < 24 t (`alerts`, Discord hvis `DISCORD_WEBHOOK` er satt i Vercel).
-- Kjøres av pg_cron `jita-eve-sync` kl. :50 og manuelt fra Profil («Oppdater fra EVE nå»). Refresh-token ligger kun i `jita.sso_tokens`.
+- Kjøres av pg_cron `jita-eve-sync` kl. :50 (full) og `jita-eve-light` kl. :10/:30 (bare wallet + ordrer, `?light=1`; ESI-cache på ordrer er 20 min) og manuelt fra Profil («Oppdater fra EVE nå»). Refresh-token ligger kun i `jita.sso_tokens`.
 
 ## Minne og struktur (16. sept 2026)
 
