@@ -102,10 +102,12 @@ def diff_fills(prev: dict | None, orders: list, snapshot_at: datetime, jumps: di
     # og kjøpsordrer som DEKKER 4-4 – ellers teller vi dumping i stasjoner langt unna som Jita-flyt
     relevant = {o[cm.O_ID] for l in pbuys.values() for o in l} | {o[cm.O_ID] for l in psells.values() for o in l}
     fills = []
+    seen = set()
     for o in prev["orders"]:
         oid = o[cm.O_ID]
-        if oid not in relevant:
+        if oid not in relevant or oid in seen:
             continue
+        seen.add(oid)
         now_o = cur.get(oid)
         if now_o is not None:
             d = o[cm.O_VOL] - now_o[cm.O_VOL]
@@ -364,6 +366,12 @@ def main():
                 orders.extend(structures.fetch_structure_buy_orders(conn, tok))
         except Exception as e:
             log("strukturordrer feilet (fortsetter uten):", e)
+        # samme ordre kan dukke opp to ganger når den flytter seg mellom sider under henting (særlig
+        # strukturmarkedene, som ikke har felles Last-Modified) → duplikatnøkkel i fills. Behold én per order_id.
+        n0 = len(orders)
+        orders = list({o[cm.O_ID]: o for o in orders}.values())
+        if len(orders) < n0:
+            log(f"{n0 - len(orders)} dupliserte ordre-id-er fjernet")
         runlog.snapshot_at = snapshot_at
         runlog.orders_count = len(orders)
         runlog.ratelimit_remaining = esi.ratelimit_remaining
