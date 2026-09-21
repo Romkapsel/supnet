@@ -419,7 +419,7 @@ async function scan(q, fallback = false, job = "hourly") {
   if (fallback) {
     // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
     const maxAge = job === "watchlist" ? 15 : 50;   // history: 50 (hver time)
-    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job}`;
+    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job} and ok`;
     if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
     const wait = 10 - (Date.now() - new Date(p.last_manual_scan).getTime()) / 60000;

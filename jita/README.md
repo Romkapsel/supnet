@@ -107,3 +107,9 @@ Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, i
 - ESIs regionsordrebok har bare NPC-stasjoner. Kjøpsordrer i Perimeter-strukturene (TTT `1042508032148`, 0.0% Neutral States Market HQ `1044752365771`, repro rig) med rekkevidde ≥ 1 hopp dekker Jita og lå langt over Jita-budet (Datacore: 25 000 i 4-4 vs 69 110 i struktur → «163 % margin»). Nå: `scripts/structures.py` henter ~30 000 kjøpsordrer fra `jita.structures` hver time med karakterens token (`/api/token`, GitHub-secret `JITA_PIN`). Oppdagelse daglig fra EVE Ref (`structures-latest.v2.json`), maks 2 hopp. Krever SSO-scope `esi-universe.read_structures.v1` og markedstilgang (403 → strukturen skrus av).
 - `/route/` finnes ikke under `X-Compatibility-Date` (404) → seed ga 99 hopp for 87 av 88 systemer, så «N hopp»-rekkevidde aldri dekket Jita. `Esi.get(..., legacy=True)` bruker gammel sti; tabellen er reparert.
 - Nye scopes 21. sept: `esi-universe.read_structures.v1`, `esi-location.read_location.v1`, `esi-skills.read_skillqueue.v1` (de to siste ikke tatt i bruk ennå).
+
+### Duplikat i fills (21. sept 2026, kveld)
+Timesjobben feilet én gang med `UniqueViolation fills_pkey`: samme order_id lå to ganger i snapshotet (ordren flyttet seg
+mellom sider under henting – strukturmarkedene har ikke felles Last-Modified som regionsboka). Fiks: ordrelista dedupes
+per order_id før snapshot, og `diff_fills` hopper over gjentatte id-er. I tillegg teller `/api/scan?fallback=1` nå bare
+*vellykkede* kjøringer som «ferske», så pg_cron prøver igjen samme time etter en feilet kjøring.
