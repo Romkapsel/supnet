@@ -10,6 +10,9 @@ const UA = "Supnet-Jita/0.3 (+https://jita-eve.vercel.app)";
 export const SCOPES = [
   "esi-wallet.read_character_wallet.v1", "esi-markets.read_character_orders.v1", "esi-assets.read_assets.v1",
   "esi-skills.read_skills.v1", "esi-characters.read_standings.v1", "esi-markets.structure_markets.v1",
+  "esi-universe.read_structures.v1",      // slå opp strukturer (navn, system) – trengs for TTT/Perimeter-markedene
+  "esi-location.read_location.v1",        // er du dokket i Jita 4-4?
+  "esi-skills.read_skillqueue.v1",         // trener du BR V / Accounting?
 ];
 export const CALLBACK = "https://jita-eve.vercel.app/api/sso";
 const JITA_44 = 60003760;
@@ -82,7 +85,7 @@ export async function completeLogin(q, code) {
   return { characterId, name };
 }
 
-async function accessToken(q, row) {
+export async function accessToken(q, row) {
   if (row.access_token && row.expires_at && new Date(row.expires_at) > new Date()) return row.access_token;
   const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: row.refresh_token });
   const expires = new Date(Date.now() + (t.expires_in - 60) * 1000);

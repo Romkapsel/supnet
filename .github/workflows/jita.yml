@@ -19,6 +19,7 @@ on:
 env:
   SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
   DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+  JITA_PIN: ${{ secrets.JITA_PIN }}                 # for /api/token → strukturordrer
   SNAPSHOT_DIR: ${{ github.workspace }}/jita/snapshots
   PYTHONUNBUFFERED: "1"
 

@@ -351,6 +351,19 @@ def main():
             orders, snapshot_at, npc_orders = fetch_all_pages(esi, runlog)
         except EsiError as e:
             fail(runlog, str(e), conn)
+        # strukturordrer (TTT, Perimeter-citadeller …): kjøpsordrer med rekkevidde som dekker Jita (fase 2, 21. sept)
+        try:
+            import structures
+            tok = structures.get_token()
+            if tok:
+                with conn.cursor() as cur:
+                    cur.execute("select coalesce(max(updated_at), 'epoch') < now() - interval '20 hours' from jita.structures")
+                    stale = cur.fetchone()[0]
+                if stale:
+                    structures.discover(conn, tok, jumps)
+                orders.extend(structures.fetch_structure_buy_orders(conn, tok))
+        except Exception as e:
+            log("strukturordrer feilet (fortsetter uten):", e)
         runlog.snapshot_at = snapshot_at
         runlog.orders_count = len(orders)
         runlog.ratelimit_remaining = esi.ratelimit_remaining

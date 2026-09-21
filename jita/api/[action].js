@@ -3,7 +3,7 @@
 // Miljøvariabler: SUPABASE_DB_URL (pooler, port 6543), JITA_PIN, GITHUB_TOKEN, GITHUB_REPO.
 
 import postgres from "postgres";
-import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
+import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
 
@@ -88,6 +88,12 @@ export default async function handler(req, res) {
     switch (action) {
       case "sso": return json(res, 200, { url: authorizeUrl() });
       case "sso_status": return json(res, 200, { eve: await ssoStatus(q) });
+      case "token": {   // roboten (GitHub Actions) henter strukturordrer med karakterens token
+        const [row] = await q`select * from jita.sso_tokens order by updated_at desc limit 1`;
+        if (!row) return json(res, 404, { error: "ingen EVE-karakter" });
+        const token = await accessToken(q, row);
+        return json(res, 200, { token, character_id: row.character_id });
+      }
       case "results": return json(res, 200, await computeResults(q, await effectiveProfile(q)));
       case "character": {
         const r = await syncCharacter(q, discord, req.query.light === "1");
