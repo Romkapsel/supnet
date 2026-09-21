@@ -102,3 +102,8 @@ Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, i
 - **Resultat 7 d:** +12,8 mill netto (308 salg, 41 mill omsetning). Kapital 4,5 → 28,8 mill. Accounting IV tjener seg inn på 41 dager – anbefalt.
 - **Kalibrering:** EVE-opprettede beslutninger manglet `predicted_days` → lære-sløyfen samlet ingen data. Nå fylles den fra siste dom ved ordrelegging. De to første datapunktene: faktisk fylling 0,32 × spådd (vi er for pessimistiske; små tall, vent).
 - **Varselstøy:** 104 overbud-varsler på 3 dager (1-ISK-hakk hvert 20. min). Nå: ny post bare ved annet råd, toppbud flyttet > 2 %, eller > 2 t siden sist.
+
+## Strukturmarkeder (21. sept 2026) – største datafeil så langt
+- ESIs regionsordrebok har bare NPC-stasjoner. Kjøpsordrer i Perimeter-strukturene (TTT `1042508032148`, 0.0% Neutral States Market HQ `1044752365771`, repro rig) med rekkevidde ≥ 1 hopp dekker Jita og lå langt over Jita-budet (Datacore: 25 000 i 4-4 vs 69 110 i struktur → «163 % margin»). Nå: `scripts/structures.py` henter ~30 000 kjøpsordrer fra `jita.structures` hver time med karakterens token (`/api/token`, GitHub-secret `JITA_PIN`). Oppdagelse daglig fra EVE Ref (`structures-latest.v2.json`), maks 2 hopp. Krever SSO-scope `esi-universe.read_structures.v1` og markedstilgang (403 → strukturen skrus av).
+- `/route/` finnes ikke under `X-Compatibility-Date` (404) → seed ga 99 hopp for 87 av 88 systemer, så «N hopp»-rekkevidde aldri dekket Jita. `Esi.get(..., legacy=True)` bruker gammel sti; tabellen er reparert.
+- Nye scopes 21. sept: `esi-universe.read_structures.v1`, `esi-location.read_location.v1`, `esi-skills.read_skillqueue.v1` (de to siste ikke tatt i bruk ennå).
