@@ -48,37 +48,38 @@ def _auth_get(token: str, path: str, params=None, timeout=30):
     return r
 
 
+EVEREF = "https://data.everef.net/structures/structures-latest.v2.json"
+
+
 def discover(conn, token: str, jumps: dict[int, int]) -> int:
-    """Finn markedsstrukturer innen STRUCT_MAX_JUMPS fra Jita og lagre i jita.structures. Kjøres daglig."""
-    r = _auth_get(token, "/universe/structures/", {"filter": "market"})
-    if r.status_code != 200:
-        log(f"structures-liste ga {r.status_code}")
-        return 0
-    ids = r.json()
+    """Finn markedsstrukturer innen STRUCT_MAX_JUMPS fra Jita og lagre i jita.structures. Kjøres daglig.
+    ESIs /universe/structures/?filter=market gir bare strukturer karakteren kan dokke i (56 i hele New Eden) –
+    TTT og Perimeter-markedene mangler. EVE Ref publiserer et åpent datasett over alle kjente offentlige
+    strukturer (https://docs.everef.net/datasets/structures.html); det brukes i stedet, ESI-lista som reserve."""
+    found = []
+    try:
+        data = requests.get(EVEREF, timeout=120, headers={"User-Agent": USER_AGENT}).json()
+        for sid, st in data.items():
+            sysid = st.get("solar_system_id")
+            if st.get("is_market_structure") and sysid in jumps and jumps[sysid] <= STRUCT_MAX_JUMPS:
+                found.append((int(sid), st.get("name"), int(sysid), jumps[sysid]))
+        log(f"EVE Ref: {len(data)} strukturer, {len(found)} med marked innen {STRUCT_MAX_JUMPS} hopp fra Jita")
+    except Exception as e:
+        log("EVE Ref-datasettet feilet, bruker ESI-lista:", e)
+        r = _auth_get(token, "/universe/structures/", {"filter": "market"})
+        for sid in (r.json() if r.status_code == 200 else []):
+            rr = _auth_get(token, f"/universe/structures/{sid}/")
+            if rr.status_code == 200:
+                j = rr.json(); sysid = j.get("solar_system_id")
+                if sysid in jumps and jumps[sysid] <= STRUCT_MAX_JUMPS:
+                    found.append((sid, j.get("name"), sysid, jumps[sysid]))
     with conn.cursor() as cur:
-        cur.execute("select structure_id from jita.structures")
-        known = {row[0] for row in cur.fetchall()}
-    new_ids = [i for i in ids if i not in known]
-    log(f"{len(ids)} markedsstrukturer i New Eden, {len(new_ids)} ukjente å slå opp")
-
-    def lookup(sid):
-        rr = _auth_get(token, f"/universe/structures/{sid}/")
-        if rr.status_code != 200:
-            return None                                   # ingen docking-tilgang e.l.
-        j = rr.json()
-        return sid, j.get("name"), j.get("solar_system_id")
-
-    rows = []
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        for res in ex.map(lookup, new_ids):
-            if res and res[2] in jumps and jumps[res[2]] <= STRUCT_MAX_JUMPS:
-                rows.append((res[0], res[1], res[2], jumps[res[2]]))
-    with conn.cursor() as cur:
-        cur.executemany("""insert into jita.structures (structure_id, name, system_id, jumps_from_jita, updated_at)
-                           values (%s, %s, %s, %s, now()) on conflict (structure_id) do update set name = excluded.name, updated_at = now()""", rows)
+        cur.executemany("""insert into jita.structures (structure_id, name, system_id, jumps_from_jita, has_market, updated_at)
+                           values (%s, %s, %s, %s, true, now())
+                           on conflict (structure_id) do update set name = excluded.name, jumps_from_jita = excluded.jumps_from_jita, updated_at = now()""", found)
+        cur.execute("update jita.structures set updated_at = now()")   # også de som ikke fikk treff, så daglig-sjekken vet vi har prøvd
     conn.commit()
-    log(f"{len(rows)} nye strukturer nær Jita lagret")
-    return len(rows)
+    return len(found)
 
 
 def fetch_structure_buy_orders(conn, token: str) -> list:

@@ -165,7 +165,7 @@ def main():
             if sid == JITA_SYSTEM:
                 jumps = 0
             else:
-                st, route, _ = esi.get(f"/route/{JITA_SYSTEM}/{sid}/", use_etag=False)
+                st, route, _ = esi.get(f"/route/{JITA_SYSTEM}/{sid}/", use_etag=False, legacy=True)   # /route/ finnes bare uten compat-date
                 jumps = (len(route) - 1) if st == 200 and route else 99
             return dict(system_id=sid, name=s["name"], jumps_from_jita=jumps)
 
