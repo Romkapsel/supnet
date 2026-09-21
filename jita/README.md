@@ -113,3 +113,8 @@ Timesjobben feilet én gang med `UniqueViolation fills_pkey`: samme order_id lå
 mellom sider under henting – strukturmarkedene har ikke felles Last-Modified som regionsboka). Fiks: ordrelista dedupes
 per order_id før snapshot, og `diff_fills` hopper over gjentatte id-er. I tillegg teller `/api/scan?fallback=1` nå bare
 *vellykkede* kjøringer som «ferske», så pg_cron prøver igjen samme time etter en feilet kjøring.
+
+**Oppfølging samme kveld:** dedupe-loggen viste 30 202 duplikater av 30 637 strukturordrer – ESIs regionsbok inneholder
+altså allerede kjøpsordrene i strukturer (alle rekkevidder unntatt «station», som uansett ikke dekker 4-4). Den egentlige
+årsaken til Datacore-avviket var hopptabellen (Perimeter = 99 hopp før `/route/`-fiksen). Strukturhentingen er derfor
+slått av (miljøvariabel `STRUCT_ORDERS=1` slår den på igjen); koden, tabellen og scopene beholdes.

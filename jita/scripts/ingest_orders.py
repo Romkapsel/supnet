@@ -353,10 +353,12 @@ def main():
             orders, snapshot_at, npc_orders = fetch_all_pages(esi, runlog)
         except EsiError as e:
             fail(runlog, str(e), conn)
-        # strukturordrer (TTT, Perimeter-citadeller …): kjøpsordrer med rekkevidde som dekker Jita (fase 2, 21. sept)
+        # strukturordrer (TTT, Perimeter-citadeller …). AV som standard (STRUCT_ORDERS=1 slår på): det viste seg at
+        # regionsboka fra ESI allerede inneholder kjøpsordrene i strukturer (30 000+, alle rekkevidder unntatt
+        # «station») – Datacore-feilen 21. sept skyldtes hopptabellen (Perimeter=99), ikke manglende strukturdata.
         try:
             import structures
-            tok = structures.get_token()
+            tok = structures.get_token() if os.environ.get("STRUCT_ORDERS") == "1" else None
             if tok:
                 with conn.cursor() as cur:
                     cur.execute("select coalesce(max(updated_at), 'epoch') < now() - interval '20 hours' from jita.structures")

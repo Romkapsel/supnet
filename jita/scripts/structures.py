@@ -1,5 +1,5 @@
 """
-structures.py – spillerstrukturer med marked nær Jita (TTT i Perimeter, «Neutral States Market HQ» osv.).
+structures.py – spillerstrukturer (AV som standard, se ingest_orders.py – regionsboka har allerede disse ordrene) med marked nær Jita (TTT i Perimeter, «Neutral States Market HQ» osv.).
 
 ESIs åpne regionsordrebok inneholder BARE NPC-stasjoner. Kjøpsordrer i strukturer med rekkevidde (region / N hopp)
 konkurrerer likevel om de samme selgerne i Jita 4-4 – og kan ligge langt over Jita-budet. Uten dem blir
