@@ -15,6 +15,7 @@ ingest_orders.py – timesjobben (spec blokk 1.1 steg 4 + 5).
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections import defaultdict
