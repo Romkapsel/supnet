@@ -186,10 +186,11 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
                        from jita.type_flow_hourly where hour > now() - interval '25 hours' and resolution = 60
                          and type_id = any(%s) group by type_id""", ([r[1] for r in open_buys],))
         s2b = dict(cur.fetchall())
-        cur.execute("""select distinct on ((payload->>'decision_id')::bigint) (payload->>'decision_id')::bigint, kind, payload
+        cur.execute("""select distinct on ((payload->>'decision_id')::bigint) (payload->>'decision_id')::bigint, kind, payload,
+                              extract(epoch from (now() - created_at)) / 3600 as age_h
                        from jita.alerts where kind in ('overbid', 'overbid_cleared')
                        order by (payload->>'decision_id')::bigint, created_at desc""")
-        last = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        last = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
     n = 0
     for did, tid, name, p1, remaining in open_buys:
         bl, sl = buys.get(tid, []), sells.get(tid, [])
@@ -197,7 +198,7 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
             continue
         best_bid = max(o[cm.O_PRICE] for o in bl)
         best_ask = min(o[cm.O_PRICE] for o in sl)
-        prev_kind, prev_payload = last.get(did, (None, {}))
+        prev_kind, prev_payload, prev_age = last.get(did, (None, {}, 99))
         if best_bid <= p1 + 1e-9:                       # du ligger på toppen
             if prev_kind == "overbid":
                 _alert(conn, "overbid_cleared", tid, dict(decision_id=did, price=p1, best_bid=best_bid,
@@ -208,9 +209,9 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
         wall = sum(o[cm.O_VOL] for o in bl if o[cm.O_PRICE] > p1)
         adv = overbid_advice(profile, p1, remaining, best_bid, wall, s2b.get(tid, 0.0), best_ask, min_margin)
         payload = dict(decision_id=did, price=p1, remaining=remaining, best_bid=best_bid, best_ask=best_ask, **adv)
-        # varsle bare ved endring: annen anbefaling, eller toppbudet flyttet seg > 0,5 %
+        # varsle bare ved endring: annet råd, toppbudet flyttet > 2 %, eller > 2 t siden sist (1-ISK-hakk hvert 20. min er støy)
         if (prev_kind == "overbid" and prev_payload.get("action") == adv["action"]
-                and abs(float(prev_payload.get("best_bid", 0)) - best_bid) / best_bid < 0.005):
+                and abs(float(prev_payload.get("best_bid", 0)) - best_bid) / best_bid < 0.02 and prev_age < 2):
             continue
         _alert(conn, "overbid", tid, payload)
         notify(f"⚠️ Overbudt: **{name}** – ditt bud {isk(p1)}, toppbud nå {isk(best_bid)} "
@@ -239,17 +240,18 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
                        from jita.my_transactions where is_buy and date > now() - interval '90 days'
                          and type_id = any(%s) group by type_id""", ([r[1] for r in my_sells],))
         cost = {t: float(c) for t, c in cur.fetchall() if c is not None}
-        cur.execute("""select distinct on ((payload->>'order_id')::bigint) (payload->>'order_id')::bigint, kind, payload
+        cur.execute("""select distinct on ((payload->>'order_id')::bigint) (payload->>'order_id')::bigint, kind, payload,
+                              extract(epoch from (now() - created_at)) / 3600 as age_h
                        from jita.alerts where kind in ('undercut', 'undercut_cleared')
                        order by (payload->>'order_id')::bigint, created_at desc""")
-        last = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        last = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
     n = 0
     for oid, tid, name, p1, remaining in my_sells:
         sl = sells.get(tid, [])
         if not sl:
             continue
         best_ask = min(o[cm.O_PRICE] for o in sl)
-        prev_kind, prev_payload = last.get(oid, (None, {}))
+        prev_kind, prev_payload, prev_age = last.get(oid, (None, {}, 99))
         if best_ask >= p1 - 1e-9:                       # du er billigst
             if prev_kind == "undercut":
                 _alert(conn, "undercut_cleared", tid, dict(order_id=oid, price=p1, text=f"{name}: du er billigst igjen ({isk(p1)})."))
@@ -260,7 +262,7 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
         adv = undercut_advice(profile, p1, remaining, best_ask, wall, bfs.get(tid, 0.0), cost.get(tid), min_margin)
         payload = dict(order_id=oid, type_id=tid, price=p1, remaining=remaining, best_ask=best_ask, **adv)
         if (prev_kind == "undercut" and prev_payload.get("action") == adv["action"]
-                and abs(float(prev_payload.get("best_ask", 0)) - best_ask) / best_ask < 0.005):
+                and abs(float(prev_payload.get("best_ask", 0)) - best_ask) / best_ask < 0.02 and prev_age < 2):
             continue
         _alert(conn, "undercut", tid, payload)
         notify(f"⚠️ Undercut: **{name}** – din ask {isk(p1)}, laveste nå {isk(best_ask)} (mur {wall} stk ≈ {adv['days_wall']} d).\n"

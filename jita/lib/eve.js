@@ -244,8 +244,11 @@ async function syncDecisions(q, orders, closed, txs, now) {
       // knytt til en manuell beslutning på samme vare uten order_id, ellers opprett
       const [m] = await q`select id from jita.decisions where type_id = ${o.type_id} and side = 'buy' and closed_at is null and order_id is null order by created_at desc limit 1`;
       if (m) await q`update jita.decisions set order_id = ${o.order_id}, price = ${o.price}, qty = ${o.volume_total}, filled_qty = ${filled || null}::int, source = 'eve' where id = ${m.id}`;
-      else await q`insert into jita.decisions (type_id, side, price, qty, filled_qty, order_id, source, created_at, note)
-                   values (${o.type_id}, 'buy', ${o.price}, ${o.volume_total}, ${filled || null}::int, ${o.order_id}, 'eve', ${o.issued}::timestamptz, 'fra EVE')`;
+      else await q`insert into jita.decisions (type_id, side, price, qty, filled_qty, order_id, source, created_at, note, predicted_days, predicted_net_per_unit)
+                   select ${o.type_id}, 'buy', ${o.price}, ${o.volume_total}, ${filled || null}::int, ${o.order_id}, 'eve', ${o.issued}::timestamptz, 'fra EVE',
+                          c.days_to_fill_buy, c.net_per_unit
+                   from (select 1) x left join lateral (select days_to_fill_buy, net_per_unit from jita.candidates
+                          where type_id = ${o.type_id} and run_at <= ${o.issued}::timestamptz + interval '1 hour' order by run_at desc limit 1) c on true`;
     }
   }
   for (const c of closed.filter((c) => c.is_buy)) {
