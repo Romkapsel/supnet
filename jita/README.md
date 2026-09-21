@@ -96,3 +96,9 @@ Se spec del 9.3. Kort: rydding 3 d/30 d/14 d + rettet `type_daily`-rulling; EVE-
 
 ## «Å gjøre» (17. sept 2026)
 Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, ikke fra lagrede varsler (som ble stående etter at ordren var endret). Robotens eksakte mur-tall (`alerts`, < 3 t gamle og med samme pris/toppbud) brukes når de finnes, ellers anslag fra ordreboken. Rådlogikken er speilet i `lib/advice.js` (= `common.py`). Bare klare verb: HEV, SENK, TREKK, SELG, KJØP, ØK, RELIST – HOLD vises i beholdningen. Reserve senket til 10 % (karakteren er ren trader; cash trengs bare til gebyrer og én ny posisjon).
+
+## Gjennomgang 21. sept 2026
+- **DB 463 MB** etter 6 dager tross grønn ryddejobb: anslagene var fortsatt for rause (dommeren lagrer 200 rader 4×/t). Ny oppbevaring: type_hourly 2 d, fills 1 d, flow 10 d, candidates 3 d (ikke-passed bare 6 t), history 60 d; `VACUUM FULL` kjørt manuelt (→ 240 MB) og nattlig `jita-vacuum` 05:20.
+- **Resultat 7 d:** +12,8 mill netto (308 salg, 41 mill omsetning). Kapital 4,5 → 28,8 mill. Accounting IV tjener seg inn på 41 dager – anbefalt.
+- **Kalibrering:** EVE-opprettede beslutninger manglet `predicted_days` → lære-sløyfen samlet ingen data. Nå fylles den fra siste dom ved ordrelegging. De to første datapunktene: faktisk fylling 0,32 × spådd (vi er for pessimistiske; små tall, vent).
+- **Varselstøy:** 104 overbud-varsler på 3 dager (1-ISK-hakk hvert 20. min). Nå: ny post bare ved annet råd, toppbud flyttet > 2 %, eller > 2 t siden sist.
