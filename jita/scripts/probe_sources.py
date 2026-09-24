@@ -16,6 +16,10 @@ from common import USER_AGENT, log
 JSON_KILDER = [
     "https://ref-data.everef.net/blueprints",
     "https://ref-data.everef.net/blueprints/682",
+    # Mining: refine-utbytte per varetype, og gruppene malmen ligger i
+    "https://sde.hoboleaks.space/tq/typematerials.json",
+    "https://sde.hoboleaks.space/tq/typedogma.json",
+    "https://ref-data.everef.net/types/1230",
     "https://sde.hoboleaks.space/tq/blueprints.json",
     "https://api.everef.net/v1/industry/cost?product_id=1877&runs=10&me=10&te=20&system_id=30001395&facility_tax=0.0025",
 ]
@@ -24,6 +28,7 @@ HODE_KILDER = [
     "https://market.fuzzwork.co.uk/aggregates/?station=60003760&types=34",
 ]
 LISTINGER = [
+    "https://sde.hoboleaks.space/tq/",
     "https://www.fuzzwork.co.uk/dump/latest/",        # CSV-ene ligger i csv/ med datostemplede navn
     "https://www.fuzzwork.co.uk/dump/latest/csv/",
     "https://data.everef.net/reference-data/",
