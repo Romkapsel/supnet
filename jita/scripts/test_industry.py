@@ -146,6 +146,31 @@ def main():
     sjekk("stabilitet har gulv 0,7", f["stable"], 0.7)
     sjekk("trend ved 10 % fall", f["trend"], 0.8)
 
+    # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
+    from ingest_industry import parse_blueprints
+    ccp = {"681": {"blueprintTypeID": 681, "maxProductionLimit": 300,
+                   "activities": {"manufacturing": {"materials": [{"quantity": 32, "typeID": 34},
+                                                                  {"quantity": 6, "typeID": 35}],
+                                                    "products": [{"quantity": 2, "typeID": 165}],
+                                                    "time": 600},
+                                  "copying": {"time": 480}}},
+           "999": {"blueprintTypeID": 999, "activities": {"copying": {"time": 1}}}}   # uten manufacturing
+    ut = parse_blueprints(ccp)
+    sjekk("parser: CCP-format, antall oppskrifter", len(ut), 1)
+    sjekk("parser: produkt", ut[681]["product_type_id"], 165)
+    sjekk("parser: enheter per run", ut[681]["units_per_run"], 2)
+    sjekk("parser: tid", ut[681]["base_time_s"], 600)
+    sjekk("parser: maks runs", ut[681]["max_runs"], 300)
+    sjekk("parser: materialmengde", ut[681]["materials"][34], 32)
+
+    everef = [{"blueprint_type_id": 681, "max_production_limit": 300,
+               "activities": {"manufacturing": {"materials": [{"type_id": 34, "quantity": 32}],
+                                                "products": [{"type_id": 165, "quantity": 1}],
+                                                "time": 600}}}]
+    ut2 = parse_blueprints(everef)
+    sjekk("parser: EVE Ref-format", ut2[681]["materials"][34], 32)
+    sjekk("parser: EVE Ref-format, produkt", ut2[681]["product_type_id"], 165)
+
     print()
     if FEIL:
         print(f"{len(FEIL)} feil: {', '.join(FEIL)}")

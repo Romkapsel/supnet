@@ -26,9 +26,7 @@ Eksempler:
 from __future__ import annotations
 
 import argparse
-import bz2
 import csv
-import io
 import json
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -42,11 +40,8 @@ from industry import (MANUFACTURING, PRODUCT_CATEGORIES, IndustryProfile, econom
 
 FUZZWORK_AGG = "https://market.fuzzwork.co.uk/aggregates/"
 EVEREF_COST = "https://api.everef.net/v1/industry/cost"
-SDE_SOURCES = [
-    ("everef-refdata", "https://ref-data.everef.net/blueprints"),
-    ("everef-sde", "https://sde.everef.net/reference-data/blueprints.json"),
-]
-FUZZWORK_DUMP = "https://www.fuzzwork.co.uk/dump/latest/"
+HOBOLEAKS_BLUEPRINTS = "https://sde.hoboleaks.space/tq/blueprints.json"   # CCPs eget format, 5 082 oppskrifter i én fil
+EVEREF_BULK = "https://data.everef.net/reference-data/reference-data-latest.tar.xz"
 CHUNK = 200                 # varer per Fuzzwork-kall (URL-lengde)
 
 
@@ -57,11 +52,13 @@ def http() -> requests.Session:
 
 
 # ── 1. Oppskrifter fra SDE ───────────────────────────────────────────────────
-def sde_from_everef(s: requests.Session, url: str) -> dict[int, dict]:
-    """EVE Ref reference-data: alle blueprints med aktiviteter. Tåler både dict- og listeform."""
-    r = s.get(url, timeout=180)
-    r.raise_for_status()
-    data = r.json()
+# Kilder (sjekket 24. sept 2026 med probe_sources.py):
+#   1. Hoboleaks – hele blueprints.json i CCPs eget format (camelCase), 11,5 MB, én nedlasting.
+#   2. EVE Ref sin bulkpakke – samme innhold i snake_case, pakket i tar.xz.
+# Fuzzwork-dumpene brukes IKKE: filene ligger i en csv/-undermappe med datostemplede navn,
+# så adressen kan ikke hardkodes. (market.fuzzwork.co.uk/aggregates er noe helt annet og virker.)
+def parse_blueprints(data) -> dict[int, dict]:
+    """Tar CCP-formatet (blueprintTypeID/typeID) og EVE Ref-formatet (blueprint_type_id/type_id)."""
     rows = data.values() if isinstance(data, dict) else data
     out: dict[int, dict] = {}
     for bp in rows:
@@ -69,7 +66,7 @@ def sde_from_everef(s: requests.Session, url: str) -> dict[int, dict]:
             continue
         bid = bp.get("blueprint_type_id") or bp.get("blueprintTypeID") or bp.get("type_id")
         acts = bp.get("activities") or {}
-        man = acts.get("manufacturing") or acts.get(str(MANUFACTURING)) or acts.get(MANUFACTURING)
+        man = acts.get("manufacturing")
         if not bid or not man:
             continue
         mats = _as_qty_map(man.get("materials"))
@@ -77,78 +74,60 @@ def sde_from_everef(s: requests.Session, url: str) -> dict[int, dict]:
         if not mats or not prods:
             continue
         pid, units = next(iter(prods.items()))
+        maks = bp.get("max_production_limit") or bp.get("maxProductionLimit")
         out[int(bid)] = dict(blueprint_type_id=int(bid), product_type_id=int(pid),
                              units_per_run=int(units or 1),
                              base_time_s=int(man.get("time") or 0),
-                             max_runs=bp.get("max_production_limit") or bp.get("maxProductionLimit"),
+                             max_runs=int(maks) if maks else None,
                              materials={int(k): float(v) for k, v in mats.items()})
     return out
 
 
 def _as_qty_map(x) -> dict[int, float]:
-    """Materialer/produkter kommer som {type_id: {quantity}} eller [{type_id, quantity}]."""
+    """Materialer/produkter kommer som [{typeID, quantity}] (CCP), [{type_id, quantity}] (EVE Ref)
+    eller {type_id: {quantity}}."""
     if not x:
         return {}
     if isinstance(x, dict):
         out = {}
         for k, v in x.items():
             q = v.get("quantity") if isinstance(v, dict) else v
-            tid = (v.get("type_id") if isinstance(v, dict) else None) or k
+            tid = (v.get("type_id") or v.get("typeID") if isinstance(v, dict) else None) or k
             out[int(tid)] = float(q or 0)
         return out
-    return {int(i["type_id"]): float(i.get("quantity") or 0) for i in x if i.get("type_id")}
+    out = {}
+    for i in x:
+        tid = i.get("type_id") or i.get("typeID")
+        if tid:
+            out[int(tid)] = float(i.get("quantity") or 0)
+    return out
 
 
-def sde_from_fuzzwork(s: requests.Session) -> dict[int, dict]:
-    """Reserve: CSV-dumpene hos Fuzzwork (industryActivity*.csv.bz2)."""
-    def rows(name: str):
-        r = s.get(FUZZWORK_DUMP + name, timeout=180)
-        r.raise_for_status()
-        text = bz2.decompress(r.content).decode("utf-8", "replace")
-        return list(csv.DictReader(io.StringIO(text)))
+def sde_from_hoboleaks(s: requests.Session) -> dict[int, dict]:
+    r = s.get(HOBOLEAKS_BLUEPRINTS, timeout=180)
+    r.raise_for_status()
+    return parse_blueprints(r.json())
 
-    def col(row: dict, *names):
-        for n in names:
-            for k in row:
-                if k.lower() == n.lower():
-                    return row[k]
-        return None
 
-    out: dict[int, dict] = {}
-    for r in rows("industryActivityProducts.csv.bz2"):
-        if int(col(r, "activityID") or 0) != MANUFACTURING:
-            continue
-        bid = int(col(r, "typeID"))
-        out[bid] = dict(blueprint_type_id=bid, product_type_id=int(col(r, "productTypeID")),
-                        units_per_run=int(float(col(r, "quantity") or 1)),
-                        base_time_s=0, max_runs=None, materials={})
-    for r in rows("industryActivityMaterials.csv.bz2"):
-        if int(col(r, "activityID") or 0) != MANUFACTURING:
-            continue
-        bid = int(col(r, "typeID"))
-        if bid in out:
-            out[bid]["materials"][int(col(r, "materialTypeID"))] = float(col(r, "quantity") or 0)
-    for r in rows("industryActivity.csv.bz2"):
-        if int(col(r, "activityID") or 0) != MANUFACTURING:
-            continue
-        bid = int(col(r, "typeID"))
-        if bid in out:
-            out[bid]["base_time_s"] = int(float(col(r, "time") or 0))
-    try:
-        for r in rows("industryBlueprints.csv.bz2"):
-            bid = int(col(r, "typeID"))
-            if bid in out:
-                out[bid]["max_runs"] = int(float(col(r, "maxProductionLimit") or 0)) or None
-    except Exception as e:
-        log("industryBlueprints.csv utilgjengelig (maxProductionLimit blir null):", e)
-    return {k: v for k, v in out.items() if v["materials"]}
+def sde_from_everef_bulk(s: requests.Session) -> dict[int, dict]:
+    """EVE Ref sin bulkpakke: tar.xz med blueprints.json inni."""
+    import io as _io
+    import tarfile
+    r = s.get(EVEREF_BULK, timeout=300)
+    r.raise_for_status()
+    with tarfile.open(fileobj=_io.BytesIO(r.content), mode="r:xz") as tf:
+        navn = next((m for m in tf.getnames() if m.endswith("blueprints.json")), None)
+        if not navn:
+            raise RuntimeError(f"fant ikke blueprints.json i pakken ({tf.getnames()[:5]}…)")
+        with tf.extractfile(navn) as f:
+            return parse_blueprints(json.load(f))
 
 
 def load_sde(s: requests.Session) -> tuple[dict[int, dict], str]:
     errors = []
-    for name, url in SDE_SOURCES:
+    for name, henter in (("hoboleaks", sde_from_hoboleaks), ("everef-bulk", sde_from_everef_bulk)):
         try:
-            bps = sde_from_everef(s, url)
+            bps = henter(s)
             if bps:
                 log(f"SDE fra {name}: {len(bps)} oppskrifter")
                 return bps, name
@@ -156,12 +135,6 @@ def load_sde(s: requests.Session) -> tuple[dict[int, dict], str]:
         except Exception as e:
             errors.append(f"{name}: {type(e).__name__} {e}")
             log(f"SDE-kilde {name} feilet:", e)
-    try:
-        bps = sde_from_fuzzwork(s)
-        log(f"SDE fra fuzzwork-dump: {len(bps)} oppskrifter")
-        return bps, "fuzzwork"
-    except Exception as e:
-        errors.append(f"fuzzwork: {type(e).__name__} {e}")
     raise RuntimeError("fikk ikke oppskriftene fra noen kilde – " + " | ".join(errors))
 
 

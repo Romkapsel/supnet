@@ -115,8 +115,10 @@ Kjør manuelt: knappen «Kjør industri-jobben nå» i fanen, eller Actions → 
 Jobben laster også opp topp 30 som CSV-artifact.
 
 ### Slik regnes det
-1. **Oppskrifter** hentes fra EVE Ref reference-data (`ref-data.everef.net/blueprints`), med Fuzzwork sine
-   `industryActivity*.csv.bz2`-dumper som reserve. Lagres i `jita.blueprints` og hentes på nytt når de er > 7 dager gamle.
+1. **Oppskrifter** hentes fra `sde.hoboleaks.space/tq/blueprints.json` (hele SDE-en i CCPs eget format,
+   11,5 MB, én nedlasting), med EVE Refs bulkpakke `data.everef.net/reference-data/reference-data-latest.tar.xz`
+   som reserve. Lagres i `jita.blueprints` og hentes på nytt når de er > 7 dager gamle.
+   Parseren tåler begge formene (`typeID` og `type_id`), og `test_industry.py` sjekker det.
 2. **Materialmengde** per jobb: `max(runs, ceil(round(runs × grunnmengde × (1 − ME/100), 2)))`.
    Mengde 1 reduseres aldri. NPC-stasjon har ingen material- eller tidsbonus.
 3. **Jobbavgift** = EIV × (systemets manufacturing cost index + facility tax 0,25 % + SCC 4 %), der
@@ -144,6 +146,13 @@ Jobben laster også opp topp 30 som CSV-artifact.
 - **Egne mineraler er ikke gratis** – materialer verdsettes alltid til markedspris, også det du miner selv.
 - Regler: `i1` margin, `i1x` urealistisk margin, `i2` dagsvolum, `i3`/`i3b` tynt marked, `i4` dyr BPO,
   `i5` kapital per jobb, `i6` prisfall 30 d, `i7` mangler data, `i8` nedbetalingstid, `i9` pristopp.
+
+### Feillogg
+- **24. sept 2026, første kjøring feilet:** `ref-data.everef.net/blueprints` gir bare en liste med
+  5 082 ID-er (detaljene ligger på `/blueprints/<id>`, altså 5 082 kall), `sde.everef.net` finnes ikke, og
+  Fuzzwork-dumpene ligger i `dump/latest/csv/` med datostemplede filnavn – ikke `dump/latest/<tabell>.csv.bz2`.
+  Rettet ved å bytte til Hoboleaks + EVE Refs bulkpakke. `scripts/probe_sources.py` (Actions-jobb `probe`,
+  bare manuell) viser hvilke kilder som svarer og hvilken form svaret har – bruk den før du gjetter på adresser.
 
 ### Ikke bygget ennå (steg 2)
 - Mining-laget: rangering av malm/komprimert malm på ISK per time, og hvilke produkter din egen mining mater.

@@ -21,13 +21,11 @@ JSON_KILDER = [
 ]
 HODE_KILDER = [
     "https://data.everef.net/reference-data/reference-data-latest.tar.xz",
-    "https://www.fuzzwork.co.uk/dump/latest/industryActivityProducts.csv.bz2",
-    "https://www.fuzzwork.co.uk/dump/latest/industryactivityproducts.csv.bz2",
-    "https://www.fuzzwork.co.uk/dump/latest/industryActivityProducts.csv",
-    "https://www.fuzzwork.co.uk/dump/latest/sqlite-latest.sqlite.bz2",
+    "https://market.fuzzwork.co.uk/aggregates/?station=60003760&types=34",
 ]
 LISTINGER = [
-    "https://www.fuzzwork.co.uk/dump/latest/",
+    "https://www.fuzzwork.co.uk/dump/latest/",        # CSV-ene ligger i csv/ med datostemplede navn
+    "https://www.fuzzwork.co.uk/dump/latest/csv/",
     "https://data.everef.net/reference-data/",
 ]
 
