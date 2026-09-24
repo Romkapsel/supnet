@@ -119,6 +119,22 @@ def main():
     sjekk("høyere refine-utbytte gir høyere verdi",
           r2["refined_value_per_m3"], round(r["refined_value_per_m3"] * 0.78 / 0.52, 2), tol=1e-3)
 
+    # ── Parseren for refine-utbytte mot alle skrivemåtene kildene bruker ──
+    from ingest_mining import parse_typematerials
+    ccp = {"1230": {"materials": [{"materialTypeID": 34, "quantity": 415}]}}
+    sjekk("parser: CCP (materialTypeID)", parse_typematerials(ccp)[1230][34], 415)
+    everef_dict = {"1230": {"materials": [{"type_id": 34, "quantity": 415}]}}
+    sjekk("parser: snake_case", parse_typematerials(everef_dict)[1230][34], 415)
+    som_dict = {"1230": {"materials": {"34": {"typeID": 34, "quantity": 415}}}}
+    sjekk("parser: materials som dict", parse_typematerials(som_dict)[1230][34], 415)
+    som_liste = [{"type_id": 1230, "materials": [{"material_type_id": 34, "quantity": 415}]}]
+    sjekk("parser: hele svaret som liste", parse_typematerials(som_liste)[1230][34], 415)
+    try:
+        parse_typematerials({"1230": {"materials": [{"ukjent": 1}]}})
+        sjekk("parser: ukjent form gir feil med eksempel", 0, 1)
+    except RuntimeError as e:
+        sjekk("parser: ukjent form gir feil med eksempel", 1 if "første material" in str(e) else 0, 1)
+
     print()
     if FEIL:
         print(f"{len(FEIL)} feil: {', '.join(FEIL)}")

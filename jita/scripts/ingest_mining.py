@@ -57,23 +57,48 @@ def bulk_json(s: requests.Session, navn: str) -> dict:
             return json.load(f)
 
 
+def _plukk(d: dict, *navn):
+    """Henter en nøkkel uansett skrivemåte (typeID / type_id / materialTypeID …)."""
+    lav = {str(k).lower(): v for k, v in d.items()}
+    for n in navn:
+        if n.lower() in lav:
+            return lav[n.lower()]
+    return None
+
+
 def parse_typematerials(data) -> dict[int, dict[int, float]]:
-    """{typeID: {materialTypeID: mengde per batch}} – tåler CCP- og EVE Ref-formen."""
-    rows = data.items() if isinstance(data, dict) else ((d.get("type_id"), d) for d in data)
+    """{typeID: {materialTypeID: mengde per batch}}.
+
+    Tåler CCP-formen ({"34": {"materials": [{"materialTypeID": 34, "quantity": 415}]}}),
+    EVE Ref-formen (snake_case) og lister. Kaster feil med eksempeldata hvis ingenting
+    kan tolkes – en tom parsering uten forklaring kostet en kjøring 24. sept.
+    """
+    rows = list(data.items()) if isinstance(data, dict) else \
+        [(_plukk(d, "typeID", "type_id"), d) for d in data]
     ut: dict[int, dict[int, float]] = {}
     for tid, v in rows:
         if tid is None or not isinstance(v, dict):
             continue
-        mats = v.get("materials") or v.get("type_materials") or []
+        mats = _plukk(v, "materials", "type_materials") or []
         if isinstance(mats, dict):
             mats = list(mats.values())
         m = {}
         for rad in mats:
-            mid = rad.get("typeID") or rad.get("type_id") or rad.get("material_type_id")
-            if mid:
-                m[int(mid)] = float(rad.get("quantity") or 0)
+            if not isinstance(rad, dict):
+                continue
+            mid = _plukk(rad, "materialTypeID", "typeID", "material_type_id", "type_id")
+            qty = _plukk(rad, "quantity", "qty")
+            if mid and qty:
+                m[int(mid)] = float(qty)
         if m:
             ut[int(tid)] = m
+    if not ut and rows:
+        tid, v = rows[0]
+        mats = _plukk(v, "materials", "type_materials") if isinstance(v, dict) else None
+        eksempel = mats[0] if isinstance(mats, list) and mats else mats
+        raise RuntimeError(f"klarte ikke tolke refine-utbyttene: {len(rows)} rader, "
+                           f"første nøkler {list(v)[:6] if isinstance(v, dict) else type(v).__name__}, "
+                           f"første material {eksempel}")
     return ut
 
 
