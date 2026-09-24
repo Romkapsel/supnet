@@ -1,0 +1,82 @@
+# Deployer Jita-siden (rot jita/) til Vercel-prosjektet «jita-eve».
+#
+# Krever én hemmelighet: VERCEL_TOKEN (GitHub → repo → Settings → Secrets and variables →
+# Actions → New repository secret). Token lages på https://vercel.com/account/settings/tokens
+# med tilgang til teamet «kvalem-5912s-projects».
+#
+# Org- og prosjekt-ID er ikke hemmelige og ligger rett i fila, så CLI-en vet hvor den skal deploye
+# uten .vercel/project.json (den er ikke i repoet).
+#
+# Kjører automatisk ved push til main som rører jita/, og manuelt (Run workflow) fra en hvilken
+# som helst gren. Manuelt valg «preview» gir en test-URL i stedet for å røre produksjon.
+name: jita-deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "jita/**"
+      - ".github/workflows/jita-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "production eller preview"
+        default: "production"
+
+concurrency:
+  group: jita-deploy
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_SrJymK8kp8tEkEyIirslAQSa
+  VERCEL_PROJECT_ID: prj_aTozrWiLqjaS4WFnPwQCvTFmS5mF
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Er VERCEL_TOKEN satt?
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN mangler. Legg den inn under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm install --global vercel@latest
+
+      - name: Deploy
+        working-directory: jita
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          MAL: ${{ github.event.inputs.target || 'production' }}
+        run: |
+          if [ "$MAL" = "production" ]; then
+            vercel deploy --prod --yes --token "$VERCEL_TOKEN" | tee url.txt
+          else
+            vercel deploy --yes --token "$VERCEL_TOKEN" | tee url.txt
+          fi
+          echo "### Jita deployet ($MAL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$(tail -n 1 url.txt)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Svarer siden?
+        working-directory: jita
+        run: |
+          URL="$(tail -n 1 url.txt)"
+          for i in 1 2 3 4 5; do
+            KODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL/industry.html" || true)"
+            echo "forsøk $i: $URL/industry.html → $KODE"
+            case "$KODE" in
+              200|401|403) exit 0 ;;   # 401/403 = Vercel-beskyttelse, siden finnes
+            esac
+            sleep 5
+          done
+          echo "::warning::Fikk ikke 200 fra $URL/industry.html – sjekk deployen manuelt."

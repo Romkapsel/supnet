@@ -118,3 +118,147 @@ per order_id før snapshot, og `diff_fills` hopper over gjentatte id-er. I tille
 altså allerede kjøpsordrene i strukturer (alle rekkevidder unntatt «station», som uansett ikke dekker 4-4). Den egentlige
 årsaken til Datacore-avviket var hopptabellen (Perimeter = 99 hopp før `/route/`-fiksen). Strukturhentingen er derfor
 slått av (miljøvariabel `STRUCT_ORDERS=1` slår den på igjen); koden, tabellen og scopene beholdes.
+
+## Industri – produksjon (steg 1, 24. sept 2026)
+
+Egen fane `/jita/industry.html`. Rangerer hvilke T1-produkter det er verdt å produsere i Ylandoki
+(system 30001395) og selge i Jita 4-4. Brief: `industri-brief.md`.
+
+| Del | Hvor | Hva |
+|---|---|---|
+| Jobb | GitHub Actions `jita` → job `industry` (05:40 UTC daglig) | `scripts/ingest_industry.py` |
+| Formler | `scripts/industry.py` | ME/TE-runding, EIV, jobbavgift, netto, score, dom, porteføljevelger |
+| Test | `scripts/test_industry.py` | 37 sjekker mot tall regnet for hånd – kjøres først i Actions-jobben |
+| Database | `sql/005_industry.sql` | `industry_profile`, `blueprints`, `blueprint_materials`, `market_quotes`, `market_prices`, `industry_systems`, `industry_candidates` |
+| API | `api/[action].js` | `industry` (GET rangering + portefølje, POST innstillinger), `industry_type?id=` (én vare) |
+| Klokke | pg_cron `jita-industri-rydd` (06:20) og `jita-industri-vakt` (07:10) | rydding, og reservestart hvis jobben ikke har kjørt på 26 t |
+| Deploy | `.github/workflows/jita-deploy.yml` | Vercel-deploy ved push til main som rører `jita/`, og manuelt (production/preview). Krever hemmeligheten `VERCEL_TOKEN`; org- og prosjekt-ID står i fila. `cd jita && vercel --prod --yes` virker fortsatt som før. |
+
+Kjør manuelt: knappen «Kjør industri-jobben nå» i fanen, eller Actions → jita → Run workflow → `industry`.
+Jobben laster også opp topp 30 som CSV-artifact.
+
+### Slik regnes det
+1. **Oppskrifter** hentes fra `sde.hoboleaks.space/tq/blueprints.json` (hele SDE-en i CCPs eget format,
+   11,5 MB, én nedlasting), med EVE Refs bulkpakke `data.everef.net/reference-data/reference-data-latest.tar.xz`
+   som reserve. Lagres i `jita.blueprints` og hentes på nytt når de er > 7 dager gamle.
+   Parseren tåler begge formene (`typeID` og `type_id`), og `test_industry.py` sjekker det.
+2. **Materialmengde** per jobb: `max(runs, ceil(round(runs × grunnmengde × (1 − ME/100), 2)))`.
+   Mengde 1 reduseres aldri. NPC-stasjon har ingen material- eller tidsbonus.
+3. **Jobbavgift** = EIV × (systemets manufacturing cost index + facility tax 0,25 % + SCC 4 %), der
+   EIV = grunnmengdene (før ME) × `adjusted_price` fra ESI `/markets/prices/`.
+4. **Tid per run** = base × (1 − TE/100) × (1 − 0,04 × Industry) × (1 − 0,03 × Advanced Industry).
+5. **Materialpriser** fra Fuzzwork-aggregat for Jita 4-4: høyeste buy (du legger kjøpsordre, + broker fee)
+   eller laveste sell (instant) – valgbart i innstillingene.
+6. **Salg** ett tick under laveste ask, minus broker + skatt fra `jita.profile` (målt sats slår formelen).
+7. **Batchen dimensjoneres av både tid og kapital:** antall runs = min(det slotten rekker på
+   `batch_days`, det budsjettet tåler, BPC-grensen). Budsjett per jobb = min(`max_capital_per_job`,
+   kapital × `capital_share_per_job`) og dekker materialer *og* jobbavgift.
+8. **Realistisk ISK/dag/slot** = netto × det minste av tre tak: hva slotten rekker, 10 % av
+   dagsvolumet, og **kapital-omløpet** – hvor mange enheter kapitalen rekker å finansiere per døgn,
+   regnet som batchen delt på (produksjonstid + tid å selge unna). Hvilket tak som binder vises som
+   `slot` / `marked` / `omløp` i fanen, sammen med potensialet uten omløpstaket.
+9. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
+
+### Momentvernet (24. sept 2026)
+Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip hvis markedet tar 2 i uka:
+1. **Batchen begrenses av markedet:** antall enheter ≤ `volume_share` × dagsvolum × `max_sell_days`
+   (10 % × volum × 5 dager). Taket regnes om når historikken er hentet, så batchen krymper til det
+   markedet faktisk spiser. Regel `i12` forkaster varer der selv minste batch er for stor.
+2. **Handler per dag, ikke bare volum:** `min_trades_per_day` (3) mot ESI-historikkens `order_count`.
+   Et dagsvolum på 500 kan være én stor ordre; antall handler viser om varen flyter. Regel `i11`.
+   Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
+3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
+
+### Valg og avvik fra briefen (bevisste)
+- **EVE Ref sitt kost-API brukes ikke per vare.** 1 200+ kall per kjøring er ufint mot en gratis tjeneste, og
+  vi trenger egne materialpriser uansett (briefen vil ha Jita buy-pris). Vi henter derfor oppskriftene i
+  én nedlasting og regner EIV/avgift/tid selv. `--verify N` kryssjekker de N beste mot kost-API-et og
+  logger avviket – bruk den når noe ser rart ut.
+- **Salgsgebyr er ikke 5 %,** men broker + skatt fra profilen (nå 1,8 % + 7,5 % = 9,3 %). Kan overstyres i fanen.
+- **Trinnvis berikelse** for å holde ESI-bruken nede: alle produkter får kostnad/margin (trinn A),
+  de 400 beste får historikk (trinn B), de 120 beste får antall selgere og BPO-pris (trinn C).
+  Varer uten dagsvolum kan derfor ikke passere – de mangler data (regel `i7`).
+- **NPC-BPO** avgjøres som i timesjobben: en salgsordre med ≥ 365 dagers varighet finnes bare fra NPC.
+  Mangler vi en slik ordre, vises varen med merket «ikke NPC-BPO» i stedet for å skjules.
+- **Exordium** er aldri aktuelt: produksjon og salg er låst til Ylandoki og Jita (briefens straffeavgifter
+  gjelder ikke der vi står).
+- **Kapital-omløpet er lagt til** (24. sept, etter første kjøring): uten det ble dyre varer
+  urealistisk høyt rangert – 42 mill. ISK/dag på en vare som koster 2 mill. per stk krever at
+  55 mill. ISK går gjennom materialene hvert døgn, med 8 mill. i kassa. Taket ligger alltid litt
+  under de to andre, fordi batchen også må selges før pengene er tilbake.
+- **Egne mineraler er ikke gratis** – materialer verdsettes alltid til markedspris, også det du miner selv.
+- Regler: `i1` margin, `i1x` urealistisk margin, `i2` dagsvolum, `i3`/`i3b` tynt marked, `i4` dyr BPO,
+  `i5` kapital per jobb (slår bare til når én enkelt run sprenger budsjettet), `i6` prisfall 30 d,
+  `i7` mangler data, `i8` nedbetalingstid, `i9` pristopp, `i10` blueprinten finnes ikke på markedet.
+- **«NPC-selgd BPO»** avgjøres av om blueprinten finnes som markedsvare i `jita.types` (og ikke er en
+  T2-blueprint). Uten det kan du ikke kjøpe den – de varene forkastes med `i10` i stedet for å skjules.
+- **BPO-pris** hentes fra Fuzzwork for Jita, Amarr, Dodixie, Rens og Hek, og laveste sell brukes.
+  NPC-seedede BPO-er ligger spredt i empire; et oppslag bare mot The Forge fant pris på 54 av 120
+  og ingen av de beste.
+
+### Feillogg
+- **24. sept 2026, andre kjøring (1 147 vurdert, 9 passerte) hadde tre feil:** batchene ble dimensjonert
+  bare etter tid, så forslagene bandt 11–18 mill. ISK per jobb mot en kapital på 8 mill.; BPO-prisen var
+  null for alle de beste (region-oppslag mot The Forge); og to varer uten kjøpbar blueprint
+  (SCARAB Breacher Pod M, Interdiction Nullifier II – CCP setter ikke metaGroup på dem, så
+  `seed_types.py` regner dem som T1) lå øverst. Rettet med kapitaltak på batchen, BPO-priser fra fem
+  handelsknuter, og regel `i10`.
+- **24. sept 2026, første kjøring feilet:** `ref-data.everef.net/blueprints` gir bare en liste med
+  5 082 ID-er (detaljene ligger på `/blueprints/<id>`, altså 5 082 kall), `sde.everef.net` finnes ikke, og
+  Fuzzwork-dumpene ligger i `dump/latest/csv/` med datostemplede filnavn – ikke `dump/latest/<tabell>.csv.bz2`.
+  Rettet ved å bytte til Hoboleaks + EVE Refs bulkpakke. `scripts/probe_sources.py` (Actions-jobb `probe`,
+  bare manuell) viser hvilke kilder som svarer og hvilken form svaret har – bruk den før du gjetter på adresser.
+
+## Mining (steg 2, 24. sept 2026)
+
+Egen seksjon nederst i Industri-fanen. Svarer på: hvilken malm gir mest ISK per time der du miner,
+og er det best å refine den eller selge den som den er?
+
+| Del | Hvor | Hva |
+|---|---|---|
+| Jobb | Samme Actions-jobb som industri (`industry`) | `scripts/ingest_mining.py`, eget innslag i `robot_runs` (`mining`) |
+| Formler | `scripts/mining.py` | refine-verdi, salgsvei, ISK/time, dom |
+| Test | `scripts/test_mining.py` | 29 sjekker uten nett/database |
+| Database | `sql/006_mining.sql` | `mining_profile`, `ore_yields`, `mining_candidates`, `cleanup_mining()` + pg_cron `jita-mining-rydd` (06:25) |
+| API | `api/[action].js` | `mining` (GET + POST innstillinger) |
+
+### Slik regnes det
+1. **Refine-utbytte** fra `sde.hoboleaks.space/tq/typematerials.json` (`{typeID: {materials: [{typeID, quantity}]}}`),
+   batch-størrelsen (`portionSize`) fra EVE Refs bulkpakke. Hentes på nytt når utbyttene er > 7 dager gamle.
+2. **Salgsvei per vare** – for hvert mineral og for malmen selv velges den beste av:
+   salgsordre `(laveste ask − tick) × (1 − broker − skatt)` eller dumping `høyeste bud × (1 − skatt)`
+   (ingen broker fee når du selger til et bud).
+3. **Refinet verdi** = Σ(mengde × `reprocess_yield` × netto) / batch-størrelse. Standard utbytte 52 %
+   (NPC-stasjon 50 % med skills) – sett det høyere om du refiner i struktur med rigger.
+4. **Beste vei** = høyeste ISK per m3 av refine og rå-salg. `refine_premium` viser hvor mye mer refine gir;
+   er den negativ, selg malmen som den er.
+5. **ISK/time** = beste ISK per m3 × `m3_per_hour`.
+6. **Komprimering er en salgsvei, ikke en egen rad.** Du miner rå malm; komprimering skjer etterpå og
+   endrer bare volumet. Verdien av den komprimerte varen regnes derfor per m3 **rå** malm, med en
+   omregningsfaktor hentet fra utbyttedataene (samme mineralinnhold gir forholdet) – ikke gjettet.
+   I dagens EVE er «Compressed X» 1:1 i antall med 1/100 av volumet, mens «Batch Compressed X» er
+   100:1. Begge vurderes, og den som gir mest per m3 rå malm vinner. En variant som ikke gir mindre
+   volum per tilsvarende rå enhet forkastes som urimelig (datafeil).
+
+### Hva som filtreres bort
+- `m1` malmgruppen finnes ikke der du miner (`available_groups` i profilen – standard 0.8 Lonetrek:
+  Veldspar, Scordite, Pyroxeres, Plagioclase, Omber, Kernite. Rediger i fanen.)
+- `m2` ingen pris i Jita, `m4` mangler refine-utbytte.
+- **Veien velges bare blant markeder som flyter.** Refine, rå-salg og hver komprimerte variant har sitt
+  eget marked; de som ikke passerer likviditetskravet er ikke med i valget. Uten dette kunne én
+  søppelpris på en illikvid «Batch Compressed»-variant velte hele malmen ut av lista (Kernite III-Grade
+  24. sept). Den illikvide verdien tas vare på til forklaringen.
+- `m3` for tynt **eller ukjent** marked for det du faktisk selger (rå eller komprimert vare).
+  Manglende omsetningstall forkaster også – en pris uten omsetning bak er én tilfeldig ordre.
+  Refine-veien er upåvirket, fordi mineralene alltid flyter.
+
+### «Verdt å mine selv?»
+Fanen viser hvilke mineraler produksjonsforslagene dine faktisk spiser (mengde og hva de koster i Jita),
+og hvilken av malmene der du miner som gir mest av hvert mineral. Egne mineraler regnes fortsatt til
+markedspris i produksjonsdelen – det du sparer, er kjøpesummen, og det du bruker, er tid (se ISK/time).
+
+### Ikke bygget ennå
+- Belt-sammensetning per system (hva som faktisk finnes i beltene rundt Ylandoki hentes ikke fra spillet –
+  derfor er `available_groups` en liste du styrer selv).
+- Is og gass er med i tabellen når de har utbytte og pris, men reglene er laget for malm.
+- Varsel på Discord ved nye varer i topp 3 (i dag varsles bare margin som faller under terskel på varer du eier).

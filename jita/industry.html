@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Jita – Industri</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link rel="icon" href="icons/icon-192.png"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, price, pct, num, ago, dt, el, esc, nav, injectCss, copyBtn, sparkline } from './app.js';
+injectCss();
+
+// Ekstra CSS bare for denne fanen: tabellen må kunne skrolles sidelengs på mobil.
+const s = document.createElement('style');
+s.textContent = `
+.tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.tblwrap table { min-width:760px; }
+tr.pick td { background:#1f3a2a33; }
+tr.rowlink { cursor:pointer; } tr.rowlink:hover td { background:var(--card2); }
+tr.fail td { opacity:0.55; }
+.filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px 12px; }
+.detail td { background:var(--card2); }
+.matlist { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:2px 14px; font-size:0.8rem; }
+`;
+document.head.appendChild(s);
+
+let D = null;                       // siste svar fra /api/industry
+const state = { kategori: '', minVolum: 0, maksBpo: 0, maksKapital: 0, sok: '', visForkastet: false, apen: null };
+
+const hrs = (sek) => sek == null ? '–' : (sek / 3600 < 1 ? Math.round(sek / 60) + ' min' : (sek / 3600).toFixed(1).replace('.', ',') + ' t');
+
+function synlige() {
+  return (D.rows || []).filter((r) => {
+    if (!state.visForkastet && !r.passed) return false;
+    if (state.kategori && String(r.category_id) !== state.kategori) return false;
+    if (state.minVolum && Number(r.daily_volume || 0) < state.minVolum) return false;
+    if (state.maksBpo && Number(r.bpo_price || 0) > state.maksBpo) return false;
+    if (state.maksKapital && Number(r.capital_per_job || 0) > state.maksKapital) return false;
+    if (state.sok && !String(r.name || '').toLowerCase().includes(state.sok.toLowerCase())) return false;
+    return true;
+  });
+}
+
+function rad(r, valgt) {
+  const t = (v, cls = '') => `<td class="${cls}">${v}</td>`;
+  return `<tr class="rowlink ${r.passed ? '' : 'fail'} ${valgt ? 'pick' : ''}" data-id="${r.product_type_id}">
+    <td style="text-align:left">${valgt ? '★ ' : ''}<b>${esc(r.name)}</b>${copyBtn(r.name)}
+      ${r.npc_bpo === false ? '<span class="pill warn" title="Fant ingen NPC-selgt BPO – sjekk at blueprinten faktisk kan kjøpes">ikke NPC-BPO</span>' : ''}
+      ${r.passed ? '' : `<div class="muted" style="font-size:0.72rem">${(r.failed_rules || []).map((x) => esc(D.rules[x] || x)).join(' · ')}</div>`}</td>
+    ${t(`<b class="accent">${isk(r.isk_per_day_slot)}</b>`)}
+    ${t(pct(r.margin))}
+    ${t(isk(r.net_per_unit))}
+    ${t(price(r.cost_per_unit))}
+    ${t(price(r.sell_price))}
+    ${t(r.daily_volume == null ? '–' : num(r.daily_volume))}
+    ${t(r.factors?.trades_per_day == null ? '–' : `${num(r.factors.trades_per_day, 1)}${r.factors.batch_sell_days != null ? ` <span class="pill" title="Batchen på ${r.units} stk tar så mange døgn å selge unna med din andel av volumet">${num(r.factors.batch_sell_days, 1)} d</span>` : ''}`)}
+    ${t(`${num(r.realistic_units_per_day)}${r.factors?.bottleneck ? ` <span class="pill" title="Bremsen: ${r.factors.bottleneck === 'slot' ? 'produksjonstiden' : r.factors.bottleneck === 'marked' ? 'markedet tar ikke mer' : 'kapitalen må selges ut før den kan brukes igjen'}${r.factors.potential_units_per_day ? ` – potensial ${num(r.factors.potential_units_per_day)} stk/dag` : ''}">${r.factors.bottleneck}</span>` : ''}`)}
+    ${t(isk(r.capital_per_job))}
+    ${t(r.bpo_price == null ? '–' : isk(r.bpo_price))}
+    ${t(r.payback_days == null ? '–' : num(r.payback_days, 1) + ' d')}
+    ${t(r.sell_orders == null ? '–' : r.sell_orders)}
+    ${t(hrs(r.time_per_batch_s))}
+  </tr>${state.apen === r.product_type_id ? detaljRad(r) : ''}`;
+}
+
+function detaljRad(r) {
+  const d = state.detalj && state.detalj.type?.type_id === r.product_type_id ? state.detalj : null;
+  if (!d) return `<tr class="detail"><td colspan="14" class="muted small">Laster…</td></tr>`;
+  const h = [...(d.history || [])].reverse();
+  const mats = (d.materials || []).map((m) =>
+    `<span>${esc(m.name)}: <b>${num(m.quantity)}</b>/run à ${price(D.profile.material_source === 'buy' ? m.buy_max : m.sell_min)}</span>`).join('');
+  return `<tr class="detail"><td colspan="14">
+    <div class="reason">${esc(r.reason || '')}</div>
+    <div class="row small" style="margin-top:8px">
+      <span><b>Materialer per run</b> (ME ${D.profile.me})</span>
+      <span class="muted">Frakt: ${num(r.m3_in)} m3 inn / ${num(r.m3_out)} m3 ut · ${D.profile.jumps_from_jita} hopp</span>
+    </div>
+    <div class="matlist" style="margin-top:4px">${mats || '<span class="muted">–</span>'}</div>
+    ${h.length > 1 ? `<div class="row small" style="margin-top:10px"><span><b>Margin og kostpris over tid</b> (${h.length} kjøringer)</span>
+      <span class="muted">gul = ISK/dag/slot · blå = kostpris</span></div>
+      ${sparkline([h.map((x) => Number(x.isk_per_day_slot)), h.map((x) => Number(x.cost_per_unit))])}
+      <div class="row small muted"><span>${dt(h[0].run_at)}</span><span>${dt(h[h.length - 1].run_at)}</span></div>`
+    : '<div class="muted small" style="margin-top:8px">Historikk kommer når jobben har kjørt noen dager.</div>'}
+  </td></tr>`;
+}
+
+function tegn() {
+  const p = D.profile;
+  const rows = synlige();
+  const valgte = new Set((D.portfolio?.picks || []).map((x) => x.product_type_id));
+  const pf = D.portfolio;
+
+  el('app').innerHTML = `
+    <h1>Industri <span class="muted" style="font-size:0.9rem">produksjon i ${esc(p.system_name || '?')} → salg i Jita 4-4</span></h1>
+    ${nav('industry.html')}
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="l">Kostnadsindeks</div><div class="v">${p.cost_index == null ? '–' : (p.cost_index * 100).toFixed(2).replace('.', ',') + ' %'}</div><div class="muted" style="font-size:0.7rem">${p.cost_index_at ? ago(p.cost_index_at) : 'ikke hentet'}</div></div>
+        <div class="stat"><div class="l">Avgifter på jobben</div><div class="v">${pct(Number(p.facility_tax) + Number(p.scc_rate) + Number(p.cost_index || 0), 2)}</div><div class="muted" style="font-size:0.7rem">indeks + 0,25 % + SCC ${pct(p.scc_rate, 0)}</div></div>
+        <div class="stat"><div class="l">Salgsgebyr</div><div class="v">${pct(p.sell_fees, 2)}</div><div class="muted" style="font-size:0.7rem">broker ${pct(p.broker, 2)} + skatt ${pct(p.tax, 2)}</div></div>
+        <div class="stat"><div class="l">Blueprint</div><div class="v">ME ${p.me} / TE ${p.te}</div></div>
+        <div class="stat"><div class="l">Slots</div><div class="v">${p.slots_effective}</div></div>
+        <div class="stat"><div class="l">Data fra</div><div class="v">${D.run_at ? ago(D.run_at) : 'aldri'}</div><div class="muted" style="font-size:0.7rem">${D.counts?.passed ?? 0} av ${D.counts?.total ?? 0} passerer</div></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="kjor">Kjør industri-jobben nå</button>
+        <span id="kjormsg" class="muted small"></span>
+        <span class="muted small">${D.sde?.n ? `${num(D.sde.n)} oppskrifter (${ago(D.sde.at)})` : 'ingen oppskrifter hentet ennå'}</span>
+      </div>
+      ${D.robot && !D.robot.ok ? `<div class="banner" style="margin-top:10px">Siste kjøring feilet: ${esc(D.robot.message || '')}</div>` : ''}
+      ${!D.run_at ? `<div class="banner" style="background:#3a331f;color:var(--accent);margin-top:10px">Ingen kjøring ennå. Trykk «Kjør industri-jobben nå» – den tar ~10 min første gang (henter oppskriftene).</div>` : ''}
+    </div>
+
+    <h2>Forslag: hva slottene bør bruke tiden på</h2>
+    <div class="card">
+      <div class="row">
+        <label style="flex:1;min-width:120px">Slots<input id="slots" type="number" min="1" max="50" value="${pf?.slots ?? p.slots_effective}"/></label>
+        <label style="flex:2;min-width:160px">Kapital (ISK)<input id="kapital" type="number" step="1000000" value="${Math.round(pf?.capital ?? 0)}"/></label>
+        <button id="regn" class="ghost" style="align-self:flex-end">Regn om</button>
+      </div>
+      ${pf?.picks?.length ? `<div class="tblwrap" style="margin-top:10px"><table>
+        <tr><th>Vare</th><th>Runs</th><th>Stk</th><th>Tid</th><th>Kapital</th><th>ISK/dag</th><th>Margin</th></tr>
+        ${pf.picks.map((x) => `<tr><td style="text-align:left"><b>${esc(x.name)}</b>${copyBtn(x.name)}</td><td>${x.runs}</td><td>${num(x.units)}</td>
+          <td>${num(x.hours, 1)} t</td><td>${isk(x.capital_per_job)}</td><td class="accent"><b>${isk(x.isk_per_day_slot)}</b></td><td>${pct(x.margin)}</td></tr>`).join('')}
+        <tr><td style="text-align:left"><b>Sum</b></td><td></td><td></td><td></td><td><b>${isk(pf.capital_used)}</b></td><td class="accent"><b>${isk(pf.isk_per_day)}</b></td><td></td></tr>
+        </table></div>
+        <div class="muted small" style="margin-top:6px">Ingen av forslagene tar mer enn ${pct(p.thresholds?.volume_share ?? 0.1, 0)} av dagsvolumet i Jita. Ledig kapital etterpå: ${isk(pf.left)} ISK.</div>`
+      : `<div class="muted small" style="margin-top:8px">${D.counts?.passed ? 'Ingen av varene som passerer er innenfor kapitalen – øk kapitalen eller senk «maks kapital per jobb» i innstillingene.' : 'Ingen varer passerer reglene ennå.'}</div>`}
+    </div>
+
+    ${(D.alerts || []).length ? `<h2>Varsler <span class="muted small">(margin under terskel, siste 7 d)</span></h2>
+    <div class="card">${D.alerts.map((a) => `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40"><span>📉 ${esc(a.text || a.name || '')}</span><span class="muted">${ago(a.created_at)}</span></div>`).join('')}</div>` : ''}
+
+    <h2>Rangering <span class="muted small">(${rows.length} varer · sortert på realistisk ISK per døgn per slot)</span></h2>
+    <div class="card">
+      <div class="filters">
+        <label>Kategori<select id="f-kat"><option value="">alle</option>${Object.entries(D.categories || {}).map(([k, v]) => `<option value="${k}" ${state.kategori === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+        <label>Min. dagsvolum<input id="f-vol" type="number" min="0" value="${state.minVolum || ''}" placeholder="0"/></label>
+        <label>Maks BPO-pris<input id="f-bpo" type="number" min="0" step="1000000" value="${state.maksBpo || ''}" placeholder="ingen grense"/></label>
+        <label>Maks kapital per jobb<input id="f-kap" type="number" min="0" step="1000000" value="${state.maksKapital || ''}" placeholder="ingen grense"/></label>
+        <label>Søk<input id="f-sok" value="${esc(state.sok)}" placeholder="f.eks. Scourge"/></label>
+        <label style="align-self:end"><input id="f-fail" type="checkbox" ${state.visForkastet ? 'checked' : ''} style="width:auto"/> vis forkastede</label>
+      </div>
+    </div>
+    <div class="card tblwrap">
+      <table>
+        <tr><th>Vare</th><th>ISK/dag/slot</th><th>Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
+            <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Antall handler per dag – volum alene kan være én stor ordre">Handler/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
+            <th title="Materialer + avgift for én full jobb">Kapital/jobb</th><th>BPO</th><th>Nedbetalt</th><th title="Salgsordrer i Jita 4-4">Selgere</th><th>Tid/jobb</th></tr>
+        ${rows.length ? rows.map((r) => rad(r, valgte.has(r.product_type_id))).join('')
+          : '<tr><td colspan="14" class="muted">Ingen varer passerer filtrene.</td></tr>'}
+      </table>
+    </div>
+    <div class="muted small">Trykk på en rad for materialliste, begrunnelse og utvikling over tid.</div>
+
+    <h2>Innstillinger</h2>
+    <div class="card">
+      <div class="grid2">
+        <label>System-ID (produksjon)<input id="i-system_id" type="number" value="${p.system_id ?? ''}"/></label>
+        <label>Systemnavn<input id="i-system_name" value="${esc(p.system_name || '')}"/></label>
+        <label>Hopp fra Jita<input id="i-jumps_from_jita" type="number" value="${p.jumps_from_jita ?? ''}"/></label>
+        <label>ME<input id="i-me" type="number" min="0" max="10" value="${p.me ?? ''}"/></label>
+        <label>TE<input id="i-te" type="number" min="0" max="20" value="${p.te ?? ''}"/></label>
+        <label>Facility tax (0,0025 = 0,25 %)<input id="i-facility_tax" type="number" step="0.0001" value="${p.facility_tax ?? ''}"/></label>
+        <label>SCC-avgift (0,04 = 4 %)<input id="i-scc_rate" type="number" step="0.01" value="${p.scc_rate ?? ''}"/></label>
+        <label>Industry<input id="i-industry" type="number" min="0" max="5" value="${p.industry ?? ''}"/></label>
+        <label>Advanced Industry<input id="i-advanced_industry" type="number" min="0" max="5" value="${p.advanced_industry ?? ''}"/></label>
+        <label>Mass Production<input id="i-mass_production" type="number" min="0" max="5" value="${p.mass_production ?? ''}"/></label>
+        <label>Advanced Mass Production<input id="i-adv_mass_production" type="number" min="0" max="5" value="${p.adv_mass_production ?? ''}"/></label>
+        <label>Slots (tom = fra skills)<input id="i-slots" type="number" min="1" max="50" value="${p.slots ?? ''}"/></label>
+        <label>Materialer kjøpes<select id="i-material_source">
+          <option value="buy" ${p.material_source === 'buy' ? 'selected' : ''}>med kjøpsordre (høyeste buy)</option>
+          <option value="sell" ${p.material_source === 'sell' ? 'selected' : ''}>instant fra laveste sell</option></select></label>
+        <label>Salgsgebyr overstyrt (tom = fra profilen)<input id="i-sell_fee_override" type="number" step="0.001" value="${p.sell_fee_override ?? ''}"/></label>
+      </div>
+      <h3 style="margin-top:14px">Terskler</h3>
+      <div class="grid2">
+        ${[['min_margin', 'Min. margin', 0.01], ['max_margin', 'Maks margin (over = ikke ekte pris)', 0.1],
+           ['min_daily_volume', 'Min. dagsvolum (stk)', 1], ['min_sell_orders', 'Min. antall selgere', 1],
+           ['max_spread', 'Maks spread', 0.05], ['max_price_drop_30d', 'Maks prisfall 30 d', 0.01],
+           ['max_price_spike', 'Maks pristopp (× 30-d snitt)', 0.1], ['max_bpo_price', 'Maks BPO-pris', 1000000],
+           ['max_capital_per_job', 'Maks kapital per jobb', 1000000], ['max_payback_days', 'Maks nedbetalingstid (d)', 1],
+           ['volume_share', 'Andel av dagsvolum du tar', 0.01], ['batch_days', 'Lengde på én jobb (døgn)', 0.5],
+           ['capital_share_per_job', 'Andel av kapitalen én jobb får binde', 0.05],
+           ['max_sell_days', 'Batchen må selges unna innen (døgn)', 1],
+           ['min_trades_per_day', 'Min. handler per dag (moment)', 1]]
+          .map(([k, label, step]) => `<label>${label}<input id="t-${k}" type="number" step="${step}" value="${p.thresholds?.[k] ?? ''}"/></label>`).join('')}
+      </div>
+      <div class="row" style="margin-top:12px"><button id="lagre">Lagre</button><span id="lagremsg" class="muted small"></span>
+        <span class="muted small">Nye terskler gjelder ved neste kjøring av industri-jobben.</span></div>
+    </div>
+    <div id="mining"><h2>Mining</h2><div class="card muted">Laster…</div></div>`;
+
+  koble();
+}
+
+function koble() {
+  const f = (id, key, num = true) => {
+    const e = el(id); if (!e) return;
+    e.onchange = () => { state[key] = num ? Number(e.value) || 0 : e.value; state.apen = null; tegn(); };
+  };
+  f('f-vol', 'minVolum'); f('f-bpo', 'maksBpo'); f('f-kap', 'maksKapital');
+  f('f-kat', 'kategori', false);
+  el('f-fail').onchange = () => { state.visForkastet = el('f-fail').checked; tegn(); };
+  let timer;
+  el('f-sok').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.sok = el('f-sok').value; tegn(); }, 250); };
+
+  for (const tr of document.querySelectorAll('tr.rowlink')) {
+    tr.onclick = async (ev) => {
+      if (ev.target.closest('button')) return;
+      const id = Number(tr.dataset.id);
+      if (state.apen === id) { state.apen = null; state.detalj = null; tegn(); return; }
+      state.apen = id; state.detalj = null; tegn();
+      try { state.detalj = await api('industry_type', { query: { id } }); } catch (e) { state.detalj = null; }
+      if (state.apen === id) tegn();
+    };
+  }
+
+  el('regn').onclick = async () => {
+    el('regn').disabled = true;
+    try {
+      D = await api('industry', { query: { slots: el('slots').value, capital: el('kapital').value } });
+      tegn();
+    } catch (e) { alert(e.message); el('regn').disabled = false; }
+  };
+
+  el('kjor').onclick = async () => {
+    el('kjor').disabled = true; el('kjormsg').textContent = '…';
+    try { const r = await api('scan', { method: 'POST', query: { job: 'industry' } }); el('kjormsg').textContent = r.message; }
+    catch (e) { el('kjormsg').textContent = e.message; }
+    el('kjor').disabled = false;
+  };
+
+  el('lagre').onclick = async () => {
+    el('lagre').disabled = true; el('lagremsg').textContent = '…';
+    const body = {};
+    for (const k of ['system_id', 'system_name', 'jumps_from_jita', 'me', 'te', 'facility_tax', 'scc_rate',
+                     'industry', 'advanced_industry', 'mass_production', 'adv_mass_production', 'slots',
+                     'sell_fee_override', 'material_source']) {
+      const e = el('i-' + k); if (e) body[k] = e.value;
+    }
+    const th = { ...(D.profile.thresholds || {}) };
+    for (const k of Object.keys(th).concat(['min_margin', 'max_margin', 'min_daily_volume', 'min_sell_orders',
+        'max_spread', 'max_price_drop_30d', 'max_price_spike', 'max_bpo_price', 'max_capital_per_job',
+        'max_payback_days', 'volume_share', 'batch_days'])) {
+      const e = el('t-' + k);
+      if (e && e.value !== '') th[k] = Number(e.value);
+    }
+    body.thresholds = th;
+    try { D = await api('industry', { method: 'POST', body }); el('lagremsg').textContent = 'lagret'; tegn(); }
+    catch (e) { el('lagremsg').textContent = e.message; el('lagre').disabled = false; }
+  };
+}
+
+let M = null;
+
+function tegnMining() {
+  const p = M.profile;
+  const rader = M.rows || [];
+  const aktuelle = rader.filter((r) => r.available);
+  const beste = aktuelle[0];
+  const vei = (r) => r.best_route === 'refine' ? '<span class="pill ok">refine</span>'
+    : r.best_route === 'komprimert' ? '<span class="pill warn">komprimer og selg</span>'
+    : '<span class="pill warn">selg rått</span>';
+
+  el('mining').innerHTML = `
+    <h2>Mining <span class="muted small">(hva er verdt å hente inn – ${aktuelle.length} malmtyper der du miner)</span></h2>
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="l">Refine-utbytte</div><div class="v">${pct(p.reprocess_yield, 0)}</div><div class="muted" style="font-size:0.7rem">NPC-stasjon med skills</div></div>
+        <div class="stat"><div class="l">Mining-rate</div><div class="v">${isk(p.m3_per_hour)} m3/t</div></div>
+        <div class="stat"><div class="l">Beste malm nå</div><div class="v">${beste ? esc(beste.name) : '–'}</div>${beste ? `<div class="muted" style="font-size:0.7rem">${isk(beste.isk_per_hour)} ISK/time</div>` : ''}</div>
+        <div class="stat"><div class="l">Data fra</div><div class="v">${M.run_at ? ago(M.run_at) : 'aldri'}</div><div class="muted" style="font-size:0.7rem">${M.yields?.malmtyper ? `${M.yields.malmtyper} malmtyper med utbytte` : 'ingen utbytter hentet'}</div></div>
+      </div>
+      ${M.robot && !M.robot.ok ? `<div class="banner" style="margin-top:10px">Siste mining-kjøring feilet: ${esc(M.robot.message || '')}</div>` : ''}
+      ${!M.run_at ? '<div class="banner" style="background:#3a331f;color:var(--accent);margin-top:10px">Ingen mining-kjøring ennå – den går sammen med industri-jobben.</div>' : ''}
+    </div>
+
+    ${rader.length ? `<div class="card tblwrap"><table>
+      <tr><th>Malm</th><th title="Per time med din mining-rate, regnet på RÅ malm – komprimering endrer bare volumet">ISK/time</th><th>Beste vei</th>
+          <th title="Verdien av mineralene malmen gir, etter refine-utbytte og salgsgebyr">Refinet ISK/m3</th>
+          <th title="Malmen solgt som den er i Jita">Rått ISK/m3</th>
+          <th title="Komprimert og solgt, regnet per m3 RÅ malm du miner">Komprimert ISK/m3</th>
+          <th title="Hvor mye mer refine gir enn å selge varen">Refine gir</th>
+          <th title="Markedet for det du faktisk selger – betyr ingenting hvis du refiner">Volum/dag</th><th>Handler/dag</th><th>m3/enhet</th></tr>
+      ${rader.slice(0, 40).map((r) => `<tr class="${r.available ? '' : 'fail'}">
+        <td style="text-align:left"><b>${esc(r.name)}</b>${copyBtn(r.name)}
+          ${r.available ? '' : `<div class="muted" style="font-size:0.72rem">${(r.failed_rules || []).map((x) => esc(M.rules[x] || x)).join(' · ') || 'ikke der du miner'}</div>`}</td>
+        <td><b class="accent">${isk(r.isk_per_hour)}</b></td>
+        <td>${vei(r)}</td>
+        <td>${isk(r.refined_value_per_m3)}</td>
+        <td>${isk(r.raw_net_per_m3)}</td>
+        <td>${r.compressed_net_per_m3 == null ? '–' : `${isk(r.compressed_net_per_m3)}${r.compression_ratio ? ` <span class="muted" title="${esc(r.compressed_name || '')}: ${num(r.compression_ratio)} rå enheter per komprimert">(${num(r.compression_ratio)}:1)</span>` : ''}`}</td>
+        <td>${r.refine_premium == null ? '–' : pct(r.refine_premium, 0)}</td>
+        <td>${r.market_daily_volume == null ? '–' : num(r.market_daily_volume)}</td>
+        <td>${r.market_trades_per_day == null ? '–' : num(r.market_trades_per_day, 1)}</td>
+        <td>${num(r.volume, 2)}</td></tr>`).join('')}
+      </table></div>
+      <div class="muted small">Alle ISK/m3-tall er per kubikkmeter <b>rå malm du miner</b> – komprimering endrer bare volumet på veien til Jita. «Refine gir» sammenligner mineralverdien mot å selge varen. Volum og handler gjelder markedet du faktisk selger i, og teller ikke når refine er beste vei.</div>`
+    : '<div class="card muted">Ingen malmtall ennå.</div>'}
+
+    ${(M.demand || []).length ? `<h2>Verdt å mine selv? <span class="muted small">(mineralene produksjonsforslagene dine spiser)</span></h2>
+    <div class="card tblwrap"><table>
+      <tr><th>Mineral</th><th>Trengs</th><th>Kjøpt i Jita</th><th>Malm som gir mest av det</th></tr>
+      ${M.demand.map((d) => {
+        const kilder = (M.rows || []).filter((r) => r.available && (r.mineral_mix || {})[String(d.type_id)] > 0.05)
+          .sort((a, b) => (b.mineral_mix[String(d.type_id)] || 0) - (a.mineral_mix[String(d.type_id)] || 0))
+          .slice(0, 3).map((r) => `${esc(r.name)} (${pct(r.mineral_mix[String(d.type_id)], 0)})`).join(', ');
+        return `<tr><td style="text-align:left"><b>${esc(d.name)}</b></td><td>${isk(d.mengde)} stk</td>
+          <td>${isk(d.kost)} ISK</td><td style="text-align:left">${kilder || '<span class="muted">ingen av malmene der du miner</span>'}</td></tr>`;
+      }).join('')}
+      </table></div>
+      <div class="muted small">Mengdene er for én runde av alle produktene som passerer nå, med ME ${D.profile.me}. Prisen er det du betaler i Jita – miner du dem selv, sparer du dette, men bruker tid (se ISK/time over).</div>` : ''}
+
+    <div class="card">
+      <h3>Mining-innstillinger</h3>
+      <div class="grid2">
+        <label>Refine-utbytte (0,52 = 52 %)<input id="m-reprocess_yield" type="number" step="0.01" value="${p.reprocess_yield ?? ''}"/></label>
+        <label>m3 per time<input id="m-m3_per_hour" type="number" step="100" value="${p.m3_per_hour ?? ''}"/></label>
+        <label>Hopp fra Jita<input id="m-jumps_from_jita" type="number" value="${p.jumps_from_jita ?? ''}"/></label>
+        <label>Min. dagsvolum for malmen<input id="mt-min_daily_volume" type="number" value="${p.thresholds?.min_daily_volume ?? ''}"/></label>
+        <label>Min. handler per dag<input id="mt-min_trades_per_day" type="number" value="${p.thresholds?.min_trades_per_day ?? ''}"/></label>
+      </div>
+      <label>Malmgrupper der du miner (komma mellom)<input id="m-groups" value="${esc((p.thresholds?.available_groups || []).join(', '))}"/></label>
+      <div class="row" style="margin-top:12px"><button id="m-lagre">Lagre</button><span id="m-lagremsg" class="muted small"></span>
+        <span class="muted small">Gjelder ved neste kjøring.</span></div>
+    </div>`;
+
+  el('m-lagre').onclick = async () => {
+    el('m-lagre').disabled = true; el('m-lagremsg').textContent = '…';
+    const body = {};
+    for (const k of ['reprocess_yield', 'm3_per_hour', 'jumps_from_jita']) body[k] = el('m-' + k).value;
+    body.thresholds = {
+      ...(M.profile.thresholds || {}),
+      min_daily_volume: Number(el('mt-min_daily_volume').value) || 0,
+      min_trades_per_day: Number(el('mt-min_trades_per_day').value) || 0,
+      available_groups: el('m-groups').value.split(',').map((x) => x.trim()).filter(Boolean),
+    };
+    try { M = await api('mining', { method: 'POST', body }); el('m-lagremsg').textContent = 'lagret'; tegnMining(); }
+    catch (e) { el('m-lagremsg').textContent = e.message; el('m-lagre').disabled = false; }
+  };
+}
+
+async function lastMining() {
+  try { M = await api('mining'); } catch (e) { el('mining').innerHTML = `<h2>Mining</h2><p class="err">Feil: ${esc(e.message)}</p>`; return; }
+  if (M) tegnMining();
+}
+
+async function last() {
+  try { D = await api('industry'); } catch (e) { el('app').innerHTML = `<p class="err">Feil: ${esc(e.message)}</p>`; return; }
+  if (D) { tegn(); lastMining(); }
+}
+
+last();
+</script>
+</body>
+</html>
