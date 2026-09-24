@@ -309,17 +309,69 @@ function koble() {
 
 let M = null;
 
+// Samme tanke som startKort() for produksjon: si hva du skal gjøre, ikke bare vise tall.
+// Bare malm som BÅDE finnes der du miner og passerer reglene kan anbefales.
+function startKortMining() {
+  const p = M.profile;
+  const ok = (M.rows || []).filter((r) => r.available && !(r.failed_rules || []).length);
+  if (!ok.length) {
+    const finnes = (M.rows || []).filter((r) => r.available).length;
+    return `<div class="card" style="border:1px solid #f0c04055">
+      <h3 style="margin-top:0">Hva bør du mine?</h3>
+      <div class="muted small">${finnes
+        ? `Ingen av de ${finnes} malmtypene der du miner passerer reglene nå – se avslagsgrunnene i tabellen.
+           Vanligste årsak er at markedet for det du skulle selge ikke flyter.`
+        : `Ingen malm er merket som tilgjengelig. Sjekk lista over malmgrupper i innstillingene nederst –
+           den må stemme med beltene der du faktisk miner.`}</div></div>`;
+  }
+  const rad = (x, i) => {
+    const stkPerTime = x.volume > 0 ? Number(p.m3_per_hour) / Number(x.volume) : null;
+    const handling = x.best_route === 'refine'
+      ? `<b>Refine malmen</b> og selg mineralene i Jita`
+      : x.best_route === 'komprimert'
+        ? `<b>Komprimer malmen</b> og selg den komprimerte varen i Jita`
+        : `<b>Selg malmen rå</b> i Jita – ikke refine den`;
+    const advarsel = x.refine_premium != null && Number(x.refine_premium) < 0 && x.best_route !== 'refine'
+      ? `<div class="muted small" style="margin-top:4px">Refine gir ${pct(Math.abs(Number(x.refine_premium)), 0)} <b>mindre</b> her – mineralprisene er lave mot malmprisen.</div>`
+      : '';
+    return `<div class="card" style="background:var(--card2);margin:${i ? '8px' : '10px'} 0 0">
+      <div class="row"><h3 style="margin:0">${i + 1}. ${esc(x.name)}${copyBtn(x.name)}</h3>
+        <span class="big accent">${isk(x.isk_per_hour)} ISK/time</span></div>
+      <div class="row small" style="margin-top:6px">
+        <span>${handling}</span>
+        <span class="muted">${isk(x.best_value_per_m3)} ISK per m3 rå malm</span>
+      </div>
+      <div class="row small">
+        <span class="muted">Én time (${isk(p.m3_per_hour)} m3) gir ~<b>${stkPerTime ? num(stkPerTime) : '–'} stk</b>
+          à ${num(x.volume, 3)} m3</span>
+        <span class="muted">Markedet tar ${x.market_daily_volume == null ? '–' : num(x.market_daily_volume)} stk/dag${x.market_trades_per_day != null ? `, ${num(x.market_trades_per_day, 0)} handler` : ''}</span>
+      </div>
+      ${x.best_route === 'komprimert' && x.compression_ratio ? `<div class="muted small" style="margin-top:4px">Komprimering: ${num(x.compression_ratio)} rå enheter per komprimert – ${p.jumps_from_jita} hopp til Jita blir mye lettere.</div>` : ''}
+      ${advarsel}
+    </div>`;
+  };
+  const beste = ok[0];
+  return `<div class="card" style="border:1px solid var(--accent)">
+    <div class="row"><h2 style="margin:0">Mine ${esc(beste.name)}</h2>
+      <span class="muted small">${pct(p.reprocess_yield, 0)} refine-utbytte · ${isk(p.m3_per_hour)} m3/time</span></div>
+    <div class="muted small" style="margin-top:4px">Valgt blant ${ok.length} malmtyper som både finnes der du miner og har et marked som flyter.
+      Alle ISK-tall er per m3 <b>rå</b> malm du henter inn.</div>
+    ${ok.slice(0, 3).map(rad).join('')}
+  </div>`;
+}
+
 function tegnMining() {
   const p = M.profile;
   const rader = M.rows || [];
   const aktuelle = rader.filter((r) => r.available);
-  const beste = aktuelle[0];
+  const beste = aktuelle.find((r) => !(r.failed_rules || []).length);
   const vei = (r) => r.best_route === 'refine' ? '<span class="pill ok">refine</span>'
     : r.best_route === 'komprimert' ? '<span class="pill warn">komprimer og selg</span>'
     : '<span class="pill warn">selg rått</span>';
 
   el('mining').innerHTML = `
     <h2>Mining <span class="muted small">(hva er verdt å hente inn – ${aktuelle.length} malmtyper der du miner)</span></h2>
+    ${startKortMining()}
     <div class="card">
       <div class="stats">
         <div class="stat"><div class="l">Refine-utbytte</div><div class="v">${pct(p.reprocess_yield, 0)}</div><div class="muted" style="font-size:0.7rem">NPC-stasjon med skills</div></div>
