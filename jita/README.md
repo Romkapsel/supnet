@@ -130,7 +130,10 @@ Jobben laster også opp topp 30 som CSV-artifact.
 7. **Batchen dimensjoneres av både tid og kapital:** antall runs = min(det slotten rekker på
    `batch_days`, det budsjettet tåler, BPC-grensen). Budsjett per jobb = min(`max_capital_per_job`,
    kapital × `capital_share_per_job`) og dekker materialer *og* jobbavgift.
-8. **Realistisk ISK/dag/slot** = netto × min(slot-kapasitet, 10 % av dagsvolumet i ESI-historikken).
+8. **Realistisk ISK/dag/slot** = netto × det minste av tre tak: hva slotten rekker, 10 % av
+   dagsvolumet, og **kapital-omløpet** – hvor mange enheter kapitalen rekker å finansiere per døgn,
+   regnet som batchen delt på (produksjonstid + tid å selge unna). Hvilket tak som binder vises som
+   `slot` / `marked` / `omløp` i fanen, sammen med potensialet uten omløpstaket.
 9. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
 
 ### Valg og avvik fra briefen (bevisste)
@@ -146,6 +149,10 @@ Jobben laster også opp topp 30 som CSV-artifact.
   Mangler vi en slik ordre, vises varen med merket «ikke NPC-BPO» i stedet for å skjules.
 - **Exordium** er aldri aktuelt: produksjon og salg er låst til Ylandoki og Jita (briefens straffeavgifter
   gjelder ikke der vi står).
+- **Kapital-omløpet er lagt til** (24. sept, etter første kjøring): uten det ble dyre varer
+  urealistisk høyt rangert – 42 mill. ISK/dag på en vare som koster 2 mill. per stk krever at
+  55 mill. ISK går gjennom materialene hvert døgn, med 8 mill. i kassa. Taket ligger alltid litt
+  under de to andre, fordi batchen også må selges før pengene er tilbake.
 - **Egne mineraler er ikke gratis** – materialer verdsettes alltid til markedspris, også det du miner selv.
 - Regler: `i1` margin, `i1x` urealistisk margin, `i2` dagsvolum, `i3`/`i3b` tynt marked, `i4` dyr BPO,
   `i5` kapital per jobb (slår bare til når én enkelt run sprenger budsjettet), `i6` prisfall 30 d,

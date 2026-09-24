@@ -87,12 +87,37 @@ def main():
     # ── Tempo: slotten rekker 86400/t × 2 enheter ──
     sjekk("enheter per døgn per slot", r["units_per_day_slot"], round(86400 / t * 2, 2))
 
-    # ── Realistisk tempo: markedet er bremsen når 10 % av volumet er mindre ──
-    lite = realistic_throughput(r, 100, P)                 # 10 % av 100 = 10 stk/dag
-    sjekk("marked bremser", lite["realistic_units_per_day"], 10.0)
-    sjekk("ISK/dag/slot ved lite volum", lite["isk_per_day_slot"], round(r["net_per_unit"] * 10, 2))
+    # ── Realistisk tempo: tre tak – slot, marked og kapital-omløp ──
+    # Omløpstaket ligger alltid litt under de to andre: batchen må også selges før pengene er tilbake.
+    lite = realistic_throughput(r, 100, P)                 # 10 % av 100 = 10 stk/dag i markedet
+    sjekk("lite volum: potensialet er markedstaket", lite["potential_units_per_day"], 10.0)
+    sjekk("lite volum: realistisk ligger under potensialet",
+          1 if lite["realistic_units_per_day"] < 10.0 else 0, 1)
+    sjekk("lite volum: omløpet er bremsen", 1 if lite["bottleneck"] == "omløp" else 0, 1)
+    sjekk("lite volum: 494 stk selges på 49,4 d + 1 d produksjon",
+          lite["realistic_units_per_day"], round(r["units"] / (1 + r["units"] / 10), 2), tol=1e-3)
+    sjekk("ISK/dag følger realistisk tempo", lite["isk_per_day_slot"],
+          round(r["net_per_unit"] * lite["realistic_units_per_day"], 2), tol=1e-6)
+
     stort = realistic_throughput(r, 100000, P)             # 10 % = 10 000 > slot-kapasitet
-    sjekk("slot bremser", stort["realistic_units_per_day"], r["units_per_day_slot"])
+    sjekk("stort volum: potensialet er slot-kapasiteten",
+          stort["potential_units_per_day"], r["units_per_day_slot"])
+    sjekk("stort volum: realistisk ligger under slot-kapasiteten",
+          1 if stort["realistic_units_per_day"] < r["units_per_day_slot"] else 0, 1)
+
+    uten_volum = realistic_throughput(r, None, P)          # ingen historikk → bare slot-taket
+    sjekk("uten volum: slot er bremsen", 1 if uten_volum["bottleneck"] == "slot" else 0, 1)
+    sjekk("uten volum: full slot-kapasitet", uten_volum["realistic_units_per_day"],
+          r["units_per_day_slot"])
+
+    # Dyr vare: én enhet per batch, 2 mill. per stk – kapitalen kan ikke snus rundt fritt.
+    dyr = dict(r, units=1, units_per_day_slot=120.0, time_per_batch_s=0.2 * 3600)
+    kap = realistic_throughput(dyr, 275, P)                # 10 % av 275 = 27,5 stk/dag i markedet
+    syklus = 0.2 / 24 + 1 / 27.5
+    sjekk("dyr vare: omløpet bremser", kap["realistic_units_per_day"], round(1 / syklus, 2), tol=1e-3)
+    sjekk("dyr vare: flaskehalsen navngis", 1 if kap["bottleneck"] == "omløp" else 0, 1)
+    sjekk("dyr vare: under markedstaket", 1 if kap["realistic_units_per_day"] < 27.5 else 0, 1)
+    sjekk("dyr vare: omløpstid", kap["cycle_days"], round(syklus, 3), tol=1e-3)
 
     # ── Frakt: m3 inn og ut ──
     sjekk("m3 inn", r["m3_in"], round((trit + pye) * 0.01, 2))

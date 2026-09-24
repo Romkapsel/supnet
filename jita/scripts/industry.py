@@ -200,15 +200,43 @@ def economics(bom: dict, p: IndustryProfile, quotes: dict[int, dict],
 
 
 def realistic_throughput(row: dict, daily_volume: float | None, p: IndustryProfile) -> dict:
-    """«Realistisk ISK per døgn per slot» = netto × min(slot-kapasitet, andel av dagsvolumet)."""
+    """«Realistisk ISK per døgn per slot» = netto × det minste av tre tak:
+
+      slot     – hva slotten rekker å produsere per døgn
+      marked   – andelen av dagsvolumet vi tillater oss å ta (10 %)
+      omløp    – hvor mange enheter kapitalen rekker å finansiere per døgn: pengene er bundet
+                 fra jobben starter til varen er solgt, så én batch tar (produksjonstid +
+                 tid å selge unna) før samme ISK kan brukes igjen. Dette taket ligger alltid
+                 litt under de to andre, fordi batchen også må selges før pengene er tilbake.
+
+    Uten kapitaltaket blir dyre varer urealistisk høyt rangert: 42 mill. ISK/dag på en vare
+    som koster 2 mill. per stk krever 55 mill. ISK gjennom materialene hvert døgn.
+    """
     share = float(p.t("volume_share", 0.10))
-    cap = row["units_per_day_slot"]
+    slot_cap = row["units_per_day_slot"]
     market = (float(daily_volume) * share) if daily_volume else None
-    real = cap if market is None else min(cap, market)
+
+    prod_days = (row.get("time_per_batch_s") or 0) / 86400
+    sell_days = (row["units"] / market) if market else None
+    funded = None
+    if sell_days is not None:
+        cycle = max(prod_days + sell_days, 1 / 24)       # gulv: én time, ellers blir tallet støy
+        funded = row["units"] / cycle
+
+    tak = {"slot": slot_cap}
+    if market is not None:
+        tak["marked"] = market
+    if funded is not None:
+        tak["omløp"] = funded
+    flaskehals = min(tak, key=tak.get)
+    real = round(tak[flaskehals], 2)                     # rundes her, så ISK/dag stemmer med antallet som vises
     isk_day = row["net_per_unit"] * real
-    return dict(realistic_units_per_day=round(real, 2),
+    return dict(realistic_units_per_day=real,
                 isk_per_day_slot=round(isk_day, 2),
-                isk_per_hour_slot=round(isk_day / 24, 2))
+                isk_per_hour_slot=round(isk_day / 24, 2),
+                bottleneck=flaskehals,
+                cycle_days=round(prod_days + (sell_days or 0), 3),
+                potential_units_per_day=round(min(slot_cap, market) if market else slot_cap, 2))
 
 
 # ── Dommeren ─────────────────────────────────────────────────────────────────
@@ -241,6 +269,8 @@ def factors(row: dict, p: IndustryProfile) -> dict:
     trend = max(0.6, min(1.1, 1 - float(drop) * 2)) if drop is not None else 1.0
     return dict(isk_per_day=row.get("isk_per_day_slot"), liquidity=round(liquidity, 2),
                 competition=round(competition, 2), stable=round(stable, 2), trend=round(trend, 2),
+                bottleneck=row.get("bottleneck"), cycle_days=row.get("cycle_days"),
+                potential_units_per_day=row.get("potential_units_per_day"),
                 daily_volume=vol, sell_orders=orders,
                 volatility=None if volat is None else round(float(volat), 3),
                 drop_30d=None if drop is None else round(float(drop), 3))
@@ -308,10 +338,14 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
         f"({(row.get('margin') or 0) * 100:.1f} %).",
     ]
     if row.get("daily_volume"):
+        hals = {"slot": "produksjonstiden", "marked": "markedet",
+                "omløp": "kapital-omløpet"}.get(row.get("bottleneck"), "?")
         parts.append(
-            f"Markedet omsetter {_isk(row['daily_volume'])} stk/dag; du tar "
-            f"{float(p.t('volume_share', 0.10)) * 100:.0f} % = {_isk(row.get('realistic_units_per_day'))} stk/dag "
-            f"(slotten rekker {_isk(row.get('units_per_day_slot'))}) → "
+            f"Markedet omsetter {_isk(row['daily_volume'])} stk/dag; taket ditt er "
+            f"{float(p.t('volume_share', 0.10)) * 100:.0f} % av det. Bremsen er {hals}: "
+            f"{_isk(row.get('realistic_units_per_day'))} stk/dag "
+            f"(slotten rekker {_isk(row.get('units_per_day_slot'))}, "
+            f"kapitalen snur rundt på {row.get('cycle_days', 0):.2f} døgn) → "
             f"{_isk(row.get('isk_per_day_slot'))} ISK/dag per slot.")
     if row.get("bpo_price"):
         parts.append(f"BPO {_isk(row['bpo_price'])} ISK, tilbakebetalt på "

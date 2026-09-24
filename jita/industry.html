@@ -60,7 +60,7 @@ function rad(r, valgt) {
     ${t(price(r.cost_per_unit))}
     ${t(price(r.sell_price))}
     ${t(r.daily_volume == null ? '–' : num(r.daily_volume))}
-    ${t(num(r.realistic_units_per_day))}
+    ${t(`${num(r.realistic_units_per_day)}${r.factors?.bottleneck ? ` <span class="pill" title="Bremsen: ${r.factors.bottleneck === 'slot' ? 'produksjonstiden' : r.factors.bottleneck === 'marked' ? 'markedet tar ikke mer' : 'kapitalen må selges ut før den kan brukes igjen'}${r.factors.potential_units_per_day ? ` – potensial ${num(r.factors.potential_units_per_day)} stk/dag` : ''}">${r.factors.bottleneck}</span>` : ''}`)}
     ${t(isk(r.capital_per_job))}
     ${t(r.bpo_price == null ? '–' : isk(r.bpo_price))}
     ${t(r.payback_days == null ? '–' : num(r.payback_days, 1) + ' d')}
@@ -151,7 +151,7 @@ function tegn() {
     <div class="card tblwrap">
       <table>
         <tr><th>Vare</th><th>ISK/dag/slot</th><th>Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
-            <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="min(slot-kapasitet, 10 % av dagsvolum)">Du tar/dag</th>
+            <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
             <th title="Materialer + avgift for én full jobb">Kapital/jobb</th><th>BPO</th><th>Nedbetalt</th><th title="Salgsordrer i Jita 4-4">Selgere</th><th>Tid/jobb</th></tr>
         ${rows.length ? rows.map((r) => rad(r, valgte.has(r.product_type_id))).join('')
           : '<tr><td colspan="13" class="muted">Ingen varer passerer filtrene.</td></tr>'}
