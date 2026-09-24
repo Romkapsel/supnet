@@ -136,7 +136,9 @@ jobs:
           cache-dependency-path: jita/scripts/requirements.txt
       - run: pip install -r jita/scripts/requirements.txt
       - name: Formlene stemmer? (ingen nett/database)
-        run: python jita/scripts/test_industry.py
+        run: |
+          python jita/scripts/test_industry.py
+          python jita/scripts/test_mining.py
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots
@@ -144,6 +146,8 @@ jobs:
           restore-keys: jita-industry-
       - name: Oppskrifter + priser -> rangering
         run: python jita/scripts/ingest_industry.py --csv jita-industri-topp30.csv
+      - name: Mining: refine-utbytte + priser -> ISK per time
+        run: python jita/scripts/ingest_mining.py --csv jita-mining.csv
       - if: always()
         uses: actions/cache/save@v4
         with:
@@ -154,7 +158,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jita-industri-topp30
-          path: jita-industri-topp30.csv
+          path: |
+            jita-industri-topp30.csv
+            jita-mining.csv
           if-no-files-found: ignore
 
   probe:

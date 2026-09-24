@@ -187,6 +187,47 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
   Rettet ved å bytte til Hoboleaks + EVE Refs bulkpakke. `scripts/probe_sources.py` (Actions-jobb `probe`,
   bare manuell) viser hvilke kilder som svarer og hvilken form svaret har – bruk den før du gjetter på adresser.
 
-### Ikke bygget ennå (steg 2)
-- Mining-laget: rangering av malm/komprimert malm på ISK per time, og hvilke produkter din egen mining mater.
+## Mining (steg 2, 24. sept 2026)
+
+Egen seksjon nederst i Industri-fanen. Svarer på: hvilken malm gir mest ISK per time der du miner,
+og er det best å refine den eller selge den som den er?
+
+| Del | Hvor | Hva |
+|---|---|---|
+| Jobb | Samme Actions-jobb som industri (`industry`) | `scripts/ingest_mining.py`, eget innslag i `robot_runs` (`mining`) |
+| Formler | `scripts/mining.py` | refine-verdi, salgsvei, ISK/time, dom |
+| Test | `scripts/test_mining.py` | 29 sjekker uten nett/database |
+| Database | `sql/006_mining.sql` | `mining_profile`, `ore_yields`, `mining_candidates`, `cleanup_mining()` + pg_cron `jita-mining-rydd` (06:25) |
+| API | `api/[action].js` | `mining` (GET + POST innstillinger) |
+
+### Slik regnes det
+1. **Refine-utbytte** fra `sde.hoboleaks.space/tq/typematerials.json` (`{typeID: {materials: [{typeID, quantity}]}}`),
+   batch-størrelsen (`portionSize`) fra EVE Refs bulkpakke. Hentes på nytt når utbyttene er > 7 dager gamle.
+2. **Salgsvei per vare** – for hvert mineral og for malmen selv velges den beste av:
+   salgsordre `(laveste ask − tick) × (1 − broker − skatt)` eller dumping `høyeste bud × (1 − skatt)`
+   (ingen broker fee når du selger til et bud).
+3. **Refinet verdi** = Σ(mengde × `reprocess_yield` × netto) / batch-størrelse. Standard utbytte 52 %
+   (NPC-stasjon 50 % med skills) – sett det høyere om du refiner i struktur med rigger.
+4. **Beste vei** = høyeste ISK per m3 av refine og rå-salg. `refine_premium` viser hvor mye mer refine gir;
+   er den negativ, selg malmen som den er.
+5. **ISK/time** = beste ISK per m3 × `m3_per_hour`.
+6. **Komprimert malm** er egne rader med eget volum og eget utbytte – de kommer derfor ut langt høyere
+   per m3 enn rå malm, som de skal.
+
+### Hva som filtreres bort
+- `m1` malmgruppen finnes ikke der du miner (`available_groups` i profilen – standard 0.8 Lonetrek:
+  Veldspar, Scordite, Pyroxeres, Plagioclase, Omber, Kernite. Rediger i fanen.)
+- `m2` ingen pris i Jita, `m4` mangler refine-utbytte.
+- `m3` for tynt marked for malmen selv – gjelder **bare** hvis rå-salg er beste vei. Refine-veien er
+  upåvirket, fordi mineralene alltid flyter.
+
+### «Verdt å mine selv?»
+Fanen viser hvilke mineraler produksjonsforslagene dine faktisk spiser (mengde og hva de koster i Jita),
+og hvilken av malmene der du miner som gir mest av hvert mineral. Egne mineraler regnes fortsatt til
+markedspris i produksjonsdelen – det du sparer, er kjøpesummen, og det du bruker, er tid (se ISK/time).
+
+### Ikke bygget ennå
+- Belt-sammensetning per system (hva som faktisk finnes i beltene rundt Ylandoki hentes ikke fra spillet –
+  derfor er `available_groups` en liste du styrer selv).
+- Is og gass er med i tabellen når de har utbytte og pris, men reglene er laget for malm.
 - Varsel på Discord ved nye varer i topp 3 (i dag varsles bare margin som faller under terskel på varer du eier).

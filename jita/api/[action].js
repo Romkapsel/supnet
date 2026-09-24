@@ -100,12 +100,15 @@ export default async function handler(req, res) {
         if (req.method === "POST") return json(res, 200, await saveIndustry(q, await readBody(req)));
         return json(res, 200, await industry(q, req.query));
       case "industry_type": return json(res, 200, await industryType(q, Number(req.query.id)));
+      case "mining":
+        if (req.method === "POST") return json(res, 200, await saveMining(q, await readBody(req)));
+        return json(res, 200, await mining(q));
       case "type": return json(res, 200, await typeDetail(q, Number(req.query.id)));
       case "profile":
         if (req.method === "POST") return json(res, 200, await saveProfile(q, await readBody(req)));
         return json(res, 200, await getProfile(q));
       case "preview": return json(res, 200, await preview(q, await readBody(req)));
-      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", ["watchlist", "history", "industry"].includes(req.query.job) ? req.query.job : "hourly"));
+      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", ["watchlist", "history", "industry", "mining"].includes(req.query.job) ? req.query.job : "hourly"));
       case "rejudge": return json(res, 200, { passed: (await q`select jita.judge() as n`)[0].n });
       case "watchlist": return json(res, 200, await watchlist(q, await readBody(req)));
       case "decision": return json(res, 200, await decision(q, await readBody(req)));
@@ -417,7 +420,7 @@ async function scan(q, fallback = false, job = "hourly") {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
   if (fallback) {
     // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
-    const maxAge = job === "watchlist" ? 15 : job === "industry" ? 26 * 60 : 50;   // history: 50 (hver time), industri: daglig
+    const maxAge = job === "watchlist" ? 15 : ["industry", "mining"].includes(job) ? 26 * 60 : 50;   // history: 50 (hver time), industri: daglig
     const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job}`;
     if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
@@ -429,7 +432,7 @@ async function scan(q, fallback = false, job = "hourly") {
   const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "supnet-jita" },
-    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : job === "industry" ? "jita-industry" : "jita-scan" }),
+    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : job === "industry" ? "jita-industry" : job === "mining" ? "jita-industry" : "jita-scan" }),
   });
   if (r.status !== 204) return { ok: false, message: `GitHub svarte ${r.status}: ${(await r.text()).slice(0, 200)}` };
   if (!fallback) await q`update jita.profile set last_manual_scan = now() where id = 1`;   // auto-start skal ikke sperre «Scan nå»
@@ -588,4 +591,89 @@ async function saveIndustry(q, body) {
     await q`update jita.industry_profile set ${q(fields)} where id = 1`;
   }
   return await industry(q, body);
+}
+
+// ── Mining (steg 2) ──────────────────────────────────────────────────────────
+// Tallene kommer fra jita/scripts/ingest_mining.py og ligger i jita.mining_candidates.
+// I tillegg regnes det ut hvilke mineraler produksjonsforslagene dine spiser, og hvilken
+// malm som gir dem – altså hva det er verdt å mine selv.
+const MINING_RULES = {
+  m1: "Finnes ikke der du miner",
+  m2: "Ingen pris i Jita (verken malm eller mineraler)",
+  m3: "For tynt marked for malmen selv (gjelder bare rå-salg)",
+  m4: "Mangler refine-utbytte",
+};
+
+const MINING_FIELDS = ["reprocess_yield", "m3_per_hour", "jumps_from_jita", "thresholds"];
+
+function cleanMining(body) {
+  const out = {};
+  for (const k of MINING_FIELDS) {
+    if (!(k in body)) continue;
+    let v = body[k];
+    if (k === "thresholds") {
+      const t = typeof v === "string" ? JSON.parse(v) : v;
+      if (t.available_groups && !Array.isArray(t.available_groups)) throw new Error("available_groups må være en liste");
+      out[k] = t; continue;
+    }
+    if (v === "" || v === null || v === undefined) { out[k] = null; continue; }
+    out[k] = Number(v);
+    if (Number.isNaN(out[k])) throw new Error(`ugyldig tall for ${k}`);
+  }
+  return out;
+}
+
+async function mining(q) {
+  const [profile] = await q`select * from jita.mining_profile where id = 1`;
+  const p = await effectiveProfile(q);
+  const [run] = await q`select max(run_at) as run_at from jita.mining_candidates`;
+  const rows = run?.run_at ? await q`
+    select c.*, t.name, t.group_name
+    from jita.mining_candidates c join jita.types t on t.type_id = c.ore_type_id
+    where c.run_at = ${run.run_at}
+    order by c.available desc, c.score desc nulls last, c.best_value_per_m3 desc nulls last
+    limit 200` : [];
+
+  // Hvilke mineraler spiser produksjonsforslagene? (materialkost per mineral for varene som passerer)
+  const demand = await q`
+    with siste as (select max(run_at) as run_at from jita.industry_candidates),
+    forslag as (
+      select c.blueprint_type_id, c.runs
+      from jita.industry_candidates c, siste
+      where c.run_at = siste.run_at and c.passed
+    ),
+    behov as (
+      select m.material_type_id,
+             sum(m.quantity * f.runs * greatest(1 - coalesce(ip.me, 10) / 100.0, 0)) as mengde
+      from forslag f
+      join jita.blueprint_materials m on m.blueprint_type_id = f.blueprint_type_id
+      cross join (select me from jita.industry_profile where id = 1) ip
+      group by m.material_type_id
+    )
+    select b.material_type_id as type_id, t.name, round(b.mengde) as mengde,
+           round(b.mengde * coalesce(mq.buy_max, 0)) as kost,
+           mq.buy_max, mq.sell_min
+    from behov b join jita.types t on t.type_id = b.material_type_id
+    left join jita.market_quotes mq on mq.type_id = b.material_type_id
+    order by b.mengde * coalesce(mq.buy_max, 0) desc nulls last
+    limit 12`;
+
+  const [robot] = await q`select run_at, duration_s, ok, message, orders_count
+                          from jita.robot_runs where job = 'mining' order by run_at desc limit 1`;
+  const [yields] = await q`select count(*)::int as rader, count(distinct ore_type_id)::int as malmtyper,
+                             max(updated_at) as at from jita.ore_yields`;
+  const sellFees = Number(p.broker) + Number(p.tax);
+  return {
+    profile: { ...profile, broker: Number(p.broker), tax: Number(p.tax), sell_fees: sellFees },
+    run_at: run?.run_at || null, rows, demand, robot, yields, rules: MINING_RULES,
+  };
+}
+
+async function saveMining(q, body) {
+  const fields = cleanMining(body);
+  if (Object.keys(fields).length) {
+    fields.updated_at = new Date();
+    await q`update jita.mining_profile set ${q(fields)} where id = 1`;
+  }
+  return await mining(q);
 }

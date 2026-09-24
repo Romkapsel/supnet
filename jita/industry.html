@@ -195,7 +195,8 @@ function tegn() {
       </div>
       <div class="row" style="margin-top:12px"><button id="lagre">Lagre</button><span id="lagremsg" class="muted small"></span>
         <span class="muted small">Nye terskler gjelder ved neste kjøring av industri-jobben.</span></div>
-    </div>`;
+    </div>
+    <div id="mining"><h2>Mining</h2><div class="card muted">Laster…</div></div>`;
 
   koble();
 }
@@ -258,9 +259,97 @@ function koble() {
   };
 }
 
+let M = null;
+
+function tegnMining() {
+  const p = M.profile;
+  const rader = M.rows || [];
+  const aktuelle = rader.filter((r) => r.available);
+  const beste = aktuelle[0];
+  const vei = (r) => r.best_route === 'refine' ? '<span class="pill ok">refine</span>' : '<span class="pill warn">selg rått</span>';
+
+  el('mining').innerHTML = `
+    <h2>Mining <span class="muted small">(hva er verdt å hente inn – ${aktuelle.length} malmtyper der du miner)</span></h2>
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><div class="l">Refine-utbytte</div><div class="v">${pct(p.reprocess_yield, 0)}</div><div class="muted" style="font-size:0.7rem">NPC-stasjon med skills</div></div>
+        <div class="stat"><div class="l">Mining-rate</div><div class="v">${isk(p.m3_per_hour)} m3/t</div></div>
+        <div class="stat"><div class="l">Beste malm nå</div><div class="v">${beste ? esc(beste.name) : '–'}</div>${beste ? `<div class="muted" style="font-size:0.7rem">${isk(beste.isk_per_hour)} ISK/time</div>` : ''}</div>
+        <div class="stat"><div class="l">Data fra</div><div class="v">${M.run_at ? ago(M.run_at) : 'aldri'}</div><div class="muted" style="font-size:0.7rem">${M.yields?.malmtyper ? `${M.yields.malmtyper} malmtyper med utbytte` : 'ingen utbytter hentet'}</div></div>
+      </div>
+      ${M.robot && !M.robot.ok ? `<div class="banner" style="margin-top:10px">Siste mining-kjøring feilet: ${esc(M.robot.message || '')}</div>` : ''}
+      ${!M.run_at ? '<div class="banner" style="background:#3a331f;color:var(--accent);margin-top:10px">Ingen mining-kjøring ennå – den går sammen med industri-jobben.</div>' : ''}
+    </div>
+
+    ${rader.length ? `<div class="card tblwrap"><table>
+      <tr><th>Malm</th><th>ISK/time</th><th>Beste vei</th><th title="Verdien av mineralene malmen gir, etter refine-utbytte og salgsgebyr">Refinet ISK/m3</th>
+          <th title="Malmen solgt som den er i Jita">Rått ISK/m3</th><th title="Hvor mye mer refine gir enn å selge rått">Refine gir</th>
+          <th title="Malmens eget marked – betyr bare noe hvis du selger rått">Volum/dag</th><th>Handler/dag</th><th>m3/enhet</th></tr>
+      ${rader.slice(0, 40).map((r) => `<tr class="${r.available ? '' : 'fail'}">
+        <td style="text-align:left"><b>${esc(r.name)}</b>${copyBtn(r.name)}
+          ${r.available ? '' : `<div class="muted" style="font-size:0.72rem">${(r.failed_rules || []).map((x) => esc(M.rules[x] || x)).join(' · ') || 'ikke der du miner'}</div>`}</td>
+        <td><b class="accent">${isk(r.isk_per_hour)}</b></td>
+        <td>${vei(r)}</td>
+        <td>${isk(r.refined_value_per_m3)}</td>
+        <td>${isk(r.raw_net_per_m3)}</td>
+        <td>${r.refine_premium == null ? '–' : pct(r.refine_premium, 0)}</td>
+        <td>${r.ore_daily_volume == null ? '–' : num(r.ore_daily_volume)}</td>
+        <td>${r.ore_trades_per_day == null ? '–' : num(r.ore_trades_per_day, 1)}</td>
+        <td>${num(r.volume, 2)}</td></tr>`).join('')}
+      </table></div>
+      <div class="muted small">«Refine gir» sammenligner mineralverdien mot å selge malmen rå. Er tallet negativt, selg malmen som den er.</div>`
+    : '<div class="card muted">Ingen malmtall ennå.</div>'}
+
+    ${(M.demand || []).length ? `<h2>Verdt å mine selv? <span class="muted small">(mineralene produksjonsforslagene dine spiser)</span></h2>
+    <div class="card tblwrap"><table>
+      <tr><th>Mineral</th><th>Trengs</th><th>Kjøpt i Jita</th><th>Malm som gir mest av det</th></tr>
+      ${M.demand.map((d) => {
+        const kilder = (M.rows || []).filter((r) => r.available && (r.mineral_mix || {})[String(d.type_id)] > 0.05)
+          .sort((a, b) => (b.mineral_mix[String(d.type_id)] || 0) - (a.mineral_mix[String(d.type_id)] || 0))
+          .slice(0, 3).map((r) => `${esc(r.name)} (${pct(r.mineral_mix[String(d.type_id)], 0)})`).join(', ');
+        return `<tr><td style="text-align:left"><b>${esc(d.name)}</b></td><td>${isk(d.mengde)} stk</td>
+          <td>${isk(d.kost)} ISK</td><td style="text-align:left">${kilder || '<span class="muted">ingen av malmene der du miner</span>'}</td></tr>`;
+      }).join('')}
+      </table></div>
+      <div class="muted small">Mengdene er for én runde av alle produktene som passerer nå, med ME ${D.profile.me}. Prisen er det du betaler i Jita – miner du dem selv, sparer du dette, men bruker tid (se ISK/time over).</div>` : ''}
+
+    <div class="card">
+      <h3>Mining-innstillinger</h3>
+      <div class="grid2">
+        <label>Refine-utbytte (0,52 = 52 %)<input id="m-reprocess_yield" type="number" step="0.01" value="${p.reprocess_yield ?? ''}"/></label>
+        <label>m3 per time<input id="m-m3_per_hour" type="number" step="100" value="${p.m3_per_hour ?? ''}"/></label>
+        <label>Hopp fra Jita<input id="m-jumps_from_jita" type="number" value="${p.jumps_from_jita ?? ''}"/></label>
+        <label>Min. dagsvolum for malmen<input id="mt-min_daily_volume" type="number" value="${p.thresholds?.min_daily_volume ?? ''}"/></label>
+        <label>Min. handler per dag<input id="mt-min_trades_per_day" type="number" value="${p.thresholds?.min_trades_per_day ?? ''}"/></label>
+      </div>
+      <label>Malmgrupper der du miner (komma mellom)<input id="m-groups" value="${esc((p.thresholds?.available_groups || []).join(', '))}"/></label>
+      <div class="row" style="margin-top:12px"><button id="m-lagre">Lagre</button><span id="m-lagremsg" class="muted small"></span>
+        <span class="muted small">Gjelder ved neste kjøring.</span></div>
+    </div>`;
+
+  el('m-lagre').onclick = async () => {
+    el('m-lagre').disabled = true; el('m-lagremsg').textContent = '…';
+    const body = {};
+    for (const k of ['reprocess_yield', 'm3_per_hour', 'jumps_from_jita']) body[k] = el('m-' + k).value;
+    body.thresholds = {
+      ...(M.profile.thresholds || {}),
+      min_daily_volume: Number(el('mt-min_daily_volume').value) || 0,
+      min_trades_per_day: Number(el('mt-min_trades_per_day').value) || 0,
+      available_groups: el('m-groups').value.split(',').map((x) => x.trim()).filter(Boolean),
+    };
+    try { M = await api('mining', { method: 'POST', body }); el('m-lagremsg').textContent = 'lagret'; tegnMining(); }
+    catch (e) { el('m-lagremsg').textContent = e.message; el('m-lagre').disabled = false; }
+  };
+}
+
+async function lastMining() {
+  try { M = await api('mining'); } catch (e) { el('mining').innerHTML = `<h2>Mining</h2><p class="err">Feil: ${esc(e.message)}</p>`; return; }
+  if (M) tegnMining();
+}
+
 async function last() {
   try { D = await api('industry'); } catch (e) { el('app').innerHTML = `<p class="err">Feil: ${esc(e.message)}</p>`; return; }
-  if (D) tegn();
+  if (D) { tegn(); lastMining(); }
 }
 
 last();
