@@ -146,7 +146,7 @@ jobs:
           restore-keys: jita-industry-
       - name: Oppskrifter + priser -> rangering
         run: python jita/scripts/ingest_industry.py --csv jita-industri-topp30.csv
-      - name: Mining: refine-utbytte + priser -> ISK per time
+      - name: "Mining: refine-utbytte + priser -> ISK per time"
         run: python jita/scripts/ingest_mining.py --csv jita-mining.csv
       - if: always()
         uses: actions/cache/save@v4
