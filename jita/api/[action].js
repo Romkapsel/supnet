@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
-import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio } from "../lib/industry.js";
+import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio, startRecommendation } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -554,6 +554,7 @@ async function industry(q, query) {
   const slots = Math.max(1, Math.min(50, Number(query.slots) || p.slots_effective));
   const capital = Number(query.capital) || Number(p.cash_isk ?? p.capital_isk) || 0;
   const portfolio = pickPortfolio(rows, slots, capital);
+  const start = startRecommendation(rows, Number(p.thresholds?.min_margin ?? 0.10), capital);
 
   const [robot] = await q`select run_at, duration_s, ok, message, orders_count
                           from jita.robot_runs where job = 'industry' order by run_at desc limit 1`;
@@ -567,7 +568,7 @@ async function industry(q, query) {
     order by a.created_at desc limit 10`;
   const [sde] = await q`select count(*)::int as n, max(updated_at) as at,
                           count(*) filter (where npc_bpo) as npc from jita.blueprints`;
-  return { profile: p, run_at: run?.run_at || null, rows, portfolio, robot, counts, alerts, sde,
+  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, robot, counts, alerts, sde,
            rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
 }
 

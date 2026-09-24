@@ -55,7 +55,7 @@ function rad(r, valgt) {
       ${r.npc_bpo === false ? '<span class="pill warn" title="Fant ingen NPC-selgt BPO – sjekk at blueprinten faktisk kan kjøpes">ikke NPC-BPO</span>' : ''}
       ${r.passed ? '' : `<div class="muted" style="font-size:0.72rem">${(r.failed_rules || []).map((x) => esc(D.rules[x] || x)).join(' · ')}</div>`}</td>
     ${t(`<b class="accent">${isk(r.isk_per_day_slot)}</b>`)}
-    ${t(pct(r.margin))}
+    ${t(`${pct(r.margin)}${r.margin_me0 != null ? `<div class="muted" style="font-size:0.7rem" title="Med nykjøpt, uforsket BPO (ME 0)">ME 0: ${pct(r.margin_me0)}</div>` : ''}`)}
     ${t(isk(r.net_per_unit))}
     ${t(price(r.cost_per_unit))}
     ${t(price(r.sell_price))}
@@ -63,7 +63,7 @@ function rad(r, valgt) {
     ${t(r.factors?.trades_per_day == null ? '–' : `${num(r.factors.trades_per_day, 1)}${r.factors.batch_sell_days != null ? ` <span class="pill" title="Batchen på ${r.units} stk tar så mange døgn å selge unna med din andel av volumet">${num(r.factors.batch_sell_days, 1)} d</span>` : ''}`)}
     ${t(`${num(r.realistic_units_per_day)}${r.factors?.bottleneck ? ` <span class="pill" title="Bremsen: ${r.factors.bottleneck === 'slot' ? 'produksjonstiden' : r.factors.bottleneck === 'marked' ? 'markedet tar ikke mer' : 'kapitalen må selges ut før den kan brukes igjen'}${r.factors.potential_units_per_day ? ` – potensial ${num(r.factors.potential_units_per_day)} stk/dag` : ''}">${r.factors.bottleneck}</span>` : ''}`)}
     ${t(isk(r.capital_per_job))}
-    ${t(r.bpo_price == null ? '–' : isk(r.bpo_price))}
+    ${t(r.bpo_price == null ? '–' : `${isk(r.bpo_price)}${r.startup_cost ? `<div class="muted" style="font-size:0.7rem" title="BPO + materialer for én batch">start ${isk(r.startup_cost)}</div>` : ''}`)}
     ${t(r.payback_days == null ? '–' : num(r.payback_days, 1) + ' d')}
     ${t(r.sell_orders == null ? '–' : r.sell_orders)}
     ${t(hrs(r.time_per_batch_s))}
@@ -91,6 +91,53 @@ function detaljRad(r) {
   </td></tr>`;
 }
 
+// Det første du skal se: hva bør du kjøpe først, i klartekst.
+function startKort() {
+  const p = D.profile;
+  const s = D.start || [];
+  const kapital = isk(D.portfolio?.capital ?? p.cash_isk ?? p.capital_isk);
+  if (!s.length) {
+    return `<div class="card" style="border:1px solid #f0c04055">
+      <h2 style="margin-top:0">Hva bør du starte med?</h2>
+      <div class="muted small">${D.counts?.passed
+        ? `Ingen av de ${D.counts.passed} varene som passerer har både en startkostnad du har råd til (${kapital} ISK)
+           og margin nok med en <b>uforsket</b> BPO. Tabellen under viser dem som passerer med ferdig forsket
+           blueprint (ME ${p.me}) – eier du en slik alt, kan du bruke den.`
+        : 'Ingen varer passerer reglene ennå. Kjør industri-jobben, eller senk tersklene nederst.'}</div></div>`;
+  }
+  const beste = s[0];
+  const rad = (x, i) => `
+    <div class="card" style="background:var(--card2);margin:${i ? '8px' : '10px'} 0 0">
+      <div class="row"><h3 style="margin:0">${i + 1}. ${esc(x.name)}${copyBtn(x.name + ' Blueprint')}</h3>
+        <span class="big accent">${isk(x.isk_per_day_slot)} ISK/dag</span></div>
+      <div class="row small" style="margin-top:6px">
+        <span><b>1.</b> Kjøp <b>${esc(x.name)} Blueprint</b> – ca. <b>${isk(x.bpo_price)} ISK</b>
+          ${x.bpo_price_source === 'esi_average' ? '<span class="pill" title="Prisen er ESI-ens snittpris, som for NPC-seedede BPO-er er selve NPC-prisen. Sjekk i spillet.">anslag</span>' : `<span class="pill ok">${esc(x.bpo_price_source || '')}</span>`}</span>
+        <span><b>2.</b> Forsk til ME ${p.me} / TE ${p.te} når du kan</span>
+      </div>
+      <div class="row small">
+        <span><b>3.</b> Produser <b>${x.runs} runs → ${num(x.units)} stk</b> (${num(x.hours, 1)} t),
+          materialer <b>${isk(x.capital_per_job)} ISK</b></span>
+        <span><b>4.</b> Selg i Jita på <b>${price(x.sell_price)}</b></span>
+      </div>
+      <div class="row small" style="margin-top:6px">
+        <span class="muted">Start: <b>${isk(x.startup_cost)} ISK</b> · BPO nedbetalt på
+          ${x.payback_days == null ? '–' : num(x.payback_days, 1) + ' d'}</span>
+        <span class="muted">Margin <b>${pct(x.margin)}</b> forsket ·
+          <b class="${Number(x.margin_me0) >= 0.25 ? 'green' : 'accent'}">${pct(x.margin_me0)}</b> uforsket</span>
+        <span class="muted">${num(x.daily_volume)} stk/dag i markedet${x.trades_per_day != null ? `, ${num(x.trades_per_day, 0)} handler` : ''}</span>
+      </div>
+    </div>`;
+  return `<div class="card" style="border:1px solid var(--accent)">
+    <div class="row"><h2 style="margin:0">Start med ${esc(beste.name)}</h2>
+      <span class="muted small">kapital ${kapital} ISK · ${p.slots_effective} slot${p.slots_effective > 1 ? 's' : ''}</span></div>
+    <div class="muted small" style="margin-top:4px">Valgt blant de ${D.counts?.passed ?? 0} varene som passerer, etter tre krav:
+      du har råd til BPO + én batch, varen er lønnsom <b>alt med uforsket BPO</b> (ME 0 bruker 11 % mer materialer),
+      og markedet flyter. Rangeringen i tabellen under antar ferdig forsket blueprint.</div>
+    ${s.map(rad).join('')}
+  </div>`;
+}
+
 function tegn() {
   const p = D.profile;
   const rows = synlige();
@@ -100,6 +147,7 @@ function tegn() {
   el('app').innerHTML = `
     <h1>Industri <span class="muted" style="font-size:0.9rem">produksjon i ${esc(p.system_name || '?')} → salg i Jita 4-4</span></h1>
     ${nav('industry.html')}
+    ${startKort()}
     <div class="card">
       <div class="stats">
         <div class="stat"><div class="l">Kostnadsindeks</div><div class="v">${p.cost_index == null ? '–' : (p.cost_index * 100).toFixed(2).replace('.', ',') + ' %'}</div><div class="muted" style="font-size:0.7rem">${p.cost_index_at ? ago(p.cost_index_at) : 'ikke hentet'}</div></div>
@@ -126,7 +174,7 @@ function tegn() {
         <button id="regn" class="ghost" style="align-self:flex-end">Regn om</button>
       </div>
       ${pf?.picks?.length ? `<div class="tblwrap" style="margin-top:10px"><table>
-        <tr><th>Vare</th><th>Runs</th><th>Stk</th><th>Tid</th><th>Kapital</th><th>ISK/dag</th><th>Margin</th></tr>
+        <tr><th>Vare</th><th>Runs</th><th>Stk</th><th>Tid</th><th>Kapital</th><th>ISK/dag</th><th title="Med ferdig forsket blueprint, og med nykjøpt uforsket BPO (ME 0)">Margin</th></tr>
         ${pf.picks.map((x) => `<tr><td style="text-align:left"><b>${esc(x.name)}</b>${copyBtn(x.name)}</td><td>${x.runs}</td><td>${num(x.units)}</td>
           <td>${num(x.hours, 1)} t</td><td>${isk(x.capital_per_job)}</td><td class="accent"><b>${isk(x.isk_per_day_slot)}</b></td><td>${pct(x.margin)}</td></tr>`).join('')}
         <tr><td style="text-align:left"><b>Sum</b></td><td></td><td></td><td></td><td><b>${isk(pf.capital_used)}</b></td><td class="accent"><b>${isk(pf.isk_per_day)}</b></td><td></td></tr>
@@ -151,7 +199,7 @@ function tegn() {
     </div>
     <div class="card tblwrap">
       <table>
-        <tr><th>Vare</th><th>ISK/dag/slot</th><th>Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
+        <tr><th>Vare</th><th>ISK/dag/slot</th><th title="Med ferdig forsket blueprint, og med nykjøpt uforsket BPO (ME 0)">Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
             <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Antall handler per dag – volum alene kan være én stor ordre">Handler/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
             <th title="Materialer + avgift for én full jobb">Kapital/jobb</th><th>BPO</th><th>Nedbetalt</th><th title="Salgsordrer i Jita 4-4">Selgere</th><th>Tid/jobb</th></tr>
         ${rows.length ? rows.map((r) => rad(r, valgte.has(r.product_type_id))).join('')

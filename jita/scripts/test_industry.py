@@ -249,6 +249,35 @@ def main():
           1 if "3.2 d å selge unna" in fullt["reason"] else 0, 1)
     sjekk("salgstiden lagres i factors (fanen viser den)", fullt["factors"]["batch_sell_days"], 3.2)
 
+    # ── Marginen med en NYKJØPT (uforsket) BPO, og hva du bør starte med ──
+    from industry import margin_at_me, start_recommendation
+    me0 = margin_at_me(r, BOM, P, QUOTES, 0)
+    sjekk("ME 0 gir lavere margin enn ME 10", 1 if me0 < r["margin"] else 0, 1)
+    # ME 0 bruker 1/0,9 = 11 % mer materialer
+    mat0 = (1000 * runs * 5.0 + 250 * runs * 10.0) * 1.01
+    kost0 = (mat0 + r["job_cost"]) / r["units"]
+    sjekk("ME 0-margin regnes riktig", me0,
+          round(r["sell_price"] * (1 - P.sell_fees) / kost0 - 1, 4), tol=1e-3)
+
+    billig_bpo = dict(god, product_type_id=1, name="Tåler ME 0", bpo_price=1_000_000,
+                      bpo_price_source="jita", capital_per_job=2_000_000, margin_me0=0.30,
+                      isk_per_day_slot=1_000_000, passed=True)
+    tynn_margin = dict(god, product_type_id=2, name="Dør ved ME 0", bpo_price=500_000,
+                       bpo_price_source="esi_average", capital_per_job=2_000_000, margin_me0=0.02,
+                       isk_per_day_slot=9_000_000, passed=True)
+    for_dyr = dict(god, product_type_id=3, name="For dyr start", bpo_price=50_000_000,
+                   bpo_price_source="jita", capital_per_job=2_000_000, margin_me0=0.40,
+                   isk_per_day_slot=99_000_000, passed=True)
+    uten_pris = dict(god, product_type_id=4, name="Ukjent BPO-pris", bpo_price=None,
+                     capital_per_job=2_000_000, margin_me0=0.40,
+                     isk_per_day_slot=50_000_000, passed=True)
+    anb = start_recommendation([tynn_margin, for_dyr, uten_pris, billig_bpo], P, 8_000_000)
+    sjekk("anbefaling: bare den som tåler ME 0 og er innenfor kapitalen", len(anb), 1)
+    sjekk("anbefaling: riktig vare", anb[0]["product_type_id"], 1)
+    sjekk("anbefaling: startkostnad = BPO + batch", anb[0]["startup_cost"], 3_000_000)
+    sjekk("anbefaling: tom liste når ingenting passer",
+          len(start_recommendation([tynn_margin, for_dyr, uten_pris], P, 8_000_000)), 0)
+
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints
     ccp = {"681": {"blueprintTypeID": 681, "maxProductionLimit": 300,

@@ -124,7 +124,9 @@ create table if not exists jita.industry_candidates (
   isk_per_hour_slot numeric,
   -- kapital og risiko
   capital_per_job numeric,                     -- materialkost for én full batch
-  bpo_price numeric, payback_days numeric,
+  bpo_price numeric, bpo_price_source text, payback_days numeric,
+  startup_cost numeric,                        -- BPO + én batch = det du trenger for å starte
+  margin_me0 numeric,                          -- marginen med en NYKJØPT (uforsket) BPO, ME 0
   sell_orders int,                             -- konkurrenter i Jita
   price_avg_30d numeric, price_drop_30d numeric, price_volatility numeric,
   m3_in numeric, m3_out numeric,               -- volum inn (materialer) og ut (produkt) per batch

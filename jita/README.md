@@ -169,6 +169,21 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### «Start med …» – anbefalingen øverst i fanen (24. sept 2026)
+Rangeringen antar ferdig forsket blueprint (ME 10). Skal du *kjøpe* en BPO, er den ME 0, og da gjelder
+tre andre krav. `start_recommendation()` (speilet i `lib/industry.js`) velger blant varene som passerer:
+1. **Startkostnad** = BPO-pris + materialer for én batch, må være innenfor kapitalen.
+2. **Lønnsom alt ved ME 0** – `margin_me0` regnes med samme batch og ME 0 (11 % mer materialer).
+   Dette snur rangeringen: Medium Core Defense Field Extender I har 13,5 % margin forsket, men 2,5 %
+   uforsket, mens Drone Link Augmentor I har 59 % / 44 %. Uten dette anbefaler verktøyet varer du
+   taper penger på mens forskningen går.
+3. Markedet må flyte (allerede sjekket av dommen).
+
+**BPO-pris:** handelsknutene har bare halvparten av BPO-ene, fordi NPC seeder dem spredt i empire.
+ESI-ens `average_price` er selve NPC-prisen der vi har begge å sammenligne med (20 mill. = 20 mill.,
+125k = 125k, sjekket 24. sept), så den brukes som reserve og merkes «anslag» i fanen. Uten den manglet
+50 av 51 forslag startkostnad, og da kunne verktøyet ikke svare på hva du burde kjøpe først.
+
 ### Valg og avvik fra briefen (bevisste)
 - **EVE Ref sitt kost-API brukes ikke per vare.** 1 200+ kall per kjøring er ufint mot en gratis tjeneste, og
   vi trenger egne materialpriser uansett (briefen vil ha Jita buy-pris). Vi henter derfor oppskriftene i

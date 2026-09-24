@@ -14,7 +14,7 @@ Kildene til formlene:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 # Kategorier vi rangerer (spec: T1-moduler, droner, ammo, rigs, deployables, T1-skip)
 PRODUCT_CATEGORIES = (6, 7, 8, 18, 22)      # ship, module, charge, drone, deployable
@@ -212,6 +212,23 @@ def economics(bom: dict, p: IndustryProfile, quotes: dict[int, dict],
     )
 
 
+def margin_at_me(row: dict, bom: dict, p: IndustryProfile, quotes: dict[int, dict], me: int) -> float | None:
+    """Marginen med et annet ME-nivå, samme batch. Brukes til å vise hva en NYKJØPT BPO gir:
+    den er ME 0, og 11 % mer materialer spiser lave marginer levende (13,5 % → 2,5 %).
+    Uten dette anbefaler verktøyet varer du taper penger på mens forskningen går."""
+    mats = bom.get("materials") or {}
+    if not mats or not row.get("units"):
+        return None
+    p_me = replace(p, me=me)
+    kost, _, mangler = material_cost(mats, row["runs"], p_me, quotes)
+    if mangler:
+        return None
+    per_unit = (kost + (row.get("job_cost") or 0)) / row["units"]
+    if per_unit <= 0:
+        return None
+    return round(row["sell_price"] * (1 - p.sell_fees) / per_unit - 1, 4)
+
+
 def realistic_throughput(row: dict, daily_volume: float | None, p: IndustryProfile) -> dict:
     """«Realistisk ISK per døgn per slot» = netto × det minste av tre tak:
 
@@ -401,6 +418,43 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
     if failed:
         parts.append("Forkastet: " + ", ".join(RULES.get(r, r) for r in failed) + ".")
     return " ".join(parts)
+
+
+def start_recommendation(rows: list[dict], p: IndustryProfile, capital: float,
+                         antall: int = 3) -> list[dict]:
+    """Hva bør du kjøpe FØRST? Rangeringen ellers antar ferdig forsket blueprint (ME 10).
+    Skal du kjøpe en ny BPO, er den ME 0, og da gjelder tre andre krav:
+
+      1. Du må ha råd til BPO + én batch materialer (startkostnad).
+      2. Varen må være lønnsom alt ved ME 0 – ellers taper du penger mens forskningen går.
+      3. Markedet må flyte (det er allerede sjekket av dommen).
+
+    Sortert på ISK/dag, men bare blant dem som tåler punkt 1 og 2.
+    """
+    min_margin = float(p.t("min_margin", 0.10))
+    ut = []
+    for r in sorted((x for x in rows if x.get("passed")),
+                    key=lambda x: x.get("isk_per_day_slot") or 0, reverse=True):
+        bpo = r.get("bpo_price")
+        start = (bpo or 0) + float(r.get("capital_per_job") or 0)
+        if bpo is None or start > capital:
+            continue
+        if r.get("margin_me0") is None or r["margin_me0"] < min_margin:
+            continue
+        ut.append(dict(
+            product_type_id=r["product_type_id"], name=r.get("name"),
+            bpo_price=bpo, bpo_price_source=r.get("bpo_price_source"),
+            capital_per_job=r.get("capital_per_job"), startup_cost=round(start, 2),
+            isk_per_day_slot=r.get("isk_per_day_slot"), margin=r.get("margin"),
+            margin_me0=r["margin_me0"], payback_days=r.get("payback_days"),
+            runs=r.get("runs"), units=r.get("units"),
+            hours=round((r.get("time_per_batch_s") or 0) / 3600, 1),
+            daily_volume=r.get("daily_volume"),
+            trades_per_day=(r.get("factors") or {}).get("trades_per_day"),
+            sell_price=r.get("sell_price"), cost_per_unit=r.get("cost_per_unit")))
+        if len(ut) >= antall:
+            break
+    return ut
 
 
 # ── Porteføljevelger ─────────────────────────────────────────────────────────
