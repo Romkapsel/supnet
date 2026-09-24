@@ -7,7 +7,7 @@ on:
     - cron: "23 * * * *"        # timesjobb (09:23 UTC = etter downtime)
     - cron: "5,25,45 * * * *"   # watchlist, lett
     - cron: "29 * * * *"        # historikk, hver time (inntil 400 varer, roterer over forfilteret)
-    - cron: "40 5 * * *"        # industri-marginfinner, daglig (etter rydding kl. 05:00)
+    - cron: "40 5 * * *"        # industri + mining, daglig (etter rydding kl. 05:00)
     - cron: "0 3 1 * *"         # seed av varetyper, månedlig (nye varer i spillet)
   workflow_dispatch:
     inputs:
@@ -20,6 +20,7 @@ on:
 env:
   SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
   DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+  JITA_PIN: ${{ secrets.JITA_PIN }}                 # for /api/token → strukturordrer
   SNAPSHOT_DIR: ${{ github.workspace }}/jita/snapshots
   PYTHONUNBUFFERED: "1"
 

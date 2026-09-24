@@ -10,6 +10,9 @@ const UA = "Supnet-Jita/0.3 (+https://jita-eve.vercel.app)";
 export const SCOPES = [
   "esi-wallet.read_character_wallet.v1", "esi-markets.read_character_orders.v1", "esi-assets.read_assets.v1",
   "esi-skills.read_skills.v1", "esi-characters.read_standings.v1", "esi-markets.structure_markets.v1",
+  "esi-universe.read_structures.v1",      // slå opp strukturer (navn, system) – trengs for TTT/Perimeter-markedene
+  "esi-location.read_location.v1",        // er du dokket i Jita 4-4?
+  "esi-skills.read_skillqueue.v1",         // trener du BR V / Accounting?
 ];
 export const CALLBACK = "https://jita-eve.vercel.app/api/sso";
 const JITA_44 = 60003760;
@@ -82,7 +85,7 @@ export async function completeLogin(q, code) {
   return { characterId, name };
 }
 
-async function accessToken(q, row) {
+export async function accessToken(q, row) {
   if (row.access_token && row.expires_at && new Date(row.expires_at) > new Date()) return row.access_token;
   const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: row.refresh_token });
   const expires = new Date(Date.now() + (t.expires_in - 60) * 1000);
@@ -244,8 +247,11 @@ async function syncDecisions(q, orders, closed, txs, now) {
       // knytt til en manuell beslutning på samme vare uten order_id, ellers opprett
       const [m] = await q`select id from jita.decisions where type_id = ${o.type_id} and side = 'buy' and closed_at is null and order_id is null order by created_at desc limit 1`;
       if (m) await q`update jita.decisions set order_id = ${o.order_id}, price = ${o.price}, qty = ${o.volume_total}, filled_qty = ${filled || null}::int, source = 'eve' where id = ${m.id}`;
-      else await q`insert into jita.decisions (type_id, side, price, qty, filled_qty, order_id, source, created_at, note)
-                   values (${o.type_id}, 'buy', ${o.price}, ${o.volume_total}, ${filled || null}::int, ${o.order_id}, 'eve', ${o.issued}::timestamptz, 'fra EVE')`;
+      else await q`insert into jita.decisions (type_id, side, price, qty, filled_qty, order_id, source, created_at, note, predicted_days, predicted_net_per_unit)
+                   select ${o.type_id}, 'buy', ${o.price}, ${o.volume_total}, ${filled || null}::int, ${o.order_id}, 'eve', ${o.issued}::timestamptz, 'fra EVE',
+                          c.days_to_fill_buy, c.net_per_unit
+                   from (select 1) x left join lateral (select days_to_fill_buy, net_per_unit from jita.candidates
+                          where type_id = ${o.type_id} and run_at <= ${o.issued}::timestamptz + interval '1 hour' order by run_at desc limit 1) c on true`;
     }
   }
   for (const c of closed.filter((c) => c.is_buy)) {

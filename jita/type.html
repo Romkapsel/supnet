@@ -142,10 +142,11 @@ async function loadBook() {
       .sort((a, b) => b.price - a.price).slice(0, 12);
     const sells = orders.filter((o) => !o.is_buy_order && o.location_id === JITA_44).sort((a, b) => a.price - b.price).slice(0, 12);
     const rng = (o) => o.location_id === JITA_44 ? '4-4' : o.range === 'region' ? 'region' : o.range === 'solarsystem' ? 'Jita' : o.range + ' hopp';
+    // NB: ESIs åpne ordrebok mangler spillerstrukturer (TTT m.fl.) – roboten henter dem med innlogging; her vises bare NPC-stasjoner
     const tbl = (rows, buy) => `<table><tr><th>${buy ? 'Kjøp' : 'Selg'}</th><th>Antall</th>${buy ? '<th>Rekkevidde</th>' : ''}</tr>${rows.map((o) =>
       `<tr><td>${price(o.price)}</td><td>${isk(o.volume_remain)}</td>${buy ? `<td class="muted">${rng(o)}</td>` : ''}</tr>`).join('')}</table>`;
     el('book').innerHTML = `<div class="grid2" style="grid-template-columns:1fr 1fr">${tbl(buys, true)}${tbl(sells, false)}</div>
-      <div class="muted small">Oppdatert ${new Date(r.headers.get('Last-Modified') || Date.now()).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo' })} · bare kjøpsordrer som dekker Jita 4-4 (grovt: region/system/stasjon), salgsordrer i 4-4</div>`;
+      <div class="muted small">Oppdatert ${new Date(r.headers.get('Last-Modified') || Date.now()).toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo' })} · bare NPC-stasjoner – strukturordrer (TTT, Perimeter) er med i robotens tall, men ikke i denne live-visningen</div>`;
   } catch (e) { el('book').innerHTML = `<span class="muted">Kunne ikke hente ordreboken (${esc(e.message)})</span>`; }
 }
 

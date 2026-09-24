@@ -296,11 +296,12 @@ class Esi:
             self.etags = {k: self.etags[k] for k in keys}
         self.etag_path.write_text(json.dumps(self.etags))
 
-    def get(self, path: str, params: dict | None = None, use_etag: bool = True, timeout: int = 30):
-        """→ (status, json-eller-None, headers). 304 gir cachet body fra .etag.json."""
+    def get(self, path: str, params: dict | None = None, use_etag: bool = True, timeout: int = 30, legacy: bool = False):
+        """→ (status, json-eller-None, headers). 304 gir cachet body fra .etag.json.
+        legacy=True: uten X-Compatibility-Date – noen ruter (/route/) finnes bare i den gamle versjoneringen."""
         url = ESI + path
         key = url + ("?" + "&".join(f"{k}={v}" for k, v in sorted((params or {}).items())) if params else "")
-        headers = {}
+        headers = {"X-Compatibility-Date": None} if legacy else {}
         cached = self.etags.get(key) if use_etag else None
         if cached and cached.get("etag"):
             headers["If-None-Match"] = cached["etag"]

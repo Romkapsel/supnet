@@ -97,6 +97,28 @@ Se spec del 9.3. Kort: rydding 3 d/30 d/14 d + rettet `type_daily`-rulling; EVE-
 ## «Å gjøre» (17. sept 2026)
 Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, ikke fra lagrede varsler (som ble stående etter at ordren var endret). Robotens eksakte mur-tall (`alerts`, < 3 t gamle og med samme pris/toppbud) brukes når de finnes, ellers anslag fra ordreboken. Rådlogikken er speilet i `lib/advice.js` (= `common.py`). Bare klare verb: HEV, SENK, TREKK, SELG, KJØP, ØK, RELIST – HOLD vises i beholdningen. Reserve senket til 10 % (karakteren er ren trader; cash trengs bare til gebyrer og én ny posisjon).
 
+## Gjennomgang 21. sept 2026
+- **DB 463 MB** etter 6 dager tross grønn ryddejobb: anslagene var fortsatt for rause (dommeren lagrer 200 rader 4×/t). Ny oppbevaring: type_hourly 2 d, fills 1 d, flow 10 d, candidates 3 d (ikke-passed bare 6 t), history 60 d; `VACUUM FULL` kjørt manuelt (→ 240 MB) og nattlig `jita-vacuum` 05:20.
+- **Resultat 7 d:** +12,8 mill netto (308 salg, 41 mill omsetning). Kapital 4,5 → 28,8 mill. Accounting IV tjener seg inn på 41 dager – anbefalt.
+- **Kalibrering:** EVE-opprettede beslutninger manglet `predicted_days` → lære-sløyfen samlet ingen data. Nå fylles den fra siste dom ved ordrelegging. De to første datapunktene: faktisk fylling 0,32 × spådd (vi er for pessimistiske; små tall, vent).
+- **Varselstøy:** 104 overbud-varsler på 3 dager (1-ISK-hakk hvert 20. min). Nå: ny post bare ved annet råd, toppbud flyttet > 2 %, eller > 2 t siden sist.
+
+## Strukturmarkeder (21. sept 2026) – største datafeil så langt
+- ESIs regionsordrebok har bare NPC-stasjoner. Kjøpsordrer i Perimeter-strukturene (TTT `1042508032148`, 0.0% Neutral States Market HQ `1044752365771`, repro rig) med rekkevidde ≥ 1 hopp dekker Jita og lå langt over Jita-budet (Datacore: 25 000 i 4-4 vs 69 110 i struktur → «163 % margin»). Nå: `scripts/structures.py` henter ~30 000 kjøpsordrer fra `jita.structures` hver time med karakterens token (`/api/token`, GitHub-secret `JITA_PIN`). Oppdagelse daglig fra EVE Ref (`structures-latest.v2.json`), maks 2 hopp. Krever SSO-scope `esi-universe.read_structures.v1` og markedstilgang (403 → strukturen skrus av).
+- `/route/` finnes ikke under `X-Compatibility-Date` (404) → seed ga 99 hopp for 87 av 88 systemer, så «N hopp»-rekkevidde aldri dekket Jita. `Esi.get(..., legacy=True)` bruker gammel sti; tabellen er reparert.
+- Nye scopes 21. sept: `esi-universe.read_structures.v1`, `esi-location.read_location.v1`, `esi-skills.read_skillqueue.v1` (de to siste ikke tatt i bruk ennå).
+
+### Duplikat i fills (21. sept 2026, kveld)
+Timesjobben feilet én gang med `UniqueViolation fills_pkey`: samme order_id lå to ganger i snapshotet (ordren flyttet seg
+mellom sider under henting – strukturmarkedene har ikke felles Last-Modified som regionsboka). Fiks: ordrelista dedupes
+per order_id før snapshot, og `diff_fills` hopper over gjentatte id-er. I tillegg teller `/api/scan?fallback=1` nå bare
+*vellykkede* kjøringer som «ferske», så pg_cron prøver igjen samme time etter en feilet kjøring.
+
+**Oppfølging samme kveld:** dedupe-loggen viste 30 202 duplikater av 30 637 strukturordrer – ESIs regionsbok inneholder
+altså allerede kjøpsordrene i strukturer (alle rekkevidder unntatt «station», som uansett ikke dekker 4-4). Den egentlige
+årsaken til Datacore-avviket var hopptabellen (Perimeter = 99 hopp før `/route/`-fiksen). Strukturhentingen er derfor
+slått av (miljøvariabel `STRUCT_ORDERS=1` slår den på igjen); koden, tabellen og scopene beholdes.
+
 ## Industri – produksjon (steg 1, 24. sept 2026)
 
 Egen fane `/jita/industry.html`. Rangerer hvilke T1-produkter det er verdt å produsere i Ylandoki

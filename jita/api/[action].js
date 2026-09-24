@@ -3,7 +3,7 @@
 // Miljøvariabler: SUPABASE_DB_URL (pooler, port 6543), JITA_PIN, GITHUB_TOKEN, GITHUB_REPO.
 
 import postgres from "postgres";
-import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
+import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
 import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio } from "../lib/industry.js";
@@ -89,6 +89,12 @@ export default async function handler(req, res) {
     switch (action) {
       case "sso": return json(res, 200, { url: authorizeUrl() });
       case "sso_status": return json(res, 200, { eve: await ssoStatus(q) });
+      case "token": {   // roboten (GitHub Actions) henter strukturordrer med karakterens token
+        const [row] = await q`select * from jita.sso_tokens order by updated_at desc limit 1`;
+        if (!row) return json(res, 404, { error: "ingen EVE-karakter" });
+        const token = await accessToken(q, row);
+        return json(res, 200, { token, character_id: row.character_id });
+      }
       case "results": return json(res, 200, await computeResults(q, await effectiveProfile(q)));
       case "character": {
         const r = await syncCharacter(q, discord, req.query.light === "1");
@@ -421,7 +427,7 @@ async function scan(q, fallback = false, job = "hourly") {
   if (fallback) {
     // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
     const maxAge = job === "watchlist" ? 15 : ["industry", "mining"].includes(job) ? 26 * 60 : 50;   // history: 50 (hver time), industri: daglig
-    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job}`;
+    const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job} and ok`;
     if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
     const wait = 10 - (Date.now() - new Date(p.last_manual_scan).getTime()) / 60000;
@@ -432,11 +438,11 @@ async function scan(q, fallback = false, job = "hourly") {
   const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "supnet-jita" },
-    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : job === "industry" ? "jita-industry" : job === "mining" ? "jita-industry" : "jita-scan" }),
+    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : ["industry", "mining"].includes(job) ? "jita-industry" : "jita-scan" }),
   });
   if (r.status !== 204) return { ok: false, message: `GitHub svarte ${r.status}: ${(await r.text()).slice(0, 200)}` };
   if (!fallback) await q`update jita.profile set last_manual_scan = now() where id = 1`;   // auto-start skal ikke sperre «Scan nå»
-  return { ok: true, message: job === "industry" ? "industri-jobben kjører… ~10 min" : "kjører… ~3 min" };
+  return { ok: true, message: ["industry", "mining"].includes(job) ? "industri- og mining-jobben kjører… ~10 min" : "kjører… ~3 min" };
 }
 
 // ── Watchlist ────────────────────────────────────────────────────────────────

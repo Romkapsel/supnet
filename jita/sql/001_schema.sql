@@ -216,16 +216,16 @@ end $$;
 create or replace function jita.cleanup() returns void language plpgsql as $$
 begin
   -- Oppbevaring (strammet 16. sept 2026 – 7 000 varer/time gir ~5 × spec-ens anslag):
-  --   type_hourly 3 d (dommeren bruker nyeste; trend bruker 48 t), fills 3 d, type_flow_hourly 30 d,
-  --   candidates 14 d og bare passed + 100 beste per kjøring, robot_runs 90 d, alerts 90 d.
+  --   (strammet igjen 21. sept: 463 MB etter 6 dager) type_hourly 2 d, fills 1 d, type_flow_hourly 10 d,
+  --   candidates 3 d (passed + 100 beste per kjøring; watchlist-kjøringer bare passed), history 60 d, robot_runs/alerts 90 d.
   insert into jita.type_daily (type_id, date, best_bid_avg, best_ask_avg, bfs_qty, s2b_qty, bid_top_qty_avg, ask_qty_1pct_avg)
   with hh as (
     select type_id, (snapshot_at at time zone 'utc')::date as d, avg(best_bid) bid, avg(best_ask) ask,
            avg(bid_top_qty)::bigint top_q, avg(ask_qty_1pct)::bigint ask_q
-    from jita.type_hourly where snapshot_at < now() - interval '3 days' group by type_id, (snapshot_at at time zone 'utc')::date),
+    from jita.type_hourly where snapshot_at < now() - interval '2 days' group by type_id, (snapshot_at at time zone 'utc')::date),
   ff as (
     select type_id, (hour at time zone 'utc')::date as d, sum(bfs_qty) bfs, sum(s2b_qty) s2b
-    from jita.type_flow_hourly where resolution = 60 and hour < now() - interval '3 days' group by type_id, (hour at time zone 'utc')::date)
+    from jita.type_flow_hourly where resolution = 60 and hour < now() - interval '2 days' group by type_id, (hour at time zone 'utc')::date)
   select hh.type_id, hh.d, hh.bid, hh.ask, coalesce(ff.bfs, 0), coalesce(ff.s2b, 0), hh.top_q, hh.ask_q
   from hh left join ff using (type_id, d)
   on conflict (type_id, date) do update set
@@ -233,10 +233,12 @@ begin
     bfs_qty = excluded.bfs_qty, s2b_qty = excluded.s2b_qty,
     bid_top_qty_avg = excluded.bid_top_qty_avg, ask_qty_1pct_avg = excluded.ask_qty_1pct_avg;
 
-  delete from jita.type_hourly where snapshot_at < now() - interval '3 days';
-  delete from jita.fills where observed_at < now() - interval '3 days';
-  delete from jita.type_flow_hourly where hour < now() - interval '30 days';
-  delete from jita.candidates where run_at < now() - interval '14 days';
+  delete from jita.type_hourly where snapshot_at < now() - interval '2 days';
+  delete from jita.fills where observed_at < now() - interval '1 day';
+  delete from jita.type_flow_hourly where hour < now() - interval '10 days';
+  delete from jita.candidates where run_at < now() - interval '3 days';
+  -- eldre enn 6 t: behold bare passed (topp-10-historikk), ikke-passed brukes bare live
+  delete from jita.candidates where run_at < now() - interval '6 hours' and not passed;
   delete from jita.candidates c using (
     select run_at, type_id, row_number() over (partition by run_at order by cardinality(failed_rules), score desc nulls last) rn
     from jita.candidates where not passed) x
@@ -244,11 +246,13 @@ begin
   delete from jita.robot_runs where run_at < now() - interval '90 days';
   delete from jita.alerts where created_at < now() - interval '90 days';
   delete from jita.type_daily where date < current_date - 400;
-  delete from jita.history_daily where date < current_date - 400;
+  delete from jita.history_daily where date < current_date - 60;
 end $$;
 
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-cleanup';
 select cron.schedule('jita-cleanup', '0 5 * * *', 'select jita.cleanup()');
+select cron.unschedule(jobid) from cron.job where jobname = 'jita-vacuum';
+select cron.schedule('jita-vacuum', '20 5 * * *', 'vacuum analyze jita.type_hourly, jita.candidates, jita.fills, jita.type_flow_hourly, jita.history_daily');
 
 -- ── Plan B: vaktjobb (pg_cron + pg_net) ──────────────────────────────────────
 -- GitHubs cron er upålitelig. Kl. :23 og :40 ber databasen Vercel-API-et starte timesjobben via

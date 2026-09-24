@@ -43,3 +43,12 @@ create table if not exists jita.my_journal (
 create index if not exists my_journal_date on jita.my_journal (date);
 alter table jita.my_journal enable row level security;
 grant all on all tables in schema jita to service_role;
+
+-- Spillerstrukturer med marked nær Jita (TTT, Perimeter-citadeller). Kjøpsordrer derfra dekker Jita 4-4 med rekkevidde.
+
+create table if not exists jita.structures (
+  structure_id bigint primary key, name text, system_id int, jumps_from_jita int,
+  has_market boolean default true, last_ok timestamptz, last_error text, orders_count int, updated_at timestamptz default now()
+);
+alter table jita.structures enable row level security;
+grant all on all tables in schema jita to service_role;
