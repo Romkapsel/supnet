@@ -13,6 +13,7 @@ export const INDUSTRY_RULES = {
   i7: "Mangler data",
   i8: "For lang tilbakebetaling på BPO-en",
   i9: "Pristopp (prisen er langt over 30-dagers snitt)",
+  i10: "BPO-en kan ikke kjøpes (blueprinten finnes ikke på markedet)",
 };
 
 // Kategoriene vi rangerer (ESI category_id) – brukes til filteret i fanen.

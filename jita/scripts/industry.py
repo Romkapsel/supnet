@@ -40,6 +40,7 @@ class IndustryProfile:
     material_source: str = "buy"
     broker: float = 0.01                     # fra jita.profile (profile_calc)
     tax: float = 0.075
+    capital_isk: float = 0.0                 # cash + bundet (jita.effective_profile)
     cost_index: float = 0.0                  # systemets manufacturing cost index
     thresholds: dict = field(default_factory=dict)
 
@@ -57,6 +58,15 @@ class IndustryProfile:
     def t(self, key: str, default):
         v = (self.thresholds or {}).get(key)
         return default if v is None else v
+
+
+def job_budget(p: IndustryProfile) -> float:
+    """Hvor mye kapital én jobb får binde. Uten dette blir batchene dimensjonert bare etter tid,
+    og forslagene havner langt over det du faktisk har (8 mill. kapital, 15 mill. per jobb)."""
+    tak = float(p.t("max_capital_per_job", 20e6))
+    if p.capital_isk > 0:
+        tak = min(tak, p.capital_isk * float(p.t("capital_share_per_job", 0.5)))
+    return max(tak, 1.0)
 
 
 def tick(p: float) -> float:
@@ -146,11 +156,22 @@ def economics(bom: dict, p: IndustryProfile, quotes: dict[int, dict],
     base_time = float(bom.get("base_time_s") or 0)
     runs = runs_for_days(base_time, p, days, bom.get("max_runs")) if base_time > 0 else 1
     units_per_run = int(bom.get("units_per_run") or 1)
+
+    # Kapitalen setter taket sammen med tiden. Jobbavgiften må være med i taket – den betales
+    # samtidig med materialene, og er proporsjonal med antall runs.
+    budsjett = job_budget(p)
+    per_run, _, missing = material_cost(mats, 1, p, quotes)
+    if missing:
+        return None                                      # mangler materialpris → ikke til å stole på
+    avgift_per_run = job_cost(eiv_per_run(mats, adjusted), p)
+    per_run_total = per_run + avgift_per_run
+    if per_run_total > 0:
+        runs = max(1, min(runs, int(budsjett // per_run_total) or 1))
     units = runs * units_per_run
 
     mat_cost, m3_in, missing = material_cost(mats, runs, p, quotes)
     if missing:
-        return None                                      # mangler materialpris → ikke til å stole på
+        return None
     eiv = eiv_per_run(mats, adjusted) * runs
     jcost = job_cost(eiv, p)
     total = mat_cost + jcost
@@ -203,6 +224,7 @@ RULES = {
     "i7": "Mangler data",
     "i8": "For lang tilbakebetaling på BPO-en",
     "i9": "Pristopp (prisen er langt over 30-dagers snitt)",
+    "i10": "BPO-en kan ikke kjøpes (blueprinten finnes ikke på markedet)",
 }
 
 
@@ -251,8 +273,8 @@ def judge(row: dict, p: IndustryProfile) -> dict:
             failed.append("i3b")
     if row.get("bpo_price") and row["bpo_price"] > float(p.t("max_bpo_price", 50e6)):
         failed.append("i4")
-    if row.get("capital_per_job", 0) > float(p.t("max_capital_per_job", 20e6)):
-        failed.append("i5")
+    if row.get("capital_per_job", 0) > job_budget(p) * 1.01:   # batchen er alt begrenset av budsjettet:
+        failed.append("i5")                                    # slår bare til når én enkelt run er for dyr
     if row.get("price_drop_30d") is not None and row["price_drop_30d"] > float(p.t("max_price_drop_30d", 0.15)):
         failed.append("i6")
     if row.get("payback_days") is not None and row["payback_days"] > float(p.t("max_payback_days", 30)):
@@ -260,6 +282,8 @@ def judge(row: dict, p: IndustryProfile) -> dict:
     if row.get("price_avg_30d") and row.get("sell_min") and \
             row["sell_min"] > float(p.t("max_price_spike", 3.0)) * row["price_avg_30d"]:
         failed.append("i9")
+    if row.get("blueprint_on_market") is False:
+        failed.append("i10")
 
     score = (row.get("isk_per_day_slot") or 0) * f["liquidity"] * f["competition"] * f["stable"] * f["trend"]
     row.update(passed=not failed, failed_rules=sorted(set(failed)), score=round(score, 2),

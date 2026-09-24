@@ -146,6 +146,28 @@ def main():
     sjekk("stabilitet har gulv 0,7", f["stable"], 0.7)
     sjekk("trend ved 10 % fall", f["trend"], 0.8)
 
+    # ── Kapitaltaket: batchen skal ikke bli større enn kapitalen tåler ──
+    liten = IndustryProfile(**{**{k: getattr(P, k) for k in
+        ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
+         'cost_index','material_source')}, 'capital_isk': 1_000_000,
+        'thresholds': dict(P.thresholds, capital_share_per_job=0.5)})
+    r2 = economics(BOM, liten, QUOTES, ADJUSTED)
+    sjekk("kapitaltak: batchen holder seg innenfor budsjettet (500k = 50 % av 1 mill.)",
+          1 if r2["capital_per_job"] <= 500_000 else 0, 1)
+    sjekk("kapitaltak: færre runs enn tiden tillater", 1 if r2["runs"] < r["runs"] else 0, 1)
+    sjekk("kapitaltak: minst én run", 1 if r2["runs"] >= 1 else 0, 1)
+    sjekk("kapitaltak: kostpris per enhet er uendret (skalerer ikke med batchen)",
+          round(r2["cost_per_unit"] / r["cost_per_unit"], 2), 1.0, tol=0.02)
+
+    # ── i10: blueprint som ikke finnes på markedet kan ikke kjøpes ──
+    ikke_bp = dict(god, blueprint_on_market=False)
+    judge(ikke_bp, P)
+    sjekk("i10 slår til når blueprinten ikke er på markedet",
+          1 if "i10" in ikke_bp["failed_rules"] else 0, 1)
+    pa_marked = dict(god, blueprint_on_market=True)
+    judge(pa_marked, P)
+    sjekk("i10 slår ikke til når blueprinten finnes", 1 if "i10" in pa_marked["failed_rules"] else 0, 0)
+
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints
     ccp = {"681": {"blueprintTypeID": 681, "maxProductionLimit": 300,

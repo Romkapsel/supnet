@@ -127,8 +127,11 @@ Jobben laster også opp topp 30 som CSV-artifact.
 5. **Materialpriser** fra Fuzzwork-aggregat for Jita 4-4: høyeste buy (du legger kjøpsordre, + broker fee)
    eller laveste sell (instant) – valgbart i innstillingene.
 6. **Salg** ett tick under laveste ask, minus broker + skatt fra `jita.profile` (målt sats slår formelen).
-7. **Realistisk ISK/dag/slot** = netto × min(slot-kapasitet, 10 % av dagsvolumet i ESI-historikken).
-8. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
+7. **Batchen dimensjoneres av både tid og kapital:** antall runs = min(det slotten rekker på
+   `batch_days`, det budsjettet tåler, BPC-grensen). Budsjett per jobb = min(`max_capital_per_job`,
+   kapital × `capital_share_per_job`) og dekker materialer *og* jobbavgift.
+8. **Realistisk ISK/dag/slot** = netto × min(slot-kapasitet, 10 % av dagsvolumet i ESI-historikken).
+9. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
 
 ### Valg og avvik fra briefen (bevisste)
 - **EVE Ref sitt kost-API brukes ikke per vare.** 1 200+ kall per kjøring er ufint mot en gratis tjeneste, og
@@ -145,9 +148,21 @@ Jobben laster også opp topp 30 som CSV-artifact.
   gjelder ikke der vi står).
 - **Egne mineraler er ikke gratis** – materialer verdsettes alltid til markedspris, også det du miner selv.
 - Regler: `i1` margin, `i1x` urealistisk margin, `i2` dagsvolum, `i3`/`i3b` tynt marked, `i4` dyr BPO,
-  `i5` kapital per jobb, `i6` prisfall 30 d, `i7` mangler data, `i8` nedbetalingstid, `i9` pristopp.
+  `i5` kapital per jobb (slår bare til når én enkelt run sprenger budsjettet), `i6` prisfall 30 d,
+  `i7` mangler data, `i8` nedbetalingstid, `i9` pristopp, `i10` blueprinten finnes ikke på markedet.
+- **«NPC-selgd BPO»** avgjøres av om blueprinten finnes som markedsvare i `jita.types` (og ikke er en
+  T2-blueprint). Uten det kan du ikke kjøpe den – de varene forkastes med `i10` i stedet for å skjules.
+- **BPO-pris** hentes fra Fuzzwork for Jita, Amarr, Dodixie, Rens og Hek, og laveste sell brukes.
+  NPC-seedede BPO-er ligger spredt i empire; et oppslag bare mot The Forge fant pris på 54 av 120
+  og ingen av de beste.
 
 ### Feillogg
+- **24. sept 2026, andre kjøring (1 147 vurdert, 9 passerte) hadde tre feil:** batchene ble dimensjonert
+  bare etter tid, så forslagene bandt 11–18 mill. ISK per jobb mot en kapital på 8 mill.; BPO-prisen var
+  null for alle de beste (region-oppslag mot The Forge); og to varer uten kjøpbar blueprint
+  (SCARAB Breacher Pod M, Interdiction Nullifier II – CCP setter ikke metaGroup på dem, så
+  `seed_types.py` regner dem som T1) lå øverst. Rettet med kapitaltak på batchen, BPO-priser fra fem
+  handelsknuter, og regel `i10`.
 - **24. sept 2026, første kjøring feilet:** `ref-data.everef.net/blueprints` gir bare en liste med
   5 082 ID-er (detaljene ligger på `/blueprints/<id>`, altså 5 082 kall), `sde.everef.net` finnes ikke, og
   Fuzzwork-dumpene ligger i `dump/latest/csv/` med datostemplede filnavn – ikke `dump/latest/<tabell>.csv.bz2`.

@@ -186,7 +186,8 @@ function tegn() {
            ['max_spread', 'Maks spread', 0.05], ['max_price_drop_30d', 'Maks prisfall 30 d', 0.01],
            ['max_price_spike', 'Maks pristopp (× 30-d snitt)', 0.1], ['max_bpo_price', 'Maks BPO-pris', 1000000],
            ['max_capital_per_job', 'Maks kapital per jobb', 1000000], ['max_payback_days', 'Maks nedbetalingstid (d)', 1],
-           ['volume_share', 'Andel av dagsvolum du tar', 0.01], ['batch_days', 'Lengde på én jobb (døgn)', 0.5]]
+           ['volume_share', 'Andel av dagsvolum du tar', 0.01], ['batch_days', 'Lengde på én jobb (døgn)', 0.5],
+           ['capital_share_per_job', 'Andel av kapitalen én jobb får binde', 0.05]]
           .map(([k, label, step]) => `<label>${label}<input id="t-${k}" type="number" step="${step}" value="${p.thresholds?.[k] ?? ''}"/></label>`).join('')}
       </div>
       <div class="row" style="margin-top:12px"><button id="lagre">Lagre</button><span id="lagremsg" class="muted small"></span>

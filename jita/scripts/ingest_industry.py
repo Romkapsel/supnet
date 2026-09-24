@@ -35,8 +35,8 @@ from datetime import date, timedelta
 import requests
 
 from common import (Esi, JITA_44, REGION_FORGE, RunLog, USER_AGENT, db, fail, log, notify, now_utc)
-from industry import (MANUFACTURING, PRODUCT_CATEGORIES, IndustryProfile, economics, judge,
-                      realistic_throughput)
+from industry import (MANUFACTURING, PRODUCT_CATEGORIES, IndustryProfile, economics, job_budget,
+                      judge, realistic_throughput)
 
 FUZZWORK_AGG = "https://market.fuzzwork.co.uk/aggregates/"
 EVEREF_COST = "https://api.everef.net/v1/industry/cost"
@@ -347,26 +347,45 @@ def load_competition(esi: Esi, type_ids: list[int]) -> dict[int, int]:
     return out
 
 
-def load_bpo(esi: Esi, conn, pairs: list[tuple[int, int]], dry: bool) -> dict[int, dict]:
-    """BPO-pris og NPC-flagg per blueprint. NPC-seedet = salgsordre med ≥ 365 dagers varighet
-    (samme kjennetegn som timesjobben bruker – bare NPC legger så lange ordrer)."""
-    out: dict[int, dict] = {}
+# NPC-seedede BPO-er ligger i NPC-stasjoner spredt over empire, ikke bare i The Forge – et
+# region-oppslag mot Jita fant pris på 54 av 120 og ingen av de beste. Vi spør derfor
+# Fuzzwork-aggregatet for de fem store knutene og tar laveste sell.
+HUBS = {60003760: "Jita", 60008494: "Amarr", 60011866: "Dodixie", 60004588: "Rens", 60005686: "Hek"}
 
-    def one(bid: int):
-        st, body, _ = esi.get(f"/markets/{REGION_FORGE}/orders/",
-                              {"type_id": bid, "order_type": "sell"})
+
+def load_bpo(esi: Esi, s: requests.Session, conn, blueprint_ids: list[int], dry: bool) -> dict[int, dict]:
+    """BPO-pris (laveste sell i de store knutene) og NPC-flagg (salgsordre med ≥ 365 dagers
+    varighet finnes bare fra NPC – samme kjennetegn som timesjobben bruker)."""
+    out: dict[int, dict] = {}
+    ids = sorted(set(blueprint_ids))
+    for station, navn in HUBS.items():
+        for i in range(0, len(ids), CHUNK):
+            chunk = ids[i:i + CHUNK]
+            try:
+                r = s.get(FUZZWORK_AGG, params={"station": station, "types": ",".join(map(str, chunk))}, timeout=60)
+                r.raise_for_status()
+            except Exception as e:
+                log(f"BPO-priser fra {navn} feilet:", e)
+                continue
+            for k, v in r.json().items():
+                pris = float((v.get("sell") or {}).get("min") or 0)
+                if pris <= 0:
+                    continue
+                bid = int(k)
+                if bid not in out or pris < out[bid]["bpo_price"]:
+                    out[bid] = dict(bpo_price=pris, npc_bpo=None, bpo_price_source=navn.lower())
+
+    # NPC-flagget: sjekk varigheten på salgsordrene i The Forge for dem vi fant pris på
+    def npc_check(bid: int):
+        st, body, _ = esi.get(f"/markets/{REGION_FORGE}/orders/", {"type_id": bid, "order_type": "sell"})
         if st not in (200, 304) or not body:
             return bid, None
-        jita = [o for o in body if o.get("location_id") == JITA_44]
-        pool = jita or body
-        npc = any(int(o.get("duration") or 0) >= 365 for o in pool)
-        return bid, dict(bpo_price=min(float(o["price"]) for o in pool),
-                         npc_bpo=npc, bpo_price_source="jita" if jita else "forge")
+        return bid, any(int(o.get("duration") or 0) >= 365 for o in body)
 
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for bid, info in ex.map(one, [b for b, _ in pairs]):
-            if info:
-                out[bid] = info
+        for bid, npc in ex.map(npc_check, list(out)):
+            if npc is not None:
+                out[bid]["npc_bpo"] = npc
     if not dry and out:
         with conn.cursor() as cur:
             cur.executemany(
@@ -395,6 +414,10 @@ def load_industry_profile(conn) -> IndustryProfile:
     p = IndustryProfile(**kw)
     p.broker = float(calc.get("broker") or 0.01)
     p.tax = float(calc.get("tax") or 0.075)
+    with conn.cursor() as cur:
+        cur.execute("select coalesce((jita.effective_profile()->>'cash_isk')::float8, "
+                    "(jita.effective_profile()->>'capital_isk')::float8, 0)")
+        p.capital_isk = float(cur.fetchone()[0] or 0)
     if row.get("thresholds"):
         p.thresholds = row["thresholds"]
     return p
@@ -402,11 +425,12 @@ def load_industry_profile(conn) -> IndustryProfile:
 
 def load_types(conn) -> dict[int, dict]:
     with conn.cursor() as cur:
-        cur.execute("""select type_id, name, category_id, group_name, volume, is_t1, is_excluded, published
-                       from jita.types""")
+        cur.execute("""select type_id, name, category_id, group_name, volume, is_t1, is_t2,
+                              is_excluded, published from jita.types""")
         return {r[0]: dict(type_id=r[0], name=r[1], category_id=r[2], group_name=r[3],
                            volume=float(r[4]) if r[4] is not None else None,
-                           is_t1=r[5], is_excluded=r[6], published=r[7]) for r in cur.fetchall()}
+                           is_t1=r[5], is_t2=r[6], is_excluded=r[7], published=r[8])
+                for r in cur.fetchall()}
 
 
 # ── EVE Ref-kryssjekk (frivillig, logges) ────────────────────────────────────
@@ -455,7 +479,8 @@ def main():
         p = load_industry_profile(conn)
         log(f"produserer i {p.system_name} ({p.system_id}), ME {p.me}/TE {p.te}, "
             f"{p.slot_count} slot(s), materialer fra {p.material_source}-side, "
-            f"salgsgebyr {p.sell_fees * 100:.2f} %")
+            f"salgsgebyr {p.sell_fees * 100:.2f} %, kapital {p.capital_isk:,.0f} ISK "
+            f"→ budsjett per jobb {job_budget(p):,.0f} ISK")
 
         # 1. oppskrifter
         age = sde_age_days(conn)
@@ -478,6 +503,10 @@ def main():
                 continue
             if t["category_id"] not in PRODUCT_CATEGORIES:
                 continue
+            bt = types.get(bid)
+            if bt and (bt["is_t2"] or bt["category_id"] != 9):
+                continue                      # T2-blueprint: kommer fra invention, ikke fra NPC
+            b["blueprint_on_market"] = bt is not None
             cands[bid] = b
         log(f"{len(cands)} T1-produkter med oppskrift (av {len(bps)} oppskrifter)")
         if not cands:
@@ -502,6 +531,7 @@ def main():
             q = quotes.get(r["product_type_id"]) or {}
             r["sell_orders"] = q.get("sell_orders")
             r["name"] = types[r["product_type_id"]]["name"]
+            r["blueprint_on_market"] = b.get("blueprint_on_market")
             r.update(realistic_throughput(r, None, p))
             rows.append(r)
         log(f"trinn A: {len(rows)} produkter med komplett pris "
@@ -521,8 +551,7 @@ def main():
         rows.sort(key=lambda r: r["isk_per_day_slot"] if r.get("daily_volume") else -1, reverse=True)
         deep = [r for r in rows if r.get("daily_volume")][:args.deep]
         comp = load_competition(esi, [r["product_type_id"] for r in deep])
-        bpo = load_bpo(esi, conn, [(r["blueprint_type_id"], r["product_type_id"]) for r in deep],
-                       args.dry_run)
+        bpo = load_bpo(esi, s, conn, [r["blueprint_type_id"] for r in deep], args.dry_run)
         for r in rows:
             if r["product_type_id"] in comp:
                 r["sell_orders"] = comp[r["product_type_id"]]
