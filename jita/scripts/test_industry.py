@@ -247,6 +247,7 @@ def main():
     judge(fullt, P2)
     sjekk("begrunnelse med alle tall nevner salgstid",
           1 if "3.2 d å selge unna" in fullt["reason"] else 0, 1)
+    sjekk("salgstiden lagres i factors (fanen viser den)", fullt["factors"]["batch_sell_days"], 3.2)
 
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints

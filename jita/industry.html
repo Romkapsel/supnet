@@ -60,7 +60,7 @@ function rad(r, valgt) {
     ${t(price(r.cost_per_unit))}
     ${t(price(r.sell_price))}
     ${t(r.daily_volume == null ? '–' : num(r.daily_volume))}
-    ${t(r.factors?.trades_per_day == null ? '–' : num(r.factors.trades_per_day, 1))}
+    ${t(r.factors?.trades_per_day == null ? '–' : `${num(r.factors.trades_per_day, 1)}${r.factors.batch_sell_days != null ? ` <span class="pill" title="Batchen på ${r.units} stk tar så mange døgn å selge unna med din andel av volumet">${num(r.factors.batch_sell_days, 1)} d</span>` : ''}`)}
     ${t(`${num(r.realistic_units_per_day)}${r.factors?.bottleneck ? ` <span class="pill" title="Bremsen: ${r.factors.bottleneck === 'slot' ? 'produksjonstiden' : r.factors.bottleneck === 'marked' ? 'markedet tar ikke mer' : 'kapitalen må selges ut før den kan brukes igjen'}${r.factors.potential_units_per_day ? ` – potensial ${num(r.factors.potential_units_per_day)} stk/dag` : ''}">${r.factors.bottleneck}</span>` : ''}`)}
     ${t(isk(r.capital_per_job))}
     ${t(r.bpo_price == null ? '–' : isk(r.bpo_price))}

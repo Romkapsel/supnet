@@ -291,6 +291,7 @@ def factors(row: dict, p: IndustryProfile) -> dict:
                 bottleneck=row.get("bottleneck"), cycle_days=row.get("cycle_days"),
                 potential_units_per_day=row.get("potential_units_per_day"),
                 daily_volume=vol, trades_per_day=trades, sell_orders=orders,
+                batch_sell_days=row.get("batch_sell_days"),
                 volatility=None if volat is None else round(float(volat), 3),
                 drop_30d=None if drop is None else round(float(drop), 3))
 
