@@ -319,14 +319,12 @@ def main():
         for oid, o in ores.items():
             o["yields"] = utbytte.get(oid) or {}
             o["batch_size"] = batch.get(oid, 100)
-            # velg den komprimerte varianten vi har både utbytte og volum for
-            kandidater = [k for k in o.pop("compressed_kandidater", []) if utbytte.get(k["type_id"])]
-            o["compressed"] = None
-            if kandidater:
-                k = kandidater[0]
-                o["compressed"] = dict(type_id=k["type_id"], name=k["name"], volume=k["volume"],
-                                       yields=utbytte.get(k["type_id"]) or {},
-                                       batch_size=batch.get(k["type_id"], 1))
+            # alle komprimerte varianter vi har utbytte for – evaluate() velger den beste
+            o["compressed"] = [
+                dict(type_id=k["type_id"], name=k["name"], volume=k["volume"],
+                     yields=utbytte.get(k["type_id"]) or {},
+                     batch_size=batch.get(k["type_id"], 100))
+                for k in o.pop("compressed_kandidater", []) if utbytte.get(k["type_id"])]
 
         # priser for rå malm, komprimerte varianter og alle mineralene
         trengs = set(ores) | set(komprimerte) | {mid for o in ores.values() for mid in o["yields"]}
@@ -338,7 +336,7 @@ def main():
             if r:
                 rader.append(r)
         log(f"{len(rader)} rå malmtyper med pris "
-            f"({sum(1 for r in rader if r['compressed_type_id'])} med komprimert variant)")
+            f"({sum(1 for r in rader if r['compressed_type_id'])} med brukbar komprimert variant)")
 
         # Historikk for den varen du faktisk selger på beste vei (rå eller komprimert).
         # Refine-veien trenger den ikke – mineralmarkedet flyter alltid.

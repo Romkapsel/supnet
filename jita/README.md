@@ -213,8 +213,10 @@ og er det best å refine den eller selge den som den er?
 5. **ISK/time** = beste ISK per m3 × `m3_per_hour`.
 6. **Komprimering er en salgsvei, ikke en egen rad.** Du miner rå malm; komprimering skjer etterpå og
    endrer bare volumet. Verdien av den komprimerte varen regnes derfor per m3 **rå** malm, med en
-   omregningsfaktor hentet fra utbyttedataene (samme mineralinnhold gir forholdet, f.eks. 100:1 for
-   Veldspar) – ikke gjettet.
+   omregningsfaktor hentet fra utbyttedataene (samme mineralinnhold gir forholdet) – ikke gjettet.
+   I dagens EVE er «Compressed X» 1:1 i antall med 1/100 av volumet, mens «Batch Compressed X» er
+   100:1. Begge vurderes, og den som gir mest per m3 rå malm vinner. En variant som ikke gir mindre
+   volum per tilsvarende rå enhet forkastes som urimelig (datafeil).
 
 ### Hva som filtreres bort
 - `m1` malmgruppen finnes ikke der du miner (`available_groups` i profilen – standard 0.8 Lonetrek:

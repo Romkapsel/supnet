@@ -139,16 +139,26 @@ def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | Non
         ruter["rå"] = rå / volume
 
     # Komprimert: samme mineraler, mindre volum. Verdien regnes per m3 RÅ malm minet.
-    komp = ore.get("compressed") or None
-    komp_netto = komp_per_m3 = ratio = None
-    komp_vei = None
-    if komp:
-        ratio = compression_ratio(ore.get("yields") or {}, batch,
-                                  komp.get("yields") or {}, int(komp.get("batch_size") or 0))
-        komp_netto, komp_vei = net_sale(quotes.get(komp["type_id"]), p)
-        if ratio and ratio > 0 and komp_netto > 0:
-            komp_per_m3 = komp_netto / (ratio * volume)
-            ruter["komprimert"] = komp_per_m3
+    # Det finnes flere varianter («Compressed X» 1:1 med 1/100 volum, «Batch Compressed X» 100:1) –
+    # alle vurderes, og den som gir mest per m3 rå malm vinner.
+    komp = komp_netto = komp_per_m3 = ratio = komp_vei = None
+    for kand in (ore.get("compressed") or []):
+        r = compression_ratio(ore.get("yields") or {}, batch,
+                              kand.get("yields") or {}, int(kand.get("batch_size") or 0))
+        if not r or r <= 0:
+            continue
+        # Plausibilitet: komprimering MÅ gi mindre volum per tilsvarende rå enhet.
+        kand_volum = float(kand.get("volume") or 0)
+        if kand_volum <= 0 or kand_volum / r >= volume:
+            continue
+        netto, vei = net_sale(quotes.get(kand["type_id"]), p)
+        if netto <= 0:
+            continue
+        per_m3 = netto / (r * volume)
+        if komp_per_m3 is None or per_m3 > komp_per_m3:
+            komp, komp_netto, komp_vei, ratio, komp_per_m3 = kand, netto, vei, r, per_m3
+    if komp_per_m3:
+        ruter["komprimert"] = komp_per_m3
 
     if not ruter:
         return None

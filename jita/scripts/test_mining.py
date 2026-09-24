@@ -111,8 +111,8 @@ def main():
     sjekk("omregningsfaktor uten felles mineral",
           1 if compression_ratio({TRITANIUM: 1}, 1, {PYERITE: 1}, 1) is None else 0, 1)
 
-    med_komp = dict(MALM, compressed=dict(type_id=KOMPRIMERT, name="Compressed Veldspar",
-                                          volume=0.15, batch_size=1, yields={TRITANIUM: 415.0}))
+    med_komp = dict(MALM, compressed=[dict(type_id=KOMPRIMERT, name="Batch Compressed Veldspar",
+                                           volume=0.15, batch_size=1, yields={TRITANIUM: 415.0})])
     rk = evaluate(med_komp, P, QUOTES)
     sjekk("faktoren regnes ut", rk["compression_ratio"], 100.0)
     # 100 enheter rå (10 m3) blir 1 komprimert enhet. Netto for den enheten fordeles på 10 m3 rå malm.
@@ -135,14 +135,37 @@ def main():
     judge(uten_salg, P)
     sjekk("uten salgspris: passerer på refine", 1 if uten_salg["passed"] else 0, 1)
 
-    bare_komp = dict(MALM, compressed=dict(type_id=KOMPRIMERT, name="Compressed Veldspar",
-                                           volume=0.15, batch_size=1, yields={TRITANIUM: 415.0}))
+    bare_komp = dict(MALM, compressed=[dict(type_id=KOMPRIMERT, name="Batch Compressed Veldspar",
+                                            volume=0.15, batch_size=1, yields={TRITANIUM: 415.0})])
     r_bk = evaluate(bare_komp, P, {TRITANIUM: QUOTES[TRITANIUM], KOMPRIMERT: QUOTES[KOMPRIMERT]})
     sjekk("bare komprimert pris: premien regnes mot komprimert",
           1 if r_bk["refine_premium"] is not None else 0, 1)
 
     tom = evaluate(dict(MALM, yields={}), P, {})                    # verken malm eller mineraler
     sjekk("uten noen priser gir None", 1 if tom is None else 0, 1)
+
+    # ── Flere komprimerte varianter: den beste per m3 rå malm vinner ──
+    TETT = 28431
+    varianter = dict(MALM, compressed=[
+        dict(type_id=KOMPRIMERT, name="Batch Compressed Veldspar", volume=0.15, batch_size=1,
+             yields={TRITANIUM: 415.0}),                      # 100 rå per enhet
+        dict(type_id=TETT, name="Compressed Veldspar", volume=0.001, batch_size=100,
+             yields={TRITANIUM: 415.0}),                      # 1:1, 1/100 volum
+    ])
+    q2 = {**QUOTES, TETT: dict(buy_max=9.0, sell_min=11.0)}
+    rv = evaluate(varianter, P, q2)
+    komp1 = max((900.0 - tick(900.0)) * (1 - 0.01 - 0.075), 700.0 * (1 - 0.075)) / (100 * 0.1)
+    komp2 = max((11.0 - tick(11.0)) * (1 - 0.01 - 0.075), 9.0 * (1 - 0.075)) / (1 * 0.1)
+    sjekk("beste komprimerte variant velges", rv["compressed_net_per_m3"], round(max(komp1, komp2), 2))
+    sjekk("faktoren hører til den valgte varianten", rv["compression_ratio"],
+          100.0 if komp1 >= komp2 else 1.0)
+
+    # Plausibilitet: en «komprimert» variant som ikke gir mindre volum forkastes
+    umulig = dict(MALM, compressed=[dict(type_id=KOMPRIMERT, name="Feil", volume=0.2, batch_size=100,
+                                         yields={TRITANIUM: 415.0})])   # 1:1 men større volum
+    ru = evaluate(umulig, P, QUOTES)
+    sjekk("urimelig komprimering forkastes",
+          1 if ru["compressed_net_per_m3"] is None else 0, 1)
 
     # ── Likviditetsporten: manglende omsetningstall skal forkaste, ikke slippe gjennom ──
     selger_rått = evaluate(dict(MALM, yields={}), P, QUOTES)      # rå er eneste vei
