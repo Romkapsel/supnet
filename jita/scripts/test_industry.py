@@ -193,6 +193,46 @@ def main():
     judge(pa_marked, P)
     sjekk("i10 slår ikke til når blueprinten finnes", 1 if "i10" in pa_marked["failed_rules"] else 0, 0)
 
+    # ── Momentvernet: markedet setter tak på batchen, og døde varer forkastes ──
+    from industry import market_units_cap
+    P2 = IndustryProfile(**{**{k: getattr(P, k) for k in
+        ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
+         'cost_index','material_source')},
+        'thresholds': dict(P.thresholds, max_sell_days=5, min_trades_per_day=3)})
+
+    sjekk("markedstak: 10 % av 40/dag i 5 dager = 20 stk", market_units_cap(40, P2), 20.0)
+    sjekk("markedstak: ukjent volum gir ingen tak",
+          1 if market_units_cap(None, P2) is None else 0, 1)
+
+    # En vare som flyter 2 i uka (0,29/dag): taket blir under én enhet → batchen skal bli 1, ikke 200
+    treg = economics(BOM, P2, QUOTES, ADJUSTED, max_units=market_units_cap(0.29, P2))
+    sjekk("treg vare: batchen krympes til minimum", treg["runs"], 1)
+    sjekk("treg vare: 2 enheter (units_per_run 2), ikke 494", treg["units"], 2)
+
+    treg.update(daily_volume=0.29, trades_per_day=0.3, price_avg_30d=9500,
+                price_volatility=0.05, price_drop_30d=0.0, sell_orders=12, blueprint_on_market=True)
+    treg.update(realistic_throughput(treg, 0.29, P2))
+    judge(treg, P2)
+    sjekk("treg vare: forkastes på for få handler (i11)",
+          1 if "i11" in treg["failed_rules"] else 0, 1)
+    sjekk("treg vare: forkastes også på for lite volum (i2)",
+          1 if "i2" in treg["failed_rules"] else 0, 1)
+    sjekk("treg vare: passerer ikke", 1 if treg["passed"] else 0, 0)
+
+    # i12: batch som er større enn markedet spiser innen 5 dager
+    for_stor = dict(god, units=1000, daily_volume=40, trades_per_day=20, blueprint_on_market=True)
+    judge(for_stor, P2)
+    sjekk("for stor batch forkastes (i12)", 1 if "i12" in for_stor["failed_rules"] else 0, 1)
+    passe = dict(god, units=20, daily_volume=40, trades_per_day=20, blueprint_on_market=True)
+    judge(passe, P2)
+    sjekk("batch på nøyaktig markedstaket godtas", 1 if "i12" in passe["failed_rules"] else 0, 0)
+
+    # Moment straffer likviditetsfaktoren selv når volumet ser greit ut
+    f_lite_moment = factors(dict(daily_volume=5000, trades_per_day=1, isk_per_day_slot=1000), P2)
+    f_mye_moment = factors(dict(daily_volume=5000, trades_per_day=50, isk_per_day_slot=1000), P2)
+    sjekk("få handler trekker likviditeten ned", f_lite_moment["liquidity"], round(1 / 9, 2))
+    sjekk("mange handler gir full likviditet", f_mye_moment["liquidity"], 1.0)
+
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints
     ccp = {"681": {"blueprintTypeID": 681, "maxProductionLimit": 300,

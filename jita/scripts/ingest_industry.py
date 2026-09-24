@@ -36,7 +36,7 @@ import requests
 
 from common import (Esi, JITA_44, REGION_FORGE, RunLog, USER_AGENT, db, fail, log, notify, now_utc)
 from industry import (MANUFACTURING, PRODUCT_CATEGORIES, IndustryProfile, economics, job_budget,
-                      judge, realistic_throughput)
+                      judge, market_units_cap, realistic_throughput)
 
 FUZZWORK_AGG = "https://market.fuzzwork.co.uk/aggregates/"
 EVEREF_COST = "https://api.everef.net/v1/industry/cost"
@@ -299,6 +299,8 @@ def load_history(esi: Esi, conn, type_ids: list[int], dry: bool) -> dict[int, di
             last30 = [d for dd, d in days if dd >= cutoff30]
             vol30 = statistics.fmean([float(d.get("volume") or 0) for d in last30]) if last30 else 0.0
             vol90 = statistics.fmean([float(d.get("volume") or 0) for _, d in days]) if days else 0.0
+            trades = [float(d.get("order_count") or 0) for d in last30]
+            trades30 = statistics.fmean(trades) if trades else 0.0
             avgs = [float(d.get("average") or 0) for d in last30 if d.get("average")]
             avg30 = statistics.fmean(avgs) if avgs else None
             volat = (statistics.pstdev(avgs) / avg30) if avg30 and len(avgs) > 2 else None
@@ -308,6 +310,7 @@ def load_history(esi: Esi, conn, type_ids: list[int], dry: bool) -> dict[int, di
                 if first > 0:
                     drop = (first - last) / first
             out[tid] = dict(daily_volume=round(vol30, 2), daily_volume_90d=round(vol90, 2),
+                            trades_per_day=round(trades30, 2),
                             price_avg_30d=avg30, price_volatility=volat, price_drop_30d=drop)
             if n % 100 == 0:
                 log(f"historikk {n}/{len(type_ids)}")
@@ -543,9 +546,21 @@ def main():
         hist = load_history(esi, conn, [r["product_type_id"] for r in enrich], args.dry_run)
         for r in rows:
             h = hist.get(r["product_type_id"])
-            if h:
-                r.update(h)
-                r.update(realistic_throughput(r, h["daily_volume"], p))
+            if not h:
+                continue
+            r.update(h)
+            # Nå vet vi hvor mye markedet spiser: regn batchen på nytt med det taket.
+            cap = market_units_cap(h["daily_volume"], p)
+            if cap:
+                b = cands[r["blueprint_type_id"]]
+                ny = economics(b, p, quotes, adjusted, max_units=cap)
+                if ny:
+                    ny["name"] = r["name"]
+                    ny["sell_orders"] = r.get("sell_orders")
+                    ny["blueprint_on_market"] = r.get("blueprint_on_market")
+                    r.update({k: v for k, v in ny.items() if k != "factors"})
+                    r.update(h)
+            r.update(realistic_throughput(r, h["daily_volume"], p))
 
         # 6. trinn C – selgere og BPO for de aller beste
         rows.sort(key=lambda r: r["isk_per_day_slot"] if r.get("daily_volume") else -1, reverse=True)

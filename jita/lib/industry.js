@@ -14,6 +14,8 @@ export const INDUSTRY_RULES = {
   i8: "For lang tilbakebetaling på BPO-en",
   i9: "Pristopp (prisen er langt over 30-dagers snitt)",
   i10: "BPO-en kan ikke kjøpes (blueprinten finnes ikke på markedet)",
+  i11: "For få handler per dag (ingen moment i markedet)",
+  i12: "Én batch kan ikke selges unna (markedet er for tregt)",
 };
 
 // Kategoriene vi rangerer (ESI category_id) – brukes til filteret i fanen.

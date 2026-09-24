@@ -110,6 +110,7 @@ Egen fane `/jita/industry.html`. Rangerer hvilke T1-produkter det er verdt å pr
 | Database | `sql/005_industry.sql` | `industry_profile`, `blueprints`, `blueprint_materials`, `market_quotes`, `market_prices`, `industry_systems`, `industry_candidates` |
 | API | `api/[action].js` | `industry` (GET rangering + portefølje, POST innstillinger), `industry_type?id=` (én vare) |
 | Klokke | pg_cron `jita-industri-rydd` (06:20) og `jita-industri-vakt` (07:10) | rydding, og reservestart hvis jobben ikke har kjørt på 26 t |
+| Deploy | `.github/workflows/jita-deploy.yml` | Vercel-deploy ved push til main som rører `jita/`, og manuelt (production/preview). Krever hemmeligheten `VERCEL_TOKEN`; org- og prosjekt-ID står i fila. `cd jita && vercel --prod --yes` virker fortsatt som før. |
 
 Kjør manuelt: knappen «Kjør industri-jobben nå» i fanen, eller Actions → jita → Run workflow → `industry`.
 Jobben laster også opp topp 30 som CSV-artifact.
@@ -135,6 +136,16 @@ Jobben laster også opp topp 30 som CSV-artifact.
    regnet som batchen delt på (produksjonstid + tid å selge unna). Hvilket tak som binder vises som
    `slot` / `marked` / `omløp` i fanen, sammen med potensialet uten omløpstaket.
 9. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
+
+### Momentvernet (24. sept 2026)
+Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip hvis markedet tar 2 i uka:
+1. **Batchen begrenses av markedet:** antall enheter ≤ `volume_share` × dagsvolum × `max_sell_days`
+   (10 % × volum × 5 dager). Taket regnes om når historikken er hentet, så batchen krymper til det
+   markedet faktisk spiser. Regel `i12` forkaster varer der selv minste batch er for stor.
+2. **Handler per dag, ikke bare volum:** `min_trades_per_day` (3) mot ESI-historikkens `order_count`.
+   Et dagsvolum på 500 kan være én stor ordre; antall handler viser om varen flyter. Regel `i11`.
+   Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
+3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
 ### Valg og avvik fra briefen (bevisste)
 - **EVE Ref sitt kost-API brukes ikke per vare.** 1 200+ kall per kjøring er ufint mot en gratis tjeneste, og

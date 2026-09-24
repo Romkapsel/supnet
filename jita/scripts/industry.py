@@ -135,8 +135,18 @@ def material_cost(materials: dict[int, float], runs: int, p: IndustryProfile,
     return cost, m3, missing
 
 
+def market_units_cap(daily_volume: float | None, p: IndustryProfile) -> float | None:
+    """Hvor mange enheter én batch får være: det markedet spiser innen `max_sell_days`,
+    med vår andel av dagsvolumet. 200 skip i et marked som flytter 2 i uka blir liggende
+    – eller tanker prisen når du senker deg for å bli kvitt dem."""
+    if not daily_volume:
+        return None
+    return float(daily_volume) * float(p.t("volume_share", 0.10)) * float(p.t("max_sell_days", 5))
+
+
 def economics(bom: dict, p: IndustryProfile, quotes: dict[int, dict],
-              adjusted: dict[int, float], batch_days: float | None = None) -> dict | None:
+              adjusted: dict[int, float], batch_days: float | None = None,
+              max_units: float | None = None) -> dict | None:
     """Regner ut kostnad, salgspris, netto og tempo for ett produkt.
 
     bom: {'blueprint_type_id', 'product_type_id', 'units_per_run', 'base_time_s',
@@ -167,6 +177,9 @@ def economics(bom: dict, p: IndustryProfile, quotes: dict[int, dict],
     per_run_total = per_run + avgift_per_run
     if per_run_total > 0:
         runs = max(1, min(runs, int(budsjett // per_run_total) or 1))
+    # Markedet setter det tredje taket: batchen må kunne selges unna innen max_sell_days.
+    if max_units:
+        runs = max(1, min(runs, int(max_units // units_per_run) or 1))
     units = runs * units_per_run
 
     mat_cost, m3_in, missing = material_cost(mats, runs, p, quotes)
@@ -235,6 +248,7 @@ def realistic_throughput(row: dict, daily_volume: float | None, p: IndustryProfi
                 isk_per_day_slot=round(isk_day, 2),
                 isk_per_hour_slot=round(isk_day / 24, 2),
                 bottleneck=flaskehals,
+                batch_sell_days=None if sell_days is None else round(sell_days, 2),
                 cycle_days=round(prod_days + (sell_days or 0), 3),
                 potential_units_per_day=round(min(slot_cap, market) if market else slot_cap, 2))
 
@@ -253,6 +267,8 @@ RULES = {
     "i8": "For lang tilbakebetaling på BPO-en",
     "i9": "Pristopp (prisen er langt over 30-dagers snitt)",
     "i10": "BPO-en kan ikke kjøpes (blueprinten finnes ikke på markedet)",
+    "i11": "For få handler per dag (ingen moment i markedet)",
+    "i12": "Én batch kan ikke selges unna (markedet er for tregt)",
 }
 
 
@@ -261,6 +277,9 @@ def factors(row: dict, p: IndustryProfile) -> dict:
     min_vol = float(p.t("min_daily_volume", 20))
     vol = row.get("daily_volume") or 0
     liquidity = min(1.0, vol / max(min_vol * 5, 1)) if vol else 0.3
+    trades = row.get("trades_per_day")
+    if trades is not None:                                   # moment: få handler straffer, uansett volum
+        liquidity = min(liquidity, min(1.0, trades / max(float(p.t("min_trades_per_day", 3)) * 3, 1)))
     orders = row.get("sell_orders")
     competition = min(1.0, 20 / max(orders, 1)) if orders else 1.0
     volat = row.get("price_volatility")
@@ -271,7 +290,7 @@ def factors(row: dict, p: IndustryProfile) -> dict:
                 competition=round(competition, 2), stable=round(stable, 2), trend=round(trend, 2),
                 bottleneck=row.get("bottleneck"), cycle_days=row.get("cycle_days"),
                 potential_units_per_day=row.get("potential_units_per_day"),
-                daily_volume=vol, sell_orders=orders,
+                daily_volume=vol, trades_per_day=trades, sell_orders=orders,
                 volatility=None if volat is None else round(float(volat), 3),
                 drop_30d=None if drop is None else round(float(drop), 3))
 
@@ -314,6 +333,14 @@ def judge(row: dict, p: IndustryProfile) -> dict:
         failed.append("i9")
     if row.get("blueprint_on_market") is False:
         failed.append("i10")
+    # Moment: volum alene kan være én stor ordre. Antall handler per dag sier om varen faktisk flyter.
+    trades = row.get("trades_per_day")
+    if trades is not None and trades < float(p.t("min_trades_per_day", 3)):
+        failed.append("i11")
+    # Blir batchen større enn markedet spiser innen max_sell_days, blir du sittende med den.
+    cap = market_units_cap(row.get("daily_volume"), p)
+    if cap is not None and row.get("units") and row["units"] > cap * 1.01:
+        failed.append("i12")
 
     score = (row.get("isk_per_day_slot") or 0) * f["liquidity"] * f["competition"] * f["stable"] * f["trend"]
     row.update(passed=not failed, failed_rules=sorted(set(failed)), score=round(score, 2),
@@ -347,6 +374,10 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
             f"(slotten rekker {_isk(row.get('units_per_day_slot'))}, "
             f"kapitalen snur rundt på {row.get('cycle_days', 0):.2f} døgn) → "
             f"{_isk(row.get('isk_per_day_slot'))} ISK/dag per slot.")
+    if row.get("trades_per_day") is not None:
+        parts.append(f"Markedet har {row['trades_per_day']:.1f} handler/dag; batchen på "
+                     f"{row.get('units')} stk tar ~{row.get('batch_sell_days', 0):.1f} d å selge unna "
+                     f"med din andel av volumet.")
     if row.get("bpo_price"):
         parts.append(f"BPO {_isk(row['bpo_price'])} ISK, tilbakebetalt på "
                      f"{row.get('payback_days'):.1f} d." if row.get("payback_days") is not None

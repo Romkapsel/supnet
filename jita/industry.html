@@ -60,6 +60,7 @@ function rad(r, valgt) {
     ${t(price(r.cost_per_unit))}
     ${t(price(r.sell_price))}
     ${t(r.daily_volume == null ? '–' : num(r.daily_volume))}
+    ${t(r.factors?.trades_per_day == null ? '–' : num(r.factors.trades_per_day, 1))}
     ${t(`${num(r.realistic_units_per_day)}${r.factors?.bottleneck ? ` <span class="pill" title="Bremsen: ${r.factors.bottleneck === 'slot' ? 'produksjonstiden' : r.factors.bottleneck === 'marked' ? 'markedet tar ikke mer' : 'kapitalen må selges ut før den kan brukes igjen'}${r.factors.potential_units_per_day ? ` – potensial ${num(r.factors.potential_units_per_day)} stk/dag` : ''}">${r.factors.bottleneck}</span>` : ''}`)}
     ${t(isk(r.capital_per_job))}
     ${t(r.bpo_price == null ? '–' : isk(r.bpo_price))}
@@ -71,11 +72,11 @@ function rad(r, valgt) {
 
 function detaljRad(r) {
   const d = state.detalj && state.detalj.type?.type_id === r.product_type_id ? state.detalj : null;
-  if (!d) return `<tr class="detail"><td colspan="13" class="muted small">Laster…</td></tr>`;
+  if (!d) return `<tr class="detail"><td colspan="14" class="muted small">Laster…</td></tr>`;
   const h = [...(d.history || [])].reverse();
   const mats = (d.materials || []).map((m) =>
     `<span>${esc(m.name)}: <b>${num(m.quantity)}</b>/run à ${price(D.profile.material_source === 'buy' ? m.buy_max : m.sell_min)}</span>`).join('');
-  return `<tr class="detail"><td colspan="13">
+  return `<tr class="detail"><td colspan="14">
     <div class="reason">${esc(r.reason || '')}</div>
     <div class="row small" style="margin-top:8px">
       <span><b>Materialer per run</b> (ME ${D.profile.me})</span>
@@ -151,10 +152,10 @@ function tegn() {
     <div class="card tblwrap">
       <table>
         <tr><th>Vare</th><th>ISK/dag/slot</th><th>Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
-            <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
+            <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Antall handler per dag – volum alene kan være én stor ordre">Handler/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
             <th title="Materialer + avgift for én full jobb">Kapital/jobb</th><th>BPO</th><th>Nedbetalt</th><th title="Salgsordrer i Jita 4-4">Selgere</th><th>Tid/jobb</th></tr>
         ${rows.length ? rows.map((r) => rad(r, valgte.has(r.product_type_id))).join('')
-          : '<tr><td colspan="13" class="muted">Ingen varer passerer filtrene.</td></tr>'}
+          : '<tr><td colspan="14" class="muted">Ingen varer passerer filtrene.</td></tr>'}
       </table>
     </div>
     <div class="muted small">Trykk på en rad for materialliste, begrunnelse og utvikling over tid.</div>
@@ -187,7 +188,9 @@ function tegn() {
            ['max_price_spike', 'Maks pristopp (× 30-d snitt)', 0.1], ['max_bpo_price', 'Maks BPO-pris', 1000000],
            ['max_capital_per_job', 'Maks kapital per jobb', 1000000], ['max_payback_days', 'Maks nedbetalingstid (d)', 1],
            ['volume_share', 'Andel av dagsvolum du tar', 0.01], ['batch_days', 'Lengde på én jobb (døgn)', 0.5],
-           ['capital_share_per_job', 'Andel av kapitalen én jobb får binde', 0.05]]
+           ['capital_share_per_job', 'Andel av kapitalen én jobb får binde', 0.05],
+           ['max_sell_days', 'Batchen må selges unna innen (døgn)', 1],
+           ['min_trades_per_day', 'Min. handler per dag (moment)', 1]]
           .map(([k, label, step]) => `<label>${label}<input id="t-${k}" type="number" step="${step}" value="${p.thresholds?.[k] ?? ''}"/></label>`).join('')}
       </div>
       <div class="row" style="margin-top:12px"><button id="lagre">Lagre</button><span id="lagremsg" class="muted small"></span>

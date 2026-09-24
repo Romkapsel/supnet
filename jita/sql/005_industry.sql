@@ -39,7 +39,9 @@ create table if not exists jita.industry_profile (
     "max_payback_days": 30,
     "volume_share": 0.10,
     "batch_days": 1,
-    "capital_share_per_job": 0.5
+    "capital_share_per_job": 0.5,
+    "max_sell_days": 5,
+    "min_trades_per_day": 3
   }'::jsonb,
   updated_at timestamptz default now()
 );
