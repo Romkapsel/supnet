@@ -266,7 +266,9 @@ function tegnMining() {
   const rader = M.rows || [];
   const aktuelle = rader.filter((r) => r.available);
   const beste = aktuelle[0];
-  const vei = (r) => r.best_route === 'refine' ? '<span class="pill ok">refine</span>' : '<span class="pill warn">selg rått</span>';
+  const vei = (r) => r.best_route === 'refine' ? '<span class="pill ok">refine</span>'
+    : r.best_route === 'komprimert' ? '<span class="pill warn">komprimer og selg</span>'
+    : '<span class="pill warn">selg rått</span>';
 
   el('mining').innerHTML = `
     <h2>Mining <span class="muted small">(hva er verdt å hente inn – ${aktuelle.length} malmtyper der du miner)</span></h2>
@@ -282,9 +284,12 @@ function tegnMining() {
     </div>
 
     ${rader.length ? `<div class="card tblwrap"><table>
-      <tr><th>Malm</th><th>ISK/time</th><th>Beste vei</th><th title="Verdien av mineralene malmen gir, etter refine-utbytte og salgsgebyr">Refinet ISK/m3</th>
-          <th title="Malmen solgt som den er i Jita">Rått ISK/m3</th><th title="Hvor mye mer refine gir enn å selge rått">Refine gir</th>
-          <th title="Malmens eget marked – betyr bare noe hvis du selger rått">Volum/dag</th><th>Handler/dag</th><th>m3/enhet</th></tr>
+      <tr><th>Malm</th><th title="Per time med din mining-rate, regnet på RÅ malm – komprimering endrer bare volumet">ISK/time</th><th>Beste vei</th>
+          <th title="Verdien av mineralene malmen gir, etter refine-utbytte og salgsgebyr">Refinet ISK/m3</th>
+          <th title="Malmen solgt som den er i Jita">Rått ISK/m3</th>
+          <th title="Komprimert og solgt, regnet per m3 RÅ malm du miner">Komprimert ISK/m3</th>
+          <th title="Hvor mye mer refine gir enn å selge varen">Refine gir</th>
+          <th title="Markedet for det du faktisk selger – betyr ingenting hvis du refiner">Volum/dag</th><th>Handler/dag</th><th>m3/enhet</th></tr>
       ${rader.slice(0, 40).map((r) => `<tr class="${r.available ? '' : 'fail'}">
         <td style="text-align:left"><b>${esc(r.name)}</b>${copyBtn(r.name)}
           ${r.available ? '' : `<div class="muted" style="font-size:0.72rem">${(r.failed_rules || []).map((x) => esc(M.rules[x] || x)).join(' · ') || 'ikke der du miner'}</div>`}</td>
@@ -292,12 +297,13 @@ function tegnMining() {
         <td>${vei(r)}</td>
         <td>${isk(r.refined_value_per_m3)}</td>
         <td>${isk(r.raw_net_per_m3)}</td>
+        <td>${r.compressed_net_per_m3 == null ? '–' : `${isk(r.compressed_net_per_m3)}${r.compression_ratio ? ` <span class="muted" title="${esc(r.compressed_name || '')}: ${num(r.compression_ratio)} rå enheter per komprimert">(${num(r.compression_ratio)}:1)</span>` : ''}`}</td>
         <td>${r.refine_premium == null ? '–' : pct(r.refine_premium, 0)}</td>
-        <td>${r.ore_daily_volume == null ? '–' : num(r.ore_daily_volume)}</td>
-        <td>${r.ore_trades_per_day == null ? '–' : num(r.ore_trades_per_day, 1)}</td>
+        <td>${r.market_daily_volume == null ? '–' : num(r.market_daily_volume)}</td>
+        <td>${r.market_trades_per_day == null ? '–' : num(r.market_trades_per_day, 1)}</td>
         <td>${num(r.volume, 2)}</td></tr>`).join('')}
       </table></div>
-      <div class="muted small">«Refine gir» sammenligner mineralverdien mot å selge malmen rå. Er tallet negativt, selg malmen som den er.</div>`
+      <div class="muted small">Alle ISK/m3-tall er per kubikkmeter <b>rå malm du miner</b> – komprimering endrer bare volumet på veien til Jita. «Refine gir» sammenligner mineralverdien mot å selge varen. Volum og handler gjelder markedet du faktisk selger i, og teller ikke når refine er beste vei.</div>`
     : '<div class="card muted">Ingen malmtall ennå.</div>'}
 
     ${(M.demand || []).length ? `<h2>Verdt å mine selv? <span class="muted small">(mineralene produksjonsforslagene dine spiser)</span></h2>

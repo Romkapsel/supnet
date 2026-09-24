@@ -255,13 +255,31 @@ def load_mining_profile(conn) -> MiningProfile:
     return p
 
 
-def load_ores(conn) -> dict[int, dict]:
+KOMPRIMERT_PREFIKS = ("compressed ", "batch compressed ")
+
+
+def load_ores(conn) -> tuple[dict[int, dict], dict[int, dict]]:
+    """→ (rå malm, komprimerte varianter). Bare rå malm rangeres – du miner rå malm,
+    komprimering skjer etterpå. Koblingen mellom dem går på navn («Compressed Veldspar»)."""
     with conn.cursor() as cur:
         cur.execute("""select type_id, name, group_name, volume from jita.types
                        where category_id = %s and coalesce(published, true) and volume > 0""",
                     (ASTEROID_CATEGORY,))
-        return {r[0]: dict(ore_type_id=r[0], name=r[1], group_name=r[2], volume=float(r[3]))
-                for r in cur.fetchall()}
+        alle = [dict(type_id=r[0], name=r[1], group_name=r[2], volume=float(r[3])) for r in cur.fetchall()]
+
+    rå, komp_etter_navn = {}, {}
+    for t in alle:
+        lav = (t["name"] or "").lower()
+        prefiks = next((pr for pr in KOMPRIMERT_PREFIKS if lav.startswith(pr)), None)
+        if prefiks:
+            # «Batch Compressed» foretrekkes ikke over «Compressed» – vi tar den som gir mest per m3 senere
+            komp_etter_navn.setdefault(lav[len(prefiks):], []).append(t)
+        else:
+            rå[t["type_id"]] = dict(ore_type_id=t["type_id"], name=t["name"],
+                                    group_name=t["group_name"], volume=t["volume"])
+    for oid, o in rå.items():
+        o["compressed_kandidater"] = komp_etter_navn.get((o["name"] or "").lower(), [])
+    return rå, {t["type_id"]: t for liste in komp_etter_navn.values() for t in liste}
 
 
 # ── Hovedløpet ───────────────────────────────────────────────────────────────
@@ -283,27 +301,35 @@ def main():
             f"{len(p.available_groups)} tilgjengelige grupper, salgsgebyr "
             f"broker {p.broker * 100:.2f} % + skatt {p.tax * 100:.2f} %")
 
-        ores = load_ores(conn)
+        ores, komprimerte = load_ores(conn)
         if not ores:
             raise RuntimeError("ingen malmtyper i jita.types – er seed_types.py kjørt?")
-        log(f"{len(ores)} malm- og istyper")
+        log(f"{len(ores)} rå malmtyper, {len(komprimerte)} komprimerte varianter")
 
+        alle_ids = list(ores) + list(komprimerte)
         alder = yields_age_days(conn)
         if args.refresh_sde or alder is None or alder > 7:
-            utbytte, batch, kilde = load_yields(s, list(ores))
+            utbytte, batch, kilde = load_yields(s, alle_ids)
             if not args.dry_run:
-                write_yields(conn, utbytte, batch, list(ores), kilde)
-            utbytte = {k: v for k, v in utbytte.items() if k in ores}
+                write_yields(conn, utbytte, batch, alle_ids, kilde)
         else:
             utbytte, batch = read_yields(conn)
-            log(f"bruker lagrede utbytter ({len(utbytte)} malmtyper, {alder:.1f} dager gamle)")
+            log(f"bruker lagrede utbytter ({len(utbytte)} varetyper, {alder:.1f} dager gamle)")
 
         for oid, o in ores.items():
             o["yields"] = utbytte.get(oid) or {}
             o["batch_size"] = batch.get(oid, 100)
+            # velg den komprimerte varianten vi har både utbytte og volum for
+            kandidater = [k for k in o.pop("compressed_kandidater", []) if utbytte.get(k["type_id"])]
+            o["compressed"] = None
+            if kandidater:
+                k = kandidater[0]
+                o["compressed"] = dict(type_id=k["type_id"], name=k["name"], volume=k["volume"],
+                                       yields=utbytte.get(k["type_id"]) or {},
+                                       batch_size=batch.get(k["type_id"], 1))
 
-        # priser for malm + alle mineralene malmen gir
-        trengs = set(ores) | {mid for o in ores.values() for mid in o["yields"]}
+        # priser for rå malm, komprimerte varianter og alle mineralene
+        trengs = set(ores) | set(komprimerte) | {mid for o in ores.values() for mid in o["yields"]}
         quotes = load_quotes(s, conn, sorted(trengs), args.dry_run)
 
         rader = []
@@ -311,13 +337,19 @@ def main():
             r = evaluate(o, p, quotes)
             if r:
                 rader.append(r)
-        log(f"{len(rader)} malmtyper med pris")
+        log(f"{len(rader)} rå malmtyper med pris "
+            f"({sum(1 for r in rader if r['compressed_type_id'])} med komprimert variant)")
 
-        # historikk bare for de som er tilgjengelige (rå-salg er avhengig av malmmarkedet)
-        tilgjengelige = [r["ore_type_id"] for r in rader if r["available"]]
-        hist = load_ore_history(esi, tilgjengelige)
+        # Historikk for den varen du faktisk selger på beste vei (rå eller komprimert).
+        # Refine-veien trenger den ikke – mineralmarkedet flyter alltid.
+        trenger_hist = {r["market_type_id"] for r in rader if r["available"] and r.get("market_type_id")}
+        hist = load_ore_history(esi, sorted(trenger_hist))
         for r in rader:
-            r.update(hist.get(r["ore_type_id"]) or {})
+            h = hist.get(r.get("market_type_id")) or {}
+            r["market_daily_volume"] = h.get("ore_daily_volume")
+            r["market_trades_per_day"] = h.get("ore_trades_per_day")
+            r["ore_daily_volume"] = hist.get(r["ore_type_id"], {}).get("ore_daily_volume")
+            r["ore_trades_per_day"] = hist.get(r["ore_type_id"], {}).get("ore_trades_per_day")
             judge(r, p)
 
         rader.sort(key=lambda r: r["score"], reverse=True)
@@ -325,7 +357,8 @@ def main():
         log(f"{len(passerer)} malmtyper er aktuelle der du miner")
         for r in rader[:12]:
             log(f"  {r['name']}: {r['isk_per_hour']:,.0f} ISK/time ({r['best_route']}), "
-                f"{r['best_value_per_m3']:,.0f} ISK/m3"
+                f"{r['best_value_per_m3']:,.0f} ISK per m3 rå malm, "
+                f"marked {r.get('market_daily_volume') if r.get('market_daily_volume') is not None else '–'}/dag"
                 f"{'' if r['passed'] else ' [' + ','.join(r['failed_rules']) + ']'}")
 
         run_at = now_utc()
@@ -346,9 +379,11 @@ def main():
 
 
 COLS = ("ore_type_id", "volume", "batch_size", "refined_value_per_unit", "refined_value_per_m3",
-        "raw_net_per_unit", "raw_net_per_m3", "raw_route", "refine_premium", "best_route",
-        "best_value_per_m3", "isk_per_hour", "ore_daily_volume", "ore_trades_per_day",
-        "available", "failed_rules", "score", "notes")
+        "raw_net_per_unit", "raw_net_per_m3", "raw_route",
+        "compressed_type_id", "compression_ratio", "compressed_net_per_unit", "compressed_net_per_m3",
+        "refine_premium", "best_route", "best_value_per_m3", "isk_per_hour",
+        "market_type_id", "market_daily_volume", "market_trades_per_day",
+        "ore_daily_volume", "ore_trades_per_day", "available", "failed_rules", "score", "notes")
 
 
 def write_candidates(conn, run_at, rader: list[dict]):

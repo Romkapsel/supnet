@@ -48,12 +48,20 @@ create table if not exists jita.mining_candidates (
   raw_net_per_unit numeric,
   raw_net_per_m3 numeric,
   raw_route text,                           -- 'salgsordre' eller 'dumping'
-  refine_premium numeric,                   -- hvor mye mer refine gir enn å selge rått
+  -- komprimering er en SALGSVEI, ikke en egen rad: du miner rå malm
+  compressed_type_id int,
+  compression_ratio numeric,                -- rå enheter per komprimert enhet (fra utbyttedata)
+  compressed_net_per_unit numeric,
+  compressed_net_per_m3 numeric,            -- per m3 RÅ malm minet
+  refine_premium numeric,                   -- hvor mye mer refine gir enn å selge varen
   -- dom
   best_route text,                          -- 'refine' / 'raw' / 'compressed'
   best_value_per_m3 numeric,
   isk_per_hour numeric,                     -- best_value_per_m3 × m3_per_hour
-  ore_daily_volume numeric,                 -- markedet for malmen selv
+  market_type_id int,                       -- varen du faktisk selger på beste vei
+  market_daily_volume numeric,              -- og hvordan DET markedet flyter
+  market_trades_per_day numeric,
+  ore_daily_volume numeric,                 -- markedet for rå malm (til opplysning)
   ore_trades_per_day numeric,
   mineral_mix jsonb,                         -- {mineralnavn: andel av verdien}
   available boolean,                         -- finnes gruppen der du miner?
@@ -65,9 +73,10 @@ create table if not exists jita.mining_candidates (
 create index if not exists mining_candidates_run on jita.mining_candidates (run_at desc);
 
 create or replace view jita.mining_latest as
-select c.*, t.name, t.group_name
+select c.*, t.name, t.group_name, k.name as compressed_name
 from jita.mining_candidates c
 join jita.types t on t.type_id = c.ore_type_id
+left join jita.types k on k.type_id = c.compressed_type_id
 where c.run_at = (select max(run_at) from jita.mining_candidates);
 
 create or replace function jita.cleanup_mining() returns void language plpgsql as $$

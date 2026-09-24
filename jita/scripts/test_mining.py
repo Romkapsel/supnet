@@ -70,7 +70,7 @@ def main():
     sjekk("rått per m3", r["raw_net_per_m3"], round(rå_netto / 0.1, 2))
     beste = max(verdi / 0.1, rå_netto / 0.1)
     sjekk("beste verdi per m3", r["best_value_per_m3"], round(beste, 2))
-    sjekk("ISK per time", r["isk_per_hour"], round(beste * 3000, 2))
+    sjekk("ISK per time", r["isk_per_hour"], round(round(beste, 2) * 3000, 2))
     sjekk("tilgjengelig i Veldspar-gruppa", 1 if r["available"] else 0, 1)
 
     # Refine-premien: hvor mye mer refine gir enn å selge rått
@@ -89,28 +89,61 @@ def main():
     # m3: tynt malmmarked rammer bare rå-salg
     rå_best = evaluate(dict(MALM, yields={}), P, QUOTES)      # uten utbytte er rå eneste vei
     sjekk("uten utbytte er rå eneste vei", 1 if rå_best["best_route"] == "rå" else 0, 1)
-    rå_best.update(ore_daily_volume=5, ore_trades_per_day=0.5)
+    rå_best.update(market_daily_volume=5, market_trades_per_day=0.5)
     judge(rå_best, P)
     sjekk("tynt malmmarked forkaster rå-salg (m3)", 1 if "m3" in rå_best["failed_rules"] else 0, 1)
     sjekk("uten utbytte mangler refine (m4)", 1 if "m4" in rå_best["failed_rules"] else 0, 1)
 
     billig = {**QUOTES, VELDSPAR: dict(buy_max=0.1, sell_min=0.2)}
     refine_best = evaluate(MALM, P, billig)
-    refine_best.update(ore_daily_volume=5, ore_trades_per_day=0.5)
+    refine_best.update(market_daily_volume=5, market_trades_per_day=0.5)
     judge(refine_best, P)
     sjekk("refine er beste vei når malmen selges billig",
           1 if refine_best["best_route"] == "refine" else 0, 1)
     sjekk("tynt malmmarked rammer ikke refine-veien",
           1 if "m3" in refine_best["failed_rules"] else 0, 0)
 
-    # ── Komprimert malm er sin egen rad, med eget volum og batch ──
-    komp = dict(ore_type_id=KOMPRIMERT, name="Compressed Veldspar", group_name="Veldspar",
-                volume=0.15, batch_size=1, yields={TRITANIUM: 415.0})
-    rk = evaluate(komp, P, QUOTES)
-    sjekk("komprimert: refine per enhet er hele batchen",
-          rk["refined_value_per_unit"], round(415.0 * 0.52 * netto, 2))
-    sjekk("komprimert gir mer per m3 enn rå malm",
-          1 if rk["best_value_per_m3"] > r["best_value_per_m3"] else 0, 1)
+    # ── Komprimering er en salgsvei, ikke en egen rad ──
+    from mining import compression_ratio
+    # Veldspar: 415 Tritanium per 100 enheter rå = 4,15/enhet. Komprimert: 415 per 1 enhet → 100 til 1.
+    sjekk("omregningsfaktor fra utbyttedata",
+          compression_ratio({TRITANIUM: 415.0}, 100, {TRITANIUM: 415.0}, 1), 100.0)
+    sjekk("omregningsfaktor uten felles mineral",
+          1 if compression_ratio({TRITANIUM: 1}, 1, {PYERITE: 1}, 1) is None else 0, 1)
+
+    med_komp = dict(MALM, compressed=dict(type_id=KOMPRIMERT, name="Compressed Veldspar",
+                                          volume=0.15, batch_size=1, yields={TRITANIUM: 415.0}))
+    rk = evaluate(med_komp, P, QUOTES)
+    sjekk("faktoren regnes ut", rk["compression_ratio"], 100.0)
+    # 100 enheter rå (10 m3) blir 1 komprimert enhet. Netto for den enheten fordeles på 10 m3 rå malm.
+    komp_netto = max((900.0 - tick(900.0)) * (1 - 0.01 - 0.075), 700.0 * (1 - 0.075))
+    sjekk("komprimert netto per enhet", rk["compressed_net_per_unit"], round(komp_netto, 2))
+    sjekk("komprimert verdi per m3 RÅ malm", rk["compressed_net_per_m3"],
+          round(komp_netto / (100 * 0.1), 2))
+    sjekk("komprimert er ikke urealistisk høy",
+          1 if rk["compressed_net_per_m3"] < 1000 else 0, 1)
+    sjekk("beste vei velges blant tre", 1 if rk["best_route"] in ("refine", "rå", "komprimert") else 0, 1)
+    sjekk("ISK/time regnes på rå-volumet", rk["isk_per_hour"],
+          round(rk["best_value_per_m3"] * 3000, 2))
+
+    # ── Likviditetsporten: manglende omsetningstall skal forkaste, ikke slippe gjennom ──
+    selger_rått = evaluate(dict(MALM, yields={}), P, QUOTES)      # rå er eneste vei
+    selger_rått.update(market_daily_volume=None, market_trades_per_day=None)
+    judge(selger_rått, P)
+    sjekk("manglende omsetningstall forkastes (m3)",
+          1 if "m3" in selger_rått["failed_rules"] else 0, 1)
+
+    nok_flyt = evaluate(dict(MALM, yields={}), P, QUOTES)
+    nok_flyt.update(market_daily_volume=50000, market_trades_per_day=40)
+    judge(nok_flyt, P)
+    sjekk("nok flyt passerer", 1 if "m3" in nok_flyt["failed_rules"] else 0, 0)
+
+    refine_uten_tall = evaluate(MALM, P, {**QUOTES, VELDSPAR: dict(buy_max=0.01, sell_min=0.02)})
+    refine_uten_tall.update(market_daily_volume=None, market_trades_per_day=None)
+    judge(refine_uten_tall, P)
+    sjekk("refine-veien rammes ikke av manglende malmomsetning",
+          1 if "m3" in refine_uten_tall["failed_rules"] else 0, 0)
+    sjekk("refine-veien er valgt der", 1 if refine_uten_tall["best_route"] == "refine" else 0, 1)
 
     # ── Utbyttet slår rett inn i verdien ──
     P2 = MiningProfile(reprocess_yield=0.78, m3_per_hour=3000, broker=0.01, tax=0.075,

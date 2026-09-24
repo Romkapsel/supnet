@@ -628,8 +628,9 @@ async function mining(q) {
   const p = await effectiveProfile(q);
   const [run] = await q`select max(run_at) as run_at from jita.mining_candidates`;
   const rows = run?.run_at ? await q`
-    select c.*, t.name, t.group_name
+    select c.*, t.name, t.group_name, k.name as compressed_name
     from jita.mining_candidates c join jita.types t on t.type_id = c.ore_type_id
+    left join jita.types k on k.type_id = c.compressed_type_id
     where c.run_at = ${run.run_at}
     order by c.available desc, c.score desc nulls last, c.best_value_per_m3 desc nulls last
     limit 200` : [];

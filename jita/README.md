@@ -211,15 +211,18 @@ og er det best å refine den eller selge den som den er?
 4. **Beste vei** = høyeste ISK per m3 av refine og rå-salg. `refine_premium` viser hvor mye mer refine gir;
    er den negativ, selg malmen som den er.
 5. **ISK/time** = beste ISK per m3 × `m3_per_hour`.
-6. **Komprimert malm** er egne rader med eget volum og eget utbytte – de kommer derfor ut langt høyere
-   per m3 enn rå malm, som de skal.
+6. **Komprimering er en salgsvei, ikke en egen rad.** Du miner rå malm; komprimering skjer etterpå og
+   endrer bare volumet. Verdien av den komprimerte varen regnes derfor per m3 **rå** malm, med en
+   omregningsfaktor hentet fra utbyttedataene (samme mineralinnhold gir forholdet, f.eks. 100:1 for
+   Veldspar) – ikke gjettet.
 
 ### Hva som filtreres bort
 - `m1` malmgruppen finnes ikke der du miner (`available_groups` i profilen – standard 0.8 Lonetrek:
   Veldspar, Scordite, Pyroxeres, Plagioclase, Omber, Kernite. Rediger i fanen.)
 - `m2` ingen pris i Jita, `m4` mangler refine-utbytte.
-- `m3` for tynt marked for malmen selv – gjelder **bare** hvis rå-salg er beste vei. Refine-veien er
-  upåvirket, fordi mineralene alltid flyter.
+- `m3` for tynt **eller ukjent** marked for det du faktisk selger (rå eller komprimert vare).
+  Manglende omsetningstall forkaster også – en pris uten omsetning bak er én tilfeldig ordre.
+  Refine-veien er upåvirket, fordi mineralene alltid flyter.
 
 ### «Verdt å mine selv?»
 Fanen viser hvilke mineraler produksjonsforslagene dine faktisk spiser (mengde og hva de koster i Jita),
