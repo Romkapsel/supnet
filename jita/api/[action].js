@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
+import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -95,12 +96,16 @@ export default async function handler(req, res) {
         return json(res, 200, r);
       }
       case "summary": return json(res, 200, await summary(q));
+      case "industry":
+        if (req.method === "POST") return json(res, 200, await saveIndustry(q, await readBody(req)));
+        return json(res, 200, await industry(q, req.query));
+      case "industry_type": return json(res, 200, await industryType(q, Number(req.query.id)));
       case "type": return json(res, 200, await typeDetail(q, Number(req.query.id)));
       case "profile":
         if (req.method === "POST") return json(res, 200, await saveProfile(q, await readBody(req)));
         return json(res, 200, await getProfile(q));
       case "preview": return json(res, 200, await preview(q, await readBody(req)));
-      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", ["watchlist", "history"].includes(req.query.job) ? req.query.job : "hourly"));
+      case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", ["watchlist", "history", "industry"].includes(req.query.job) ? req.query.job : "hourly"));
       case "rejudge": return json(res, 200, { passed: (await q`select jita.judge() as n`)[0].n });
       case "watchlist": return json(res, 200, await watchlist(q, await readBody(req)));
       case "decision": return json(res, 200, await decision(q, await readBody(req)));
@@ -412,7 +417,7 @@ async function scan(q, fallback = false, job = "hourly") {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
   if (fallback) {
     // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
-    const maxAge = job === "watchlist" ? 15 : 50;   // history: 50 (hver time)
+    const maxAge = job === "watchlist" ? 15 : job === "industry" ? 26 * 60 : 50;   // history: 50 (hver time), industri: daglig
     const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job}`;
     if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
@@ -424,11 +429,11 @@ async function scan(q, fallback = false, job = "hourly") {
   const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "supnet-jita" },
-    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : "jita-scan" }),
+    body: JSON.stringify({ event_type: job === "watchlist" ? "jita-watchlist" : job === "history" ? "jita-history" : job === "industry" ? "jita-industry" : "jita-scan" }),
   });
   if (r.status !== 204) return { ok: false, message: `GitHub svarte ${r.status}: ${(await r.text()).slice(0, 200)}` };
   if (!fallback) await q`update jita.profile set last_manual_scan = now() where id = 1`;   // auto-start skal ikke sperre «Scan nå»
-  return { ok: true, message: "kjører… ~3 min" };
+  return { ok: true, message: job === "industry" ? "industri-jobben kjører… ~10 min" : "kjører… ~3 min" };
 }
 
 // ── Watchlist ────────────────────────────────────────────────────────────────
@@ -484,4 +489,103 @@ async function search(q, term) {
   if (term.length < 2) return { types: [] };
   const types = await q`select type_id, name, market_group_path from jita.types where name ilike ${"%" + term + "%"} and not is_excluded order by (name ilike ${term + "%"}) desc, length(name), name limit 20`;
   return { types };
+}
+
+// ── Industri (steg 1: produksjon) ────────────────────────────────────────────
+// Tallene er regnet ut av roboten (jita/scripts/ingest_industry.py) og ligger i
+// jita.industry_candidates. Her hentes siste kjøring, og porteføljen regnes på nytt
+// hver gang du endrer antall slots eller kapital.
+const INDUSTRY_FIELDS = ["system_id", "system_name", "jumps_from_jita", "me", "te", "facility_tax",
+  "scc_rate", "industry", "advanced_industry", "mass_production", "adv_mass_production", "slots",
+  "sell_fee_override", "material_source", "thresholds"];
+
+function cleanIndustry(body) {
+  const out = {};
+  for (const k of INDUSTRY_FIELDS) {
+    if (!(k in body)) continue;
+    let v = body[k];
+    if (k === "thresholds") { out[k] = typeof v === "string" ? JSON.parse(v) : v; continue; }
+    if (k === "system_name") { out[k] = String(v).slice(0, 60); continue; }
+    if (k === "material_source") {
+      if (!["buy", "sell"].includes(v)) throw new Error("material_source må være buy eller sell");
+      out[k] = v; continue;
+    }
+    if (v === "" || v === null || v === undefined) { out[k] = null; continue; }
+    out[k] = Number(v);
+    if (Number.isNaN(out[k])) throw new Error(`ugyldig tall for ${k}`);
+  }
+  return out;
+}
+
+async function industryProfile(q) {
+  const [row] = await q`select * from jita.industry_profile where id = 1`;
+  const p = await effectiveProfile(q);
+  const slots = row?.slots || (1 + (row?.mass_production || 0) + (row?.adv_mass_production || 0));
+  const sellFees = row?.sell_fee_override != null ? Number(row.sell_fee_override) : Number(p.broker) + Number(p.tax);
+  const [idx] = await q`select manufacturing, updated_at from jita.industry_systems where system_id = ${row?.system_id || 30001395}`;
+  return {
+    ...row, slots_effective: slots, sell_fees: sellFees, broker: Number(p.broker), tax: Number(p.tax),
+    cash_isk: p.cash_isk == null ? null : Number(p.cash_isk), capital_isk: Number(p.capital_isk),
+    cost_index: idx?.manufacturing == null ? null : Number(idx.manufacturing), cost_index_at: idx?.updated_at || null,
+  };
+}
+
+async function industry(q, query) {
+  const p = await industryProfile(q);
+  const [run] = await q`select max(run_at) as run_at from jita.industry_candidates`;
+  const rows = run?.run_at ? await q`
+    select c.*, t.name, t.group_name, t.category_id, t.market_group_path, b.npc_bpo
+    from jita.industry_candidates c
+    join jita.types t on t.type_id = c.product_type_id
+    left join jita.blueprints b on b.blueprint_type_id = c.blueprint_type_id
+    where c.run_at = ${run.run_at}
+    order by c.passed desc, c.score desc nulls last
+    limit 300` : [];
+
+  const slots = Math.max(1, Math.min(50, Number(query.slots) || p.slots_effective));
+  const capital = Number(query.capital) || Number(p.cash_isk ?? p.capital_isk) || 0;
+  const portfolio = pickPortfolio(rows, slots, capital);
+
+  const [robot] = await q`select run_at, duration_s, ok, message, orders_count
+                          from jita.robot_runs where job = 'industry' order by run_at desc limit 1`;
+  const [counts] = await q`
+    select count(*) filter (where passed) as passed, count(*) as total
+    from jita.industry_candidates where run_at = ${run?.run_at || null}`;
+  const alerts = await q`
+    select a.created_at, a.type_id, t.name, a.payload->>'text' as text
+    from jita.alerts a left join jita.types t using (type_id)
+    where a.kind = 'industry_margin' and a.created_at > now() - interval '7 days'
+    order by a.created_at desc limit 10`;
+  const [sde] = await q`select count(*)::int as n, max(updated_at) as at,
+                          count(*) filter (where npc_bpo) as npc from jita.blueprints`;
+  return { profile: p, run_at: run?.run_at || null, rows, portfolio, robot, counts, alerts, sde,
+           rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
+}
+
+// Én vare: siste tall + hvordan margin og kostpris har beveget seg (brief punkt 3)
+async function industryType(q, id) {
+  if (!id) throw new Error("mangler id");
+  const [type] = await q`select type_id, name, group_name, market_group_path, volume from jita.types where type_id = ${id}`;
+  const [latest] = await q`
+    select c.*, b.npc_bpo, b.bpo_price_source
+    from jita.industry_candidates c left join jita.blueprints b on b.blueprint_type_id = c.blueprint_type_id
+    where c.product_type_id = ${id} order by c.run_at desc limit 1`;
+  const history = await q`
+    select run_at, cost_per_unit, sell_price, net_per_unit, margin, isk_per_day_slot, daily_volume, sell_orders, passed
+    from jita.industry_candidates where product_type_id = ${id} order by run_at desc limit 90`;
+  const materials = latest ? await q`
+    select m.material_type_id, t.name, m.quantity, mq.buy_max, mq.sell_min, t.volume
+    from jita.blueprint_materials m join jita.types t on t.type_id = m.material_type_id
+    left join jita.market_quotes mq on mq.type_id = m.material_type_id
+    where m.blueprint_type_id = ${latest.blueprint_type_id} order by m.quantity desc` : [];
+  return { type, latest, history, materials, rules: INDUSTRY_RULES };
+}
+
+async function saveIndustry(q, body) {
+  const fields = cleanIndustry(body);
+  if (Object.keys(fields).length) {
+    fields.updated_at = new Date();
+    await q`update jita.industry_profile set ${q(fields)} where id = 1`;
+  }
+  return await industry(q, body);
 }

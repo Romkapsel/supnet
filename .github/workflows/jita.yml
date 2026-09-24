@@ -7,14 +7,15 @@ on:
     - cron: "23 * * * *"        # timesjobb (09:23 UTC = etter downtime)
     - cron: "5,25,45 * * * *"   # watchlist, lett
     - cron: "29 * * * *"        # historikk, hver time (inntil 400 varer, roterer over forfilteret)
+    - cron: "40 5 * * *"        # industri-marginfinner, daglig (etter rydding kl. 05:00)
     - cron: "0 3 1 * *"         # seed av varetyper, månedlig (nye varer i spillet)
   workflow_dispatch:
     inputs:
       job:
-        description: "Hvilken jobb (hourly / watchlist / history / seed)"
+        description: "Hvilken jobb (hourly / watchlist / history / industry / seed)"
         default: "hourly"
   repository_dispatch:
-    types: [jita-scan, jita-watchlist, jita-history]
+    types: [jita-scan, jita-watchlist, jita-history, jita-industry]
 
 env:
   SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -115,6 +116,46 @@ jobs:
         with:
           path: jita/snapshots
           key: jita-history-${{ github.run_id }}
+
+  industry:
+    if: >-
+      (github.event_name == 'repository_dispatch' && github.event.action == 'jita-industry') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'industry') ||
+      (github.event_name == 'schedule' && github.event.schedule == '40 5 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: jita-industry
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: jita/scripts/requirements.txt
+      - run: pip install -r jita/scripts/requirements.txt
+      - name: Formlene stemmer? (ingen nett/database)
+        run: python jita/scripts/test_industry.py
+      - uses: actions/cache/restore@v4
+        with:
+          path: jita/snapshots
+          key: jita-industry-${{ github.run_id }}
+          restore-keys: jita-industry-
+      - name: Oppskrifter + priser -> rangering
+        run: python jita/scripts/ingest_industry.py --csv jita-industri-topp30.csv
+      - if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: jita/snapshots
+          key: jita-industry-${{ github.run_id }}
+      - name: Last opp topp 30 som CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jita-industri-topp30
+          path: jita-industri-topp30.csv
+          if-no-files-found: ignore
 
   seed:
     if: >-

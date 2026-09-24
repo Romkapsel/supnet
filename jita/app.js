@@ -69,7 +69,7 @@ window.jitaCopy = async (btn, text) => {
 
 // ── Navigasjon ───────────────────────────────────────────────────────────────
 export function nav(active) {
-  const items = [['index.html', 'Topp 10'], ['results.html', 'Resultat'], ['settings.html', 'Profil']];
+  const items = [['index.html', 'Topp 10'], ['industry.html', 'Industri'], ['results.html', 'Resultat'], ['settings.html', 'Profil']];
   return `<nav class="jnav">${items.map(([href, label]) =>
     `<a href="${href}" class="${href === active ? 'on' : ''}">${label}</a>`).join('')}<a href="#" class="back" onclick="localStorage.removeItem('jita_pin');location.href='login.html';return false">Logg ut</a></nav>`;
 }

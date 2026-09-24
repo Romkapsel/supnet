@@ -96,3 +96,55 @@ Se spec del 9.3. Kort: rydding 3 d/30 d/14 d + rettet `type_daily`-rulling; EVE-
 
 ## «Å gjøre» (17. sept 2026)
 Regnes **live** i `buildTodo()` fra `my_orders` (EVE) mot siste `type_hourly`, ikke fra lagrede varsler (som ble stående etter at ordren var endret). Robotens eksakte mur-tall (`alerts`, < 3 t gamle og med samme pris/toppbud) brukes når de finnes, ellers anslag fra ordreboken. Rådlogikken er speilet i `lib/advice.js` (= `common.py`). Bare klare verb: HEV, SENK, TREKK, SELG, KJØP, ØK, RELIST – HOLD vises i beholdningen. Reserve senket til 10 % (karakteren er ren trader; cash trengs bare til gebyrer og én ny posisjon).
+
+## Industri – produksjon (steg 1, 24. sept 2026)
+
+Egen fane `/jita/industry.html`. Rangerer hvilke T1-produkter det er verdt å produsere i Ylandoki
+(system 30001395) og selge i Jita 4-4. Brief: `industri-brief.md`.
+
+| Del | Hvor | Hva |
+|---|---|---|
+| Jobb | GitHub Actions `jita` → job `industry` (05:40 UTC daglig) | `scripts/ingest_industry.py` |
+| Formler | `scripts/industry.py` | ME/TE-runding, EIV, jobbavgift, netto, score, dom, porteføljevelger |
+| Test | `scripts/test_industry.py` | 37 sjekker mot tall regnet for hånd – kjøres først i Actions-jobben |
+| Database | `sql/005_industry.sql` | `industry_profile`, `blueprints`, `blueprint_materials`, `market_quotes`, `market_prices`, `industry_systems`, `industry_candidates` |
+| API | `api/[action].js` | `industry` (GET rangering + portefølje, POST innstillinger), `industry_type?id=` (én vare) |
+| Klokke | pg_cron `jita-industri-rydd` (06:20) og `jita-industri-vakt` (07:10) | rydding, og reservestart hvis jobben ikke har kjørt på 26 t |
+
+Kjør manuelt: knappen «Kjør industri-jobben nå» i fanen, eller Actions → jita → Run workflow → `industry`.
+Jobben laster også opp topp 30 som CSV-artifact.
+
+### Slik regnes det
+1. **Oppskrifter** hentes fra EVE Ref reference-data (`ref-data.everef.net/blueprints`), med Fuzzwork sine
+   `industryActivity*.csv.bz2`-dumper som reserve. Lagres i `jita.blueprints` og hentes på nytt når de er > 7 dager gamle.
+2. **Materialmengde** per jobb: `max(runs, ceil(round(runs × grunnmengde × (1 − ME/100), 2)))`.
+   Mengde 1 reduseres aldri. NPC-stasjon har ingen material- eller tidsbonus.
+3. **Jobbavgift** = EIV × (systemets manufacturing cost index + facility tax 0,25 % + SCC 4 %), der
+   EIV = grunnmengdene (før ME) × `adjusted_price` fra ESI `/markets/prices/`.
+4. **Tid per run** = base × (1 − TE/100) × (1 − 0,04 × Industry) × (1 − 0,03 × Advanced Industry).
+5. **Materialpriser** fra Fuzzwork-aggregat for Jita 4-4: høyeste buy (du legger kjøpsordre, + broker fee)
+   eller laveste sell (instant) – valgbart i innstillingene.
+6. **Salg** ett tick under laveste ask, minus broker + skatt fra `jita.profile` (målt sats slår formelen).
+7. **Realistisk ISK/dag/slot** = netto × min(slot-kapasitet, 10 % av dagsvolumet i ESI-historikken).
+8. **Score** = ISK/dag/slot × likviditet × konkurranse × stabilitet × trend (faktorene vises i fanen).
+
+### Valg og avvik fra briefen (bevisste)
+- **EVE Ref sitt kost-API brukes ikke per vare.** 1 200+ kall per kjøring er ufint mot en gratis tjeneste, og
+  vi trenger egne materialpriser uansett (briefen vil ha Jita buy-pris). Vi henter derfor oppskriftene i
+  én nedlasting og regner EIV/avgift/tid selv. `--verify N` kryssjekker de N beste mot kost-API-et og
+  logger avviket – bruk den når noe ser rart ut.
+- **Salgsgebyr er ikke 5 %,** men broker + skatt fra profilen (nå 1,8 % + 7,5 % = 9,3 %). Kan overstyres i fanen.
+- **Trinnvis berikelse** for å holde ESI-bruken nede: alle produkter får kostnad/margin (trinn A),
+  de 400 beste får historikk (trinn B), de 120 beste får antall selgere og BPO-pris (trinn C).
+  Varer uten dagsvolum kan derfor ikke passere – de mangler data (regel `i7`).
+- **NPC-BPO** avgjøres som i timesjobben: en salgsordre med ≥ 365 dagers varighet finnes bare fra NPC.
+  Mangler vi en slik ordre, vises varen med merket «ikke NPC-BPO» i stedet for å skjules.
+- **Exordium** er aldri aktuelt: produksjon og salg er låst til Ylandoki og Jita (briefens straffeavgifter
+  gjelder ikke der vi står).
+- **Egne mineraler er ikke gratis** – materialer verdsettes alltid til markedspris, også det du miner selv.
+- Regler: `i1` margin, `i1x` urealistisk margin, `i2` dagsvolum, `i3`/`i3b` tynt marked, `i4` dyr BPO,
+  `i5` kapital per jobb, `i6` prisfall 30 d, `i7` mangler data, `i8` nedbetalingstid, `i9` pristopp.
+
+### Ikke bygget ennå (steg 2)
+- Mining-laget: rangering av malm/komprimert malm på ISK per time, og hvilke produkter din egen mining mater.
+- Varsel på Discord ved nye varer i topp 3 (i dag varsles bare margin som faller under terskel på varer du eier).
