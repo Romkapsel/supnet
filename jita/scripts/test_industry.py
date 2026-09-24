@@ -233,6 +233,21 @@ def main():
     sjekk("få handler trekker likviditeten ned", f_lite_moment["liquidity"], round(1 / 9, 2))
     sjekk("mange handler gir full likviditet", f_mye_moment["liquidity"], 1.0)
 
+    # ── Begrunnelsen må tåle manglende tall (den krasjet på batch_sell_days = None) ──
+    from industry import reason as begrunnelse
+    uten_marked = dict(r, trades_per_day=4.0, daily_volume=None, batch_sell_days=None, cycle_days=None)
+    judge(uten_marked, P2)
+    sjekk("begrunnelse uten markedstall krasjer ikke",
+          1 if "handler/dag" in uten_marked["reason"] else 0, 1)
+    bare_volum = dict(r, trades_per_day=None, daily_volume=None)
+    judge(bare_volum, P2)
+    sjekk("begrunnelse uten handler krasjer ikke", 1 if len(bare_volum["reason"]) > 20 else 0, 1)
+    fullt = dict(god, trades_per_day=12.0, batch_sell_days=3.2, blueprint_on_market=True, units=20,
+                 daily_volume=40)
+    judge(fullt, P2)
+    sjekk("begrunnelse med alle tall nevner salgstid",
+          1 if "3.2 d å selge unna" in fullt["reason"] else 0, 1)
+
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints
     ccp = {"681": {"blueprintTypeID": 681, "maxProductionLimit": 300,

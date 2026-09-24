@@ -372,12 +372,13 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
             f"{float(p.t('volume_share', 0.10)) * 100:.0f} % av det. Bremsen er {hals}: "
             f"{_isk(row.get('realistic_units_per_day'))} stk/dag "
             f"(slotten rekker {_isk(row.get('units_per_day_slot'))}, "
-            f"kapitalen snur rundt på {row.get('cycle_days', 0):.2f} døgn) → "
+            f"kapitalen snur rundt på {row.get('cycle_days') or 0:.2f} døgn) → "
             f"{_isk(row.get('isk_per_day_slot'))} ISK/dag per slot.")
     if row.get("trades_per_day") is not None:
-        parts.append(f"Markedet har {row['trades_per_day']:.1f} handler/dag; batchen på "
-                     f"{row.get('units')} stk tar ~{row.get('batch_sell_days', 0):.1f} d å selge unna "
-                     f"med din andel av volumet.")
+        salgstid = row.get("batch_sell_days")
+        parts.append(f"Markedet har {row['trades_per_day']:.1f} handler/dag"
+                     + (f"; batchen på {row.get('units')} stk tar ~{salgstid:.1f} d å selge unna "
+                        f"med din andel av volumet." if salgstid is not None else "."))
     if row.get("bpo_price"):
         parts.append(f"BPO {_isk(row['bpo_price'])} ISK, tilbakebetalt på "
                      f"{row.get('payback_days'):.1f} d." if row.get("payback_days") is not None
