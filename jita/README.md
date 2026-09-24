@@ -222,6 +222,10 @@ og er det best å refine den eller selge den som den er?
 - `m1` malmgruppen finnes ikke der du miner (`available_groups` i profilen – standard 0.8 Lonetrek:
   Veldspar, Scordite, Pyroxeres, Plagioclase, Omber, Kernite. Rediger i fanen.)
 - `m2` ingen pris i Jita, `m4` mangler refine-utbytte.
+- **Veien velges bare blant markeder som flyter.** Refine, rå-salg og hver komprimerte variant har sitt
+  eget marked; de som ikke passerer likviditetskravet er ikke med i valget. Uten dette kunne én
+  søppelpris på en illikvid «Batch Compressed»-variant velte hele malmen ut av lista (Kernite III-Grade
+  24. sept). Den illikvide verdien tas vare på til forklaringen.
 - `m3` for tynt **eller ukjent** marked for det du faktisk selger (rå eller komprimert vare).
   Manglende omsetningstall forkaster også – en pris uten omsetning bak er én tilfeldig ordre.
   Refine-veien er upåvirket, fordi mineralene alltid flyter.

@@ -330,25 +330,32 @@ def main():
         trengs = set(ores) | set(komprimerte) | {mid for o in ores.values() for mid in o["yields"]}
         quotes = load_quotes(s, conn, sorted(trengs), args.dry_run)
 
+        # Historikk for alt vi kan komme til å selge: rå malm og hver komprimerte variant, for
+        # malmene der du faktisk miner. Veien må velges med markedet i hånd – ellers kan en
+        # søppelpris på en illikvid variant velte hele malmen ut av lista.
+        aktuelle = [o for o in ores.values()
+                    if str(o.get("group_name") or "").lower() in p.available_groups]
+        trenger_hist = {o["ore_type_id"] for o in aktuelle}
+        trenger_hist |= {k["type_id"] for o in aktuelle for k in (o.get("compressed") or [])}
+        hist = load_ore_history(esi, sorted(trenger_hist))
+        markets = {tid: dict(daily_volume=h["ore_daily_volume"], trades_per_day=h["ore_trades_per_day"])
+                   for tid, h in hist.items()}
+
         rader = []
         for o in ores.values():
-            r = evaluate(o, p, quotes)
-            if r:
-                rader.append(r)
+            r = evaluate(o, p, quotes, markets)
+            if not r:
+                continue
+            valgt = markets.get(r.get("market_type_id")) or {}
+            r["market_daily_volume"] = valgt.get("daily_volume")
+            r["market_trades_per_day"] = valgt.get("trades_per_day")
+            rå_marked = markets.get(r["ore_type_id"]) or {}
+            r["ore_daily_volume"] = rå_marked.get("daily_volume")
+            r["ore_trades_per_day"] = rå_marked.get("trades_per_day")
+            judge(r, p)
+            rader.append(r)
         log(f"{len(rader)} rå malmtyper med pris "
             f"({sum(1 for r in rader if r['compressed_type_id'])} med brukbar komprimert variant)")
-
-        # Historikk for den varen du faktisk selger på beste vei (rå eller komprimert).
-        # Refine-veien trenger den ikke – mineralmarkedet flyter alltid.
-        trenger_hist = {r["market_type_id"] for r in rader if r["available"] and r.get("market_type_id")}
-        hist = load_ore_history(esi, sorted(trenger_hist))
-        for r in rader:
-            h = hist.get(r.get("market_type_id")) or {}
-            r["market_daily_volume"] = h.get("ore_daily_volume")
-            r["market_trades_per_day"] = h.get("ore_trades_per_day")
-            r["ore_daily_volume"] = hist.get(r["ore_type_id"], {}).get("ore_daily_volume")
-            r["ore_trades_per_day"] = hist.get(r["ore_type_id"], {}).get("ore_trades_per_day")
-            judge(r, p)
 
         rader.sort(key=lambda r: r["score"], reverse=True)
         passerer = [r for r in rader if r["passed"]]

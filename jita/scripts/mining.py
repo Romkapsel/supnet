@@ -114,7 +114,19 @@ def compression_ratio(rå_yields: dict[int, float], rå_batch: int,
     return round(sum(forhold) / len(forhold), 4)
 
 
-def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | None:
+def liquid(market: dict | None, p: MiningProfile) -> bool:
+    """Flyter markedet for det du skal selge? Manglende tall = nei (en pris uten omsetning
+    bak er én tilfeldig ordre)."""
+    if not market:
+        return False
+    vol, handler = market.get("daily_volume"), market.get("trades_per_day")
+    if vol is None or handler is None:
+        return False
+    return vol >= float(p.t("min_daily_volume", 100)) and handler >= float(p.t("min_trades_per_day", 3))
+
+
+def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict],
+             markets: dict[int, dict] | None = None) -> dict | None:
     """Regner ut hva én m3 RÅ malm er verdt, og hvilken vei som gir mest.
 
     Du miner rå malm – komprimering skjer etterpå og endrer bare volumet. Derfor er
@@ -132,11 +144,16 @@ def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | Non
     refinet, mix, missing = refined_value(ore.get("yields") or {}, batch, p, quotes)
     rå, rå_vei = net_sale(quotes.get(ore["ore_type_id"]), p)
 
+    markets = markets or {}
+    # Hver vei har sitt eget marked: refine selger mineraler (flyter alltid), rå selger malmen,
+    # komprimert selger den komprimerte varen. Veien velges bare blant dem som faktisk flyter –
+    # ellers kan én søppelpris på en illikvid variant velte hele malmen ut av lista.
     ruter: dict[str, float] = {}
+    illikvide: dict[str, float] = {}
     if refinet > 0:
         ruter["refine"] = refinet / volume
     if rå > 0:
-        ruter["rå"] = rå / volume
+        (ruter if liquid(markets.get(ore["ore_type_id"]), p) else illikvide)["rå"] = rå / volume
 
     # Komprimert: samme mineraler, mindre volum. Verdien regnes per m3 RÅ malm minet.
     # Det finnes flere varianter («Compressed X» 1:1 med 1/100 volum, «Batch Compressed X» 100:1) –
@@ -155,13 +172,21 @@ def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | Non
         if netto <= 0:
             continue
         per_m3 = netto / (r * volume)
+        if not liquid(markets.get(kand["type_id"]), p):
+            illikvide["komprimert"] = max(illikvide.get("komprimert", 0), per_m3)
+            continue
         if komp_per_m3 is None or per_m3 > komp_per_m3:
             komp, komp_netto, komp_vei, ratio, komp_per_m3 = kand, netto, vei, r, per_m3
     if komp_per_m3:
         ruter["komprimert"] = komp_per_m3
 
     if not ruter:
-        return None
+        # Ingen vei med marked bak. Behold raden med den illikvide verdien, så dommen kan
+        # forklare hvorfor den ikke gjelder, i stedet for at malmen bare forsvinner.
+        if not illikvide:
+            return None
+        ruter = illikvide
+        illikvide = {}
     beste = max(ruter, key=ruter.get)
     beste_verdi = round(ruter[beste], 2)      # rundes her, så ISK/time stemmer med ISK/m3 som vises
     markedsvei = {"rå": ore["ore_type_id"], "komprimert": (komp or {}).get("type_id")}.get(beste)
@@ -185,6 +210,7 @@ def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | Non
         isk_per_hour=round(beste_verdi * p.m3_per_hour, 2),
         refine_premium=_premie(ruter),
         market_type_id=markedsvei,        # hvilken vare du faktisk selger på den beste veien
+        illiquid_routes={k: round(v, 2) for k, v in illikvide.items()} or None,
         mineral_mix=mix,
         missing_prices=missing,
         available=(str(ore.get("group_name") or "").lower() in p.available_groups),
