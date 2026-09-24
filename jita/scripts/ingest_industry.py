@@ -36,7 +36,8 @@ import requests
 
 from common import (Esi, JITA_44, REGION_FORGE, RunLog, USER_AGENT, db, fail, log, notify, now_utc)
 from industry import (MANUFACTURING, PRODUCT_CATEGORIES, IndustryProfile, economics, job_budget,
-                      judge, market_units_cap, realistic_throughput)
+                      judge, margin_at_me, market_units_cap, realistic_throughput,
+                      start_recommendation)
 
 FUZZWORK_AGG = "https://market.fuzzwork.co.uk/aggregates/"
 EVEREF_COST = "https://api.everef.net/v1/industry/cost"
@@ -182,11 +183,13 @@ def sde_age_days(conn) -> float | None:
 
 
 # ── 2. ESI: adjusted price og kostnadsindeks ─────────────────────────────────
-def load_market_prices(esi: Esi, conn, dry: bool) -> dict[int, float]:
+def load_market_prices(esi: Esi, conn, dry: bool) -> tuple[dict[int, float], dict[int, float]]:
     st, body, _ = esi.get("/markets/prices/", use_etag=False)
     if st != 200 or not body:
         raise RuntimeError("fikk ikke /markets/prices/")
     adjusted = {int(r["type_id"]): float(r.get("adjusted_price") or 0) for r in body}
+    average = {int(r["type_id"]): float(r.get("average_price") or 0) for r in body
+               if r.get("average_price")}
     if not dry:
         with conn.cursor() as cur:
             cur.executemany(
@@ -196,8 +199,8 @@ def load_market_prices(esi: Esi, conn, dry: bool) -> dict[int, float]:
                      average_price = excluded.average_price, updated_at = now()""",
                 [(int(r["type_id"]), r.get("adjusted_price"), r.get("average_price")) for r in body])
         conn.commit()
-    log(f"adjusted_price for {len(adjusted)} varer")
-    return adjusted
+    log(f"adjusted_price for {len(adjusted)} varer, average_price for {len(average)}")
+    return adjusted, average
 
 
 def load_cost_index(esi: Esi, conn, system_id: int, dry: bool) -> float:
@@ -516,7 +519,7 @@ def main():
             raise RuntimeError("ingen T1-produkter å vurdere – er jita.types fylt (seed_types.py)?")
 
         # 2. ESI
-        adjusted = load_market_prices(esi, conn, args.dry_run)
+        adjusted, adjusted_avg = load_market_prices(esi, conn, args.dry_run)
         p.cost_index = load_cost_index(esi, conn, p.system_id, args.dry_run)
 
         # 3. Jita-priser for produkter + alle materialer
@@ -567,15 +570,27 @@ def main():
         deep = [r for r in rows if r.get("daily_volume")][:args.deep]
         comp = load_competition(esi, [r["product_type_id"] for r in deep])
         bpo = load_bpo(esi, s, conn, [r["blueprint_type_id"] for r in deep], args.dry_run)
+        # Handelsknutene har bare halvparten av BPO-ene – NPC seeder dem spredt i empire.
+        # ESI-ens average_price er selve NPC-prisen der vi har begge (sjekket 24. sept), så den
+        # er en god reserve. Uten den mangler 50 av 51 forslag startkostnad, og da kan verktøyet
+        # ikke svare på hva du bør kjøpe først.
         for r in rows:
             if r["product_type_id"] in comp:
                 r["sell_orders"] = comp[r["product_type_id"]]
             info = bpo.get(r["blueprint_type_id"])
             if info:
                 r["bpo_price"] = info["bpo_price"]
+                r["bpo_price_source"] = info["bpo_price_source"]
                 r["npc_bpo"] = info["npc_bpo"]
-                if r["isk_per_day_slot"] > 0:
-                    r["payback_days"] = round(info["bpo_price"] / r["isk_per_day_slot"], 2)
+            elif adjusted_avg.get(r["blueprint_type_id"]):
+                r["bpo_price"] = adjusted_avg[r["blueprint_type_id"]]
+                r["bpo_price_source"] = "esi_average"
+            if r.get("bpo_price") and r["isk_per_day_slot"] > 0:
+                r["payback_days"] = round(r["bpo_price"] / r["isk_per_day_slot"], 2)
+            if r.get("bpo_price"):
+                r["startup_cost"] = round(r["bpo_price"] + (r.get("capital_per_job") or 0), 2)
+            # Marginen med en NYKJØPT (uforsket) BPO – avgjørende for hva du bør starte med
+            r["margin_me0"] = margin_at_me(r, cands[r["blueprint_type_id"]], p, quotes, 0)
 
         # 7. dom
         for r in rows:
@@ -587,6 +602,17 @@ def main():
             log(f"  {r['name']}: {r['isk_per_day_slot']:,.0f} ISK/dag/slot, margin "
                 f"{r['margin'] * 100:.1f} %, volum {r.get('daily_volume') or '–'}"
                 f"{'' if r['passed'] else ' [' + ','.join(r['failed_rules']) + ']'}")
+
+        anbefaling = start_recommendation(rows, p, p.capital_isk)
+        if anbefaling:
+            log("start med (raad til BPO + batch, og loennsom alt ved ME 0):")
+            for a in anbefaling:
+                log(f"  {a['name']}: BPO {a['bpo_price']:,.0f} ({a['bpo_price_source']}) + batch "
+                    f"{a['capital_per_job']:,.0f} = {a['startup_cost']:,.0f} ISK start, "
+                    f"{a['isk_per_day_slot']:,.0f} ISK/dag, margin {a['margin'] * 100:.0f} % "
+                    f"(ME 0: {a['margin_me0'] * 100:.0f} %)")
+        else:
+            log("ingen vare har baade raad-til-startkostnad og margin ved ME 0")
 
         if args.verify:
             verify_against_everef(s, rows, p, args.verify)
@@ -614,7 +640,8 @@ COLS = ("product_type_id", "blueprint_type_id", "runs", "units", "units_per_run"
         "job_cost", "eiv", "total_cost", "cost_per_unit", "sell_price", "net_per_unit", "margin",
         "time_per_run_s", "time_per_batch_s", "units_per_day_slot", "daily_volume", "daily_volume_90d",
         "realistic_units_per_day", "isk_per_day_slot", "isk_per_hour_slot", "capital_per_job",
-        "bpo_price", "payback_days", "sell_orders", "price_avg_30d", "price_drop_30d",
+        "bpo_price", "bpo_price_source", "startup_cost", "margin_me0", "payback_days",
+        "sell_orders", "price_avg_30d", "price_drop_30d",
         "price_volatility", "m3_in", "m3_out", "score", "passed", "failed_rules", "reason")
 
 

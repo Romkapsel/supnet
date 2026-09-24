@@ -21,6 +21,24 @@ export const INDUSTRY_RULES = {
 // Kategoriene vi rangerer (ESI category_id) – brukes til filteret i fanen.
 export const CATEGORY_NAMES = { 6: "Skip", 7: "Moduler", 8: "Ammo og charges", 18: "Droner", 22: "Deployables" };
 
+/** Hva bør du kjøpe FØRST? Speilet av start_recommendation() i scripts/industry.py.
+ *  Rangeringen ellers antar ferdig forsket blueprint (ME 10). Kjøper du en ny BPO, er den ME 0,
+ *  og da må varen (1) ha en startkostnad du har råd til, og (2) være lønnsom alt ved ME 0 –
+ *  ellers taper du penger mens forskningen går. */
+export function startRecommendation(rows, minMargin, capital, antall = 3) {
+  const ut = [];
+  for (const r of [...rows].filter((x) => x.passed)
+    .sort((a, b) => Number(b.isk_per_day_slot || 0) - Number(a.isk_per_day_slot || 0))) {
+    if (ut.length >= antall) break;
+    const bpo = r.bpo_price == null ? null : Number(r.bpo_price);
+    const start = (bpo || 0) + Number(r.capital_per_job || 0);
+    if (bpo == null || start > capital) continue;
+    if (r.margin_me0 == null || Number(r.margin_me0) < minMargin) continue;
+    ut.push({ ...r, startup_cost: start });
+  }
+  return ut;
+}
+
 /** Velg hvilke produkter slottene skal brukes på: høyest score først, én vare per slot,
  *  innenfor kapitalen. 10 %-taket på dagsvolum ligger allerede inne i isk_per_day_slot. */
 export function pickPortfolio(rows, slots, capital) {
