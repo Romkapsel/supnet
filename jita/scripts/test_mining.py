@@ -126,6 +126,24 @@ def main():
     sjekk("ISK/time regnes på rå-volumet", rk["isk_per_hour"],
           round(rk["best_value_per_m3"] * 3000, 2))
 
+    # ── Malm uten salgspris: bare refine-veien finnes, og premien er ikke definert ──
+    uten_salg = evaluate(MALM, P, {TRITANIUM: QUOTES[TRITANIUM]})   # ingen pris på malmen selv
+    sjekk("uten salgspris: refine er eneste vei", 1 if uten_salg["best_route"] == "refine" else 0, 1)
+    sjekk("uten salgspris: ingen refine-premie",
+          1 if uten_salg["refine_premium"] is None else 0, 1)
+    sjekk("uten salgspris: ingen markedsvare", 1 if uten_salg["market_type_id"] is None else 0, 1)
+    judge(uten_salg, P)
+    sjekk("uten salgspris: passerer på refine", 1 if uten_salg["passed"] else 0, 1)
+
+    bare_komp = dict(MALM, compressed=dict(type_id=KOMPRIMERT, name="Compressed Veldspar",
+                                           volume=0.15, batch_size=1, yields={TRITANIUM: 415.0}))
+    r_bk = evaluate(bare_komp, P, {TRITANIUM: QUOTES[TRITANIUM], KOMPRIMERT: QUOTES[KOMPRIMERT]})
+    sjekk("bare komprimert pris: premien regnes mot komprimert",
+          1 if r_bk["refine_premium"] is not None else 0, 1)
+
+    tom = evaluate(dict(MALM, yields={}), P, {})                    # verken malm eller mineraler
+    sjekk("uten noen priser gir None", 1 if tom is None else 0, 1)
+
     # ── Likviditetsporten: manglende omsetningstall skal forkaste, ikke slippe gjennom ──
     selger_rått = evaluate(dict(MALM, yields={}), P, QUOTES)      # rå er eneste vei
     selger_rått.update(market_daily_volume=None, market_trades_per_day=None)

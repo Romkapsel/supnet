@@ -83,6 +83,15 @@ def refined_value(yields: dict[int, float], batch_size: int, p: MiningProfile,
     return total / batch_size, per_mineral, missing
 
 
+def _premie(ruter: dict[str, float]) -> float | None:
+    """Hvor mye mer refine gir enn den beste salgsveien. None hvis varen ikke kan selges
+    (da finnes det ingen sammenligning) eller refine ikke er mulig."""
+    alternativ = max((v for k, v in ruter.items() if k != "refine"), default=None)
+    if "refine" not in ruter or not alternativ:
+        return None
+    return round(ruter["refine"] / alternativ - 1, 4)
+
+
 def compression_ratio(rå_yields: dict[int, float], rå_batch: int,
                       komp_yields: dict[int, float], komp_batch: int) -> float | None:
     """Hvor mange enheter rå malm som blir én enhet komprimert malm.
@@ -164,8 +173,7 @@ def evaluate(ore: dict, p: MiningProfile, quotes: dict[int, dict]) -> dict | Non
         best_route=beste,
         best_value_per_m3=beste_verdi,
         isk_per_hour=round(beste_verdi * p.m3_per_hour, 2),
-        refine_premium=(round(ruter["refine"] / max(ruter.get("rå"), ruter.get("komprimert") or 0) - 1, 4)
-                        if "refine" in ruter and (ruter.get("rå") or ruter.get("komprimert")) else None),
+        refine_premium=_premie(ruter),
         market_type_id=markedsvei,        # hvilken vare du faktisk selger på den beste veien
         mineral_mix=mix,
         missing_prices=missing,
