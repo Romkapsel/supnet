@@ -191,6 +191,12 @@ def main():
     judge(rl, P)
     sjekk("malmen ryker ikke ut fordi en variant var illikvid", 1 if rl["passed"] else 0, 1)
 
+    # Forklaringen skal si fra når en illikvid vei ser bedre ut enn den valgte
+    rl2 = evaluate(to_veier, P, {**q3, KOMPRIMERT: dict(buy_max=900000.0, sell_min=1000000.0)}, m3_data)
+    judge(rl2, P)
+    sjekk("forklaringen advarer om illikvid vei som ser bedre ut",
+          1 if "flyter ikke" in rl2["notes"] else 0, 1)
+
     # Ingen vei med marked: raden beholdes, men forkastes med forklaring
     alt_dødt = evaluate(dict(MALM, yields={}), P, QUOTES,
                         {VELDSPAR: dict(daily_volume=3, trades_per_day=0.2)})

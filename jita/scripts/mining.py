@@ -273,6 +273,10 @@ def notes(row: dict, p: MiningProfile) -> str:
         deler.append(f"Refine gir {abs(p_) * 100:.0f} % {'mer' if p_ > 0 else 'mindre'} enn å selge varen.")
     deler.append(f"Med {_isk(p.m3_per_hour)} m3/time: {_isk(row.get('isk_per_hour'))} ISK/time "
                  f"({row.get('best_route')}).")
+    for vei, verdi in (row.get("illiquid_routes") or {}).items():
+        if row.get("best_value_per_m3") and verdi > row["best_value_per_m3"]:
+            deler.append(f"Merk: {vei} ser høyere ut ({_isk(verdi)} ISK/m3), men det markedet "
+                         f"flyter ikke – prisen er én tilfeldig ordre.")
     if row.get("market_daily_volume") is not None:
         deler.append(f"Markedet du selger i: {_isk(row['market_daily_volume'])} stk/dag, "
                      f"{row.get('market_trades_per_day')} handler/dag.")
