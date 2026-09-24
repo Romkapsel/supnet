@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "Hvilken jobb (hourly / watchlist / history / industry / seed)"
+        description: "Hvilken jobb (hourly / watchlist / history / industry / seed / probe)"
         default: "hourly"
   repository_dispatch:
     types: [jita-scan, jita-watchlist, jita-history, jita-industry]
@@ -156,6 +156,19 @@ jobs:
           name: jita-industri-topp30
           path: jita-industri-topp30.csv
           if-no-files-found: ignore
+
+  probe:
+    # Sjekker hvilke eksterne datakilder som svarer og hvordan. Bare manuelt – rører ingen data.
+    if: "github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'probe'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r jita/scripts/requirements.txt
+      - run: python jita/scripts/probe_sources.py
 
   seed:
     if: >-
