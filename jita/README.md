@@ -267,6 +267,14 @@ og er det best å refine den eller selge den som den er?
   Manglende omsetningstall forkaster også – en pris uten omsetning bak er én tilfeldig ordre.
   Refine-veien er upåvirket, fordi mineralene alltid flyter.
 
+### «Mine X» – anbefalingen i mining-seksjonen (24. sept 2026)
+Samme tanke som «Start med …» på produksjonssiden: si hva du skal gjøre, ikke bare vise tall.
+Kortet velger blant malm som **både** finnes der du miner og passerer reglene (den gamle
+stat-ruten «Beste malm nå» tok første tilgjengelige rad og kunne vise en malm dommen hadde
+forkastet). For hver av de tre beste: hva du skal gjøre med malmen (refine / selg rå / komprimer
+og selg), ISK per m3 rå malm, hvor mange enheter én time gir med din mining-rate, og hvor mye
+markedet tar. Er refine dårligere enn å selge, sier kortet det rett ut.
+
 ### «Verdt å mine selv?»
 Fanen viser hvilke mineraler produksjonsforslagene dine faktisk spiser (mengde og hva de koster i Jita),
 og hvilken av malmene der du miner som gir mest av hvert mineral. Egne mineraler regnes fortsatt til
