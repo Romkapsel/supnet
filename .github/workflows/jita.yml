@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "Hvilken jobb (hourly / watchlist / history / industry / seed / probe)"
+        description: "Hvilken jobb (hourly / watchlist / history / industry / seed / probe / apiprobe)"
         default: "hourly"
   repository_dispatch:
     types: [jita-scan, jita-watchlist, jita-history, jita-industry]
@@ -176,6 +176,31 @@ jobs:
           python-version: "3.12"
       - run: pip install -r jita/scripts/requirements.txt
       - run: python jita/scripts/probe_sources.py
+
+  apiprobe:
+    # Spør det LEVENDE API-et hva det svarer på /api/industry – uten å vise hemmeligheter.
+    # Bare manuelt. Finnes fordi containeren Claude jobber i ikke får nå ut til jita-eve.vercel.app.
+    if: "github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'apiprobe'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hva svarer /api/industry?
+        run: |
+          code=$(curl -sS -o svar.json -w '%{http_code}' -H "x-jita-pin: $JITA_PIN" \
+            https://jita-eve.vercel.app/api/industry)
+          echo "HTTP $code, $(wc -c < svar.json) bytes"
+          if [ "$code" != "200" ]; then head -c 400 svar.json; exit 1; fi
+          jq '{run_at, feil: .error,
+               antall_rader: (.rows | length),
+               starter: (.starter | length),
+               pick: .pick.name,
+               funnel, counts,
+               profil: {sell_fees: .profile.sell_fees, cash: .profile.cash_isk,
+                        terskler: .profile.thresholds},
+               forste_starter: (.starter[0] // null)}' svar.json
+          jq -r '.rows | map(select(.passed)) | .[0:3]
+                 | map({name, bpo_price, margin_me0, cost_per_unit_me0, runs_market_per_day,
+                        units_per_run, sell_price, handler: .factors.trades_per_day})' svar.json
 
   seed:
     if: >-

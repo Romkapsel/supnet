@@ -169,6 +169,23 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### «Kjøp blueprint av disse» – lista koblet fra tersklene (25. sept 2026)
+Kravet fra eieren: *«Jeg vil bare logge inn nå og se hva som er lurt å kjøpe blueprint av»* – uten å gå
+inn i «Avansert» og skru på terskler han ikke kan vurdere. Lista er derfor bygget om:
+
+- **Faste regler i koden** (`NYBEGYNNER` i `scripts/industry.py`, speilet i `lib/industry.js`), ikke i
+  `thresholds`: minst 10 handler per dag, minst 5k fortjeneste per run, positiv margin ved ME 0, og
+  margin over 300 % regnes som feilpris. Tersklene styrer fortsatt dommeren og den store tabellen.
+- **Bruker ikke dommens `passed`.** Dommen er bygget for store batcher og binder kapital; lista har sine
+  egne, enklere krav. Den arver bare avslagene som betyr «tallene er ikke til å stole på» eller
+  «prisen faller»: `i1x`, `i6`, `i7`, `i9`, `i10` (`STARTER_SKIP`).
+- **Rangert på margin ved ME 0**, høyest først, med de man har råd til øverst. `my_pick()` velger blant
+  dem som har minst 70 % av beste margin den som selges oftest.
+- **Blir lista kortere enn ti**, fylles den opp med varer ned til 3 handler per dag, merket
+  `thin_market` både i data og med en pille i tabellen. Den skal aldri stå tom når det finnes data.
+- Testene setter med vilje tersklene absurd strengt (`min_margin` 0,95, `min_profit_per_run` 10 mill.)
+  og krever at lista er uendret – det er regresjonsvernet mot å koble dem inn igjen.
+
 ### «Skulle jeg velge for deg» + tabell i stedet for kort (25. sept 2026)
 Lista var riktig, men leste som en stabel kort, og fanen turte ikke å peke på én. To ting lagt til:
 
@@ -248,6 +265,15 @@ ESI-ens `average_price` er selve NPC-prisen der vi har begge å sammenligne med 
   og ingen av de beste.
 
 ### Feillogg
+- **25. sept 2026: «0 forslag» i to runder – API-et returnerte null rader.** `industry()` og `mining()`
+  hentet `select max(run_at)` inn i JS og sendte verdien tilbake som `where run_at = ${dato}`. JS-datoer har
+  bare millisekunder, `run_at` har mikrosekunder (`07:08:07.254247` → `…254`), så likhetstesten traff
+  ingenting: `rows: []`, `counts: 0`, tom liste – uten noen feilmelding. Station-trading-delen gjorde det
+  riktig hele tiden (`where run_at = (select max(run_at) …)`); det er nå gjort likt overalt.
+  To lærepenger: (1) **aldri sammenlign en timestamp som har vært innom JS** – gjør det i SQL;
+  (2) jeg gjettet på årsaken to ganger (terskler, cache) fordi containeren ikke får nå
+  `jita-eve.vercel.app`. Fasit kom først da Actions-jobben `apiprobe` spurte det levende API-et.
+  **Spør kilden før du gjetter** – samme lærepenge som med SDE-adressene.
 - **24. sept 2026, andre kjøring (1 147 vurdert, 9 passerte) hadde tre feil:** batchene ble dimensjonert
   bare etter tid, så forslagene bandt 11–18 mill. ISK per jobb mot en kapital på 8 mill.; BPO-prisen var
   null for alle de beste (region-oppslag mot The Forge); og to varer uten kjøpbar blueprint

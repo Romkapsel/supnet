@@ -25,7 +25,9 @@ def dyr_tynn_isk(rangert):
 
 
 def sjekk(navn: str, fikk, vil, tol=1e-6):
-    if isinstance(vil, str) or isinstance(fikk, str):
+    if isinstance(vil, (list, tuple)) or isinstance(fikk, (list, tuple)):
+        ok = list(fikk) == list(vil)
+    elif isinstance(vil, str) or isinstance(fikk, str):
         ok = str(fikk) == str(vil)
     else:
         ok = abs(float(fikk) - float(vil)) <= tol * max(1.0, abs(float(vil)))
@@ -289,42 +291,58 @@ def main():
     sjekk("anbefaling: tom liste når ingenting passer",
           len(start_recommendation([tynn_margin, for_dyr, uten_pris], P, 8_000_000)), 0)
 
-    # ── «Kom i gang»-lista for en nybegynner ──
-    from industry import my_pick, starter_funnel, starter_list, why_not
+    # ── «Kom i gang»-lista for en nybegynner: faste regler, ikke tersklene ──
+    from industry import NYBEGYNNER, my_pick, starter_funnel, starter_list, why_not
+    # Tersklene settes med vilje absurd strengt: lista skal IKKE bry seg om dem.
     P3 = IndustryProfile(**{**{k: getattr(P, k) for k in
         ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
          'cost_index','material_source')},
-        'thresholds': dict(P.thresholds, min_profit_per_run=50_000, newbro_runs_per_day=3,
-                           starter_min_trades=20, starter_max_cost_share=0.25)})
+        'thresholds': dict(P.thresholds, min_margin=0.95, min_profit_per_run=10_000_000,
+                           starter_min_trades=1000, starter_max_cost_share=0.0001,
+                           newbro_runs_per_day=1)})
     fellesfelt = dict(passed=True, sell_price=100_000.0, units_per_run=2, time_per_run_s=3600,
                       margin=0.60, daily_volume=5000, factors={'trades_per_day': 40},
                       failed_rules=[])
-    # kapital 8 mill. → kostnadstak 2 mill. per run
     god_start = dict(fellesfelt, product_type_id=1, name="God start", bpo_price=1_000_000,
                      margin_me0=0.40, cost_per_unit_me0=60_000.0, runs_market_per_day=50)
     dyr_bpo = dict(fellesfelt, product_type_id=2, name="Dyr BPO", bpo_price=200_000_000,
                    margin_me0=0.50, cost_per_unit_me0=50_000.0, runs_market_per_day=50)
-    tynn_me0 = dict(fellesfelt, product_type_id=3, name="Dør ved ME 0", bpo_price=500_000,
-                    margin_me0=0.02, cost_per_unit_me0=93_000.0, runs_market_per_day=50)
+    tap_ved_me0 = dict(fellesfelt, product_type_id=3, name="Taper ved ME 0", bpo_price=500_000,
+                       margin_me0=-0.05, cost_per_unit_me0=105_000.0, runs_market_per_day=50)
     smaatt = dict(fellesfelt, product_type_id=4, name="Ikke verdt bryet", bpo_price=100_000,
                   margin_me0=0.40, cost_per_unit_me0=600.0, runs_market_per_day=50,
                   units_per_run=1, sell_price=1_000.0)
     tregt = dict(fellesfelt, product_type_id=5, name="Markedet tar lite", bpo_price=500_000,
                  margin_me0=0.40, cost_per_unit_me0=60_000.0, runs_market_per_day=0.5)
-    forkastet = dict(fellesfelt, product_type_id=6, name="Forkastet", passed=False,
-                     bpo_price=500_000, margin_me0=0.40, cost_per_unit_me0=60_000.0,
-                     failed_rules=['i2'])
-    liste = starter_list([god_start, dyr_bpo, tynn_me0, smaatt, tregt, forkastet], P3, 8_000_000)
-
+    forkastet = dict(fellesfelt, product_type_id=6, name="Forkastet av dommen", passed=False,
+                     bpo_price=500_000, margin_me0=0.45, cost_per_unit_me0=60_000.0,
+                     runs_market_per_day=50, failed_rules=['i2'])
+    feilpris = dict(fellesfelt, product_type_id=7, name="Feilpris", bpo_price=500_000,
+                    margin_me0=0.80, cost_per_unit_me0=60_000.0, runs_market_per_day=50,
+                    failed_rules=['i1x'])
+    faller = dict(fellesfelt, product_type_id=8, name="Prisen faller", bpo_price=500_000,
+                  margin_me0=0.75, cost_per_unit_me0=60_000.0, runs_market_per_day=50,
+                  failed_rules=['i6'])
+    alle = [god_start, dyr_bpo, tap_ved_me0, smaatt, tregt, forkastet, feilpris, faller]
+    liste = starter_list(alle, P3, 8_000_000)
     navn = [x["name"] for x in liste]
-    sjekk("kom i gang: forkastet vare er ikke med", 1 if "Forkastet" not in navn else 0, 1)
-    sjekk("kom i gang: vare som dør ved ME 0 er ikke med", 1 if "Dør ved ME 0" not in navn else 0, 1)
+
+    sjekk("kom i gang: tersklene i Avansert påvirker ikke lista", len(liste) >= 4 and 1 or 0, 1)
+    sjekk("kom i gang: vare dommen forkastet på volum er MED (lista har egne krav)",
+          1 if "Forkastet av dommen" in navn else 0, 1)
+    sjekk("kom i gang: negativ margin ved ME 0 er ikke med",
+          1 if "Taper ved ME 0" not in navn else 0, 1)
     sjekk("kom i gang: for liten fortjeneste per run er ikke med",
           1 if "Ikke verdt bryet" not in navn else 0, 1)
+    sjekk("kom i gang: urealistisk pris (i1x) er ikke med", 1 if "Feilpris" not in navn else 0, 1)
+    sjekk("kom i gang: fallende pris (i6) er ikke med", 1 if "Prisen faller" not in navn else 0, 1)
     sjekk("kom i gang: dyr BPO er MED, men merket", 1 if "Dyr BPO" in navn else 0, 1)
-    sjekk("kom i gang: det du har råd til kommer først", navn[0], "God start")
     sjekk("kom i gang: dyr BPO er ikke merket som overkommelig",
           1 if [x for x in liste if x["name"] == "Dyr BPO"][0]["affordable"] else 0, 0)
+    sjekk("kom i gang: det du har råd til kommer først", navn[0], "Forkastet av dommen")
+    sjekk("kom i gang: rangert på margin ved ME 0",
+          [round(float(x["margin_me0"]), 2) for x in liste if x["affordable"]],
+          sorted([round(float(x["margin_me0"]), 2) for x in liste if x["affordable"]], reverse=True))
 
     g = [x for x in liste if x["name"] == "God start"][0]
     netto_stk = 100_000 * (1 - P3.sell_fees) - 60_000
@@ -332,90 +350,75 @@ def main():
     sjekk("kom i gang: netto per run (2 stk)", g["profit_per_run"], round(netto_stk * 2, 2))
     sjekk("kom i gang: startkostnad = BPO + én run materialer", g["startup_cost"],
           round(1_000_000 + 60_000 * 2, 2))
-    sjekk("kom i gang: maks 3 runs per døgn for en nybegynner", g["runs_per_day"], 3)
+    sjekk("kom i gang: tre runs per døgn, uavhengig av terskelen",
+          g["runs_per_day"], NYBEGYNNER["runs_per_dag"])
 
     t = [x for x in liste if x["name"] == "Markedet tar lite"][0]
-    sjekk("kom i gang: markedet begrenser runs når det tar mindre enn 3", t["runs_per_day"], 0.5)
+    sjekk("kom i gang: markedet begrenser runs når det tar mindre enn tre", t["runs_per_day"], 0.5)
     sjekk("kom i gang: fortjeneste per døgn følger markedet",
           t["profit_per_day"], round(t["profit_per_run"] * 0.5, 2))
 
-    # ── Rangeringen: avkastning på bundet kapital, ikke absolutt ISK/dag ──
-    billig = dict(fellesfelt, product_type_id=10, name="Billig og likvid", bpo_price=125_000,
-                  margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
-                  units_per_run=1, sell_price=160_000.0)
-    dyr_tynn = dict(fellesfelt, product_type_id=11, name="Dyr men stor", bpo_price=1_250_000,
-                    margin_me0=0.30, cost_per_unit_me0=1_500_000.0, runs_market_per_day=50,
-                    units_per_run=1, sell_price=2_100_000.0)
-    rangert = starter_list([dyr_tynn, billig], P3, 8_000_000)
-    sjekk("rangering: billig og likvid slår dyr med større ISK/dag",
-          rangert[0]["name"], "Billig og likvid")
-    sjekk("rangering: den dyre gir mer ISK per døgn likevel",
-          1 if dyr_tynn_isk(rangert) else 0, 1)
-    sjekk("avkastning per døgn regnes ut",
-          rangert[0]["daily_return"], round(rangert[0]["profit_per_day"] / rangert[0]["cost_per_run"], 4))
-
-    # For tynt handlet marked er ikke noe for en nybegynner, selv med god margin
-    tynn_handel = dict(fellesfelt, product_type_id=12, name="Få handler", bpo_price=125_000,
-                       margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
-                       units_per_run=1, sell_price=160_000.0,
-                       factors={'trades_per_day': 5})
-    sjekk("få handler per dag er ikke for en nybegynner",
-          len([x for x in starter_list([tynn_handel], P3, 8_000_000) if x["name"] == "Få handler"]), 0)
-
-    # Én run skal ikke spise lommeboka: tak på 25 % av kapitalen
-    for_stor_run = dict(fellesfelt, product_type_id=13, name="Spiser lommeboka",
-                        bpo_price=125_000, margin_me0=0.30, cost_per_unit_me0=4_000_000.0,
-                        runs_market_per_day=50, units_per_run=1, sell_price=5_600_000.0)
-    med_alternativ = starter_list([for_stor_run] + [dict(billig, product_type_id=20 + i,
-                                  name=f"Billig {i}") for i in range(5)], P3, 8_000_000)
-    sjekk("kostnadstak holder store runs ute når det finnes nok alternativer",
-          len([x for x in med_alternativ if x["name"] == "Spiser lommeboka"]), 0)
-    # ... men er det ingenting annet, mykes taket opp framfor å vise en tom liste
-    sjekk("taket mykes opp når lista ellers blir tom",
-          len(starter_list([for_stor_run], P3, 8_000_000)), 1)
+    # ── «Selger helt ok»: handler per dag, med dagsvolum som reserve ──
+    tynn = dict(fellesfelt, product_type_id=10, name="Bare 4 handler", bpo_price=125_000,
+                margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
+                units_per_run=1, sell_price=200_000.0, factors={'trades_per_day': 4})
+    sjekk("tynt marked tas bare inn når lista ellers blir kort, og merkes",
+          [x["thin_market"] for x in starter_list([tynn], P3, 8_000_000)], [True])
+    sjekk("tynt marked kommer ikke med når det finnes nok gode",
+          1 if "Bare 4 handler" not in [x["name"] for x in
+              starter_list([tynn] + [dict(god_start, product_type_id=100 + i, name=f"God {i}")
+                                     for i in range(10)], P3, 8_000_000)] else 0, 1)
+    uten_data = dict(tynn, product_type_id=11, name="Ingen salgbarhetsdata",
+                     factors={}, daily_volume=None)
+    sjekk("vare uten handels- og volumtall er aldri «selger ok»",
+          len(starter_list([uten_data], P3, 8_000_000)), 0)
+    volum_reserve = dict(tynn, product_type_id=12, name="Bare volum", factors={},
+                         daily_volume=500)
+    sjekk("dagsvolum brukes når handelstallet mangler",
+          len(starter_list([volum_reserve], P3, 8_000_000)), 1)
 
     # ── «Hvis jeg skulle velge for deg»: likviditet avgjør blant de nesten like gode ──
-    topp_tynn = dict(fellesfelt, product_type_id=30, name="Høyest avkastning", bpo_price=125_000,
-                     margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
-                     units_per_run=1, sell_price=200_000.0, factors={'trades_per_day': 25})
+    topp_tynn = dict(fellesfelt, product_type_id=30, name="Best margin, lite handel",
+                     bpo_price=125_000, margin_me0=0.80, cost_per_unit_me0=100_000.0,
+                     runs_market_per_day=50, units_per_run=1, sell_price=200_000.0,
+                     factors={'trades_per_day': 12})
     nesten_likvid = dict(fellesfelt, product_type_id=31, name="Nesten like god, mye handel",
-                         bpo_price=125_000, margin_me0=0.45, cost_per_unit_me0=100_000.0,
-                         runs_market_per_day=50, units_per_run=1, sell_price=180_000.0,
+                         bpo_price=125_000, margin_me0=0.65, cost_per_unit_me0=100_000.0,
+                         runs_market_per_day=50, units_per_run=1, sell_price=190_000.0,
                          factors={'trades_per_day': 400})
-    valg = my_pick(starter_list([topp_tynn, nesten_likvid], P3, 8_000_000), P3)
+    valg = my_pick(starter_list([topp_tynn, nesten_likvid], P3, 8_000_000))
     sjekk("mitt valg: mest omsatte vinner blant de nesten like gode",
           valg["name"], "Nesten like god, mye handel")
-    sjekk("mitt valg: begrunnelsen nevner varen som gir mest",
-          1 if "Høyest avkastning" in valg["reason"] else 0, 1)
+    sjekk("mitt valg: begrunnelsen nevner varen med best margin",
+          1 if "Best margin, lite handel" in valg["reason"] else 0, 1)
 
-    # Er forskjellen i avkastning STOR, skal den beste vinne uansett handelstall
-    langt_bak = dict(nesten_likvid, product_type_id=32, name="Langt bak", sell_price=165_000.0,
-                     margin_me0=0.11)
-    valg2 = my_pick(starter_list([topp_tynn, langt_bak], P3, 8_000_000), P3)
-    sjekk("mitt valg: for dårlig avkastning vinner ikke på handelstall",
-          valg2["name"], "Høyest avkastning")
+    langt_bak = dict(nesten_likvid, product_type_id=32, name="Langt bak", margin_me0=0.30)
+    valg2 = my_pick(starter_list([topp_tynn, langt_bak], P3, 8_000_000))
+    sjekk("mitt valg: for dårlig margin vinner ikke på handelstall",
+          valg2["name"], "Best margin, lite handel")
     sjekk("mitt valg: begrunnelsen sier at den er best",
-          1 if "Best avkastning" in valg2["reason"] else 0, 1)
-
-    # Har du ikke råd til noe, får du likevel et valg – ellers sier siden ingenting
+          1 if "Best margin" in valg2["reason"] else 0, 1)
     sjekk("mitt valg: velger blant det du ikke har råd til om nødvendig",
-          my_pick(starter_list([dyr_bpo], P3, 8_000_000), P3)["name"], "Dyr BPO")
-    sjekk("mitt valg: tom liste gir ingen anbefaling",
-          1 if my_pick([], P3) is None else 0, 1)
+          my_pick(starter_list([dyr_bpo], P3, 8_000_000))["name"], "Dyr BPO")
+    sjekk("mitt valg: tom liste gir ingen anbefaling", 1 if my_pick([]) is None else 0, 1)
+    sjekk("mitt valg: tynt marked får en advarsel i begrunnelsen",
+          1 if "tynt" in my_pick(starter_list([tynn], P3, 8_000_000))["reason"] else 0, 1)
 
     # ── Trakten: en tom liste må kunne forklare hvor forslagene ble borte ──
-    trakt = starter_funnel([god_start, dyr_bpo, tynn_me0, smaatt, tregt, forkastet,
-                            dict(fellesfelt, product_type_id=40, name="Uten BPO", bpo_price=None,
-                                 margin_me0=0.40, cost_per_unit_me0=60_000.0)], P3, 8_000_000)
+    trakt = starter_funnel(alle + [dict(fellesfelt, product_type_id=40, name="Uten BPO",
+                                        bpo_price=None, margin_me0=0.40,
+                                        cost_per_unit_me0=60_000.0)], P3, 8_000_000)
     steg = {t["step"]: t["count"] for t in trakt}
-    sjekk("trakt: seks steg", len(trakt), 6)
-    sjekk("trakt: teller dem som passerer reglene", steg["passerer reglene"], 6)
-    sjekk("trakt: teller bort dem uten BPO-pris", steg["har BPO-pris"], 5)
-    sjekk("trakt: teller bort dem som dør ved ME 0", steg["margin ved ME 0 over 10 %"], 4)
-    sjekk("trakt: siste steg = for liten fortjeneste per run",
-          steg["minst 50k fortjeneste per run"], 3)
+    sjekk("trakt: fem steg", len(trakt), 5)
+    sjekk("trakt: teller alt roboten vurderte", steg["vurdert av roboten"], 9)
+    sjekk("trakt: teller bort dem uten pris og dem med upålitelige tall",
+          steg["har blueprint-pris og priser å regne på"], 6)
+    sjekk("trakt: teller bort dem som taper penger ved ME 0",
+          steg["positiv margin med uforsket blueprint"], 5)
+    sjekk("trakt: teller bort dem med for liten fortjeneste",
+          steg["minst 5k fortjeneste per run"], 4)
     sjekk("trakt: stegene er i samme rekkefølge som filteret",
-          trakt[0]["step"], "passerer reglene")
+          trakt[0]["step"], "vurdert av roboten")
 
     grunner = why_not([forkastet, dict(fellesfelt, failed_rules=['i2', 'i11']),
                        dict(fellesfelt, failed_rules=['i2'])])
