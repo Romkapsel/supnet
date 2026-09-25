@@ -169,6 +169,21 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### «Skulle jeg velge for deg» + tabell i stedet for kort (25. sept 2026)
+Lista var riktig, men leste som en stabel kort, og fanen turte ikke å peke på én. To ting lagt til:
+
+- **`my_pick()`** (speilet av `myPick()` i `lib/industry.js`) velger én. Alle innenfor
+  `pick_return_share` (70 %) av beste avkastning regnes som likeverdige; av dem vinner **flest
+  handler per dag**. Grunnen skrives ut på norsk og vises over lista, så siden sier *hvorfor*,
+  ikke bare *hva*. Har du ikke råd til noe, velges det likevel én (med «du mangler X ISK»).
+- **`starter_funnel()`** (speilet av `starterFunnel()`) teller hvor mange varer som klarer hvert
+  krav i tur og orden: passerer reglene → har BPO-pris → margin ved ME 0 → handler per dag →
+  kostnadstak → fortjeneste per run. Tom liste viser trakten, så det står svart på hvitt hvilket
+  krav som nuller den ut – i stedet for at vi må grave i SQL som 25. sept.
+  (Trakten på kjøringen 25. sept 07:08: 38 → 38 → 30 → 22 → 17 → 17.)
+- Forslagene vises nå som **én tabell** (Blueprint · BPO · Materialer/run · Fortjeneste/run ·
+  Margin ME 0 · Handler/dag · Start totalt). Klikk en rad for materiallista og detaljene.
+
 ### «Kom i gang» – fanen bygget om for nybegynner (25. sept 2026)
 Fanen åpnet med 1 149 rader der de fleste lå under marginen, og porteføljen ga 0 forslag fordi
 kapitalen ikke rakk. `starter_list()` (speilet i `lib/industry.js`) svarer i stedet på

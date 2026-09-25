@@ -495,6 +495,73 @@ def starter_list(rows: list[dict], p: IndustryProfile, capital: float, antall: i
     return liste[:antall]
 
 
+def my_pick(liste: list[dict], p: IndustryProfile) -> dict | None:
+    """«Hvis jeg skulle velge for deg». Blant dem som er nesten like gode på avkastning,
+    velg den som er lettest å få solgt – det er likviditeten som gjør vondt når man er ny.
+
+    Terskel: alle med minst `pick_return_share` (70 %) av beste avkastning regnes som
+    likeverdige; av dem vinner flest handler per dag. Begrunnelsen skrives ut, slik at
+    siden kan si hvorfor – ikke bare hva.
+    """
+    kandidater = [x for x in liste if x.get("affordable")] or liste
+    if not kandidater:
+        return None
+    beste_avk = max(x.get("daily_return") or 0 for x in kandidater)
+    andel = float(p.t("pick_return_share", 0.7))
+    likeverdige = [x for x in kandidater if (x.get("daily_return") or 0) >= beste_avk * andel]
+    valg = max(likeverdige, key=lambda x: (x.get("trades_per_day") or 0))
+    topp = max(kandidater, key=lambda x: x.get("daily_return") or 0)
+
+    if valg is topp or valg["product_type_id"] == topp["product_type_id"]:
+        grunn = (f"Best avkastning ({(valg['daily_return'] or 0) * 100:.0f} % av pengene per døgn) "
+                 f"og {valg.get('trades_per_day') or 0:.0f} handler per dag – den selges lett.")
+    else:
+        grunn = (f"Nesten samme avkastning som {topp['name']} "
+                 f"({(valg['daily_return'] or 0) * 100:.0f} % mot {(topp['daily_return'] or 0) * 100:.0f} %), "
+                 f"men {valg.get('trades_per_day') or 0:.0f} handler per dag mot "
+                 f"{topp.get('trades_per_day') or 0:.0f} – du får varen ut igjen lettere, "
+                 f"og det er det som gjør vondt når man er ny.")
+    return dict(valg, reason=grunn)
+
+
+def starter_funnel(rows: list[dict], p: IndustryProfile, capital: float) -> list[dict]:
+    """Hvor forsvinner forslagene? Teller hvor mange som faller for hvert krav i tur og orden,
+    slik at en tom liste kan forklare seg selv i stedet for at vi må gjette."""
+    min_margin = float(p.t("min_margin", 0.10))
+    min_profit = float(p.t("min_profit_per_run", 50_000))
+    min_trades = float(p.t("starter_min_trades", 20))
+    tak = capital * float(p.t("starter_max_cost_share", 0.25)) if capital > 0 else None
+
+    steg = [("passerer reglene", 0), ("har BPO-pris", 0), (f"margin ved ME 0 over {min_margin * 100:.0f} %", 0),
+            (f"minst {min_trades:.0f} handler per dag", 0),
+            ("én run innenfor kostnadstaket", 0), (f"minst {min_profit / 1000:.0f}k fortjeneste per run", 0)]
+    for r in rows:
+        if not r.get("passed"):
+            continue
+        steg[0] = (steg[0][0], steg[0][1] + 1)
+        if not r.get("bpo_price"):
+            continue
+        steg[1] = (steg[1][0], steg[1][1] + 1)
+        me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
+        if me0 is None or kost0 is None or me0 < min_margin:
+            continue
+        steg[2] = (steg[2][0], steg[2][1] + 1)
+        handler = (r.get("factors") or {}).get("trades_per_day")
+        if handler is not None and float(handler) < min_trades:
+            continue
+        steg[3] = (steg[3][0], steg[3][1] + 1)
+        per_run = int(r.get("units_per_run") or 1)
+        kost_run = kost0 * per_run
+        if tak is not None and kost_run > tak:
+            continue
+        steg[4] = (steg[4][0], steg[4][1] + 1)
+        netto_run = (r["sell_price"] * (1 - p.sell_fees) - kost0) * per_run
+        if netto_run < min_profit:
+            continue
+        steg[5] = (steg[5][0], steg[5][1] + 1)
+    return [dict(step=navn, count=antall) for navn, antall in steg]
+
+
 def why_not(rows: list[dict], rules: dict | None = None) -> list[dict]:
     """Hvorfor kom ikke resten med? Teller avslagsgrunnene, så siden kan forklare seg
     i stedet for å vise 1 100 rader ingen leser."""
