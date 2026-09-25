@@ -542,14 +542,20 @@ async function industryProfile(q) {
 async function industry(q, query) {
   const p = await industryProfile(q);
   const [run] = await q`select max(run_at) as run_at from jita.industry_candidates`;
+  // NB: sammenlign run_at i SQL, ikke mot en verdi som har vært innom JS. Date har bare
+  // millisekunder, run_at har mikrosekunder (…07.254247), så `where run_at = ${dato}`
+  // traff ingenting og siden sto tom med «0 forslag».
   const rows = run?.run_at ? await q`
     select c.*, t.name, t.group_name, t.category_id, t.market_group_path, b.npc_bpo
     from jita.industry_candidates c
     join jita.types t on t.type_id = c.product_type_id
     left join jita.blueprints b on b.blueprint_type_id = c.blueprint_type_id
-    where c.run_at = ${run.run_at}
+    where c.run_at = (select max(run_at) from jita.industry_candidates)
     order by c.passed desc, c.score desc nulls last
-    limit 300` : [];
+    limit 2000` : [];
+  // Nybegynnerlista og trakten ser på ALLE radene; tabellen på siden får de 300 øverste,
+  // slik at svaret holder seg lite nok for mobil.
+  const visRows = rows.slice(0, 300);
 
   const slots = Math.max(1, Math.min(50, Number(query.slots) || p.slots_effective));
   const capital = Number(query.capital) || Number(p.cash_isk ?? p.capital_isk) || 0;
@@ -575,7 +581,7 @@ async function industry(q, query) {
     });
   }
   // «Hvis jeg skulle velge for deg» – og en trakt som forklarer en tom liste
-  const pick = myPick(starter, p);
+  const pick = myPick(starter);
   const funnel = starterFunnel(rows, p, capital);
   const why = whyNot(rows, INDUSTRY_RULES);
 
@@ -583,7 +589,7 @@ async function industry(q, query) {
                           from jita.robot_runs where job = 'industry' order by run_at desc limit 1`;
   const [counts] = await q`
     select count(*) filter (where passed) as passed, count(*) as total
-    from jita.industry_candidates where run_at = ${run?.run_at || null}`;
+    from jita.industry_candidates where run_at = (select max(run_at) from jita.industry_candidates)`;
   const alerts = await q`
     select a.created_at, a.type_id, t.name, a.payload->>'text' as text
     from jita.alerts a left join jita.types t using (type_id)
@@ -591,7 +597,7 @@ async function industry(q, query) {
     order by a.created_at desc limit 10`;
   const [sde] = await q`select count(*)::int as n, max(updated_at) as at,
                           count(*) filter (where npc_bpo) as npc from jita.blueprints`;
-  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, starter, pick, funnel,
+  return { profile: p, run_at: run?.run_at || null, rows: visRows, portfolio, start, starter, pick, funnel,
            why, robot, counts, alerts, sde, rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
 }
 
@@ -661,7 +667,7 @@ async function mining(q) {
     select c.*, t.name, t.group_name, k.name as compressed_name
     from jita.mining_candidates c join jita.types t on t.type_id = c.ore_type_id
     left join jita.types k on k.type_id = c.compressed_type_id
-    where c.run_at = ${run.run_at}
+    where c.run_at = (select max(run_at) from jita.mining_candidates)
     order by c.available desc, c.score desc nulls last, c.best_value_per_m3 desc nulls last
     limit 200` : [];
 

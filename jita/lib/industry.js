@@ -21,65 +21,131 @@ export const INDUSTRY_RULES = {
 // Kategoriene vi rangerer (ESI category_id) – brukes til filteret i fanen.
 export const CATEGORY_NAMES = { 6: "Skip", 7: "Moduler", 8: "Ammo og charges", 18: "Droner", 22: "Deployables" };
 
-/** «Kom i gang»: 5–10 blueprints for en nybegynner. Speilet av starter_list() i scripts/industry.py.
- *  Regner med UFORSKET blueprint (ME 0), per RUN, maks 3 runs per døgn og aldri mer enn markedet tar.
- *  Rangeres på AVKASTNING per døgn på bundet kapital – sorterer man på ISK/dag, fylles lista av
- *  Large-rigger med 4 mill. i materialer per run i markeder med 12 handler om dagen.
- *  Krever 20 handler/dag, og at én run ikke koster mer enn 25 % av kapitalen (mykes opp om lista
- *  blir for kort). Filtrerer ikke bort noe på kapital; det du ikke har råd til merkes i stedet. */
-export function starterList(rows, p, capital, antall = 10) {
-  const th = p.thresholds || {};
-  const minMargin = Number(th.min_margin ?? 0.10);
-  const minProfit = Number(th.min_profit_per_run ?? 50000);
-  const minTrades = Number(th.starter_min_trades ?? 20);
-  const maksRuns = Number(th.newbro_runs_per_day ?? 3);
-  const andel = Number(th.starter_max_cost_share ?? 0.25);
-  const fees = Number(p.sell_fees);
+// ── «Kom i gang»-lista: faste regler, ikke koblet til tersklene ───────────────
+// Speilet av NYBEGYNNER/starter_list()/my_pick()/starter_funnel() i scripts/industry.py –
+// endrer du én, endre begge. Tallene står HER, i koden, og ikke i thresholds: tersklene
+// styrer dommeren (den store tabellen), mens denne lista er for en nybegynner som bare vil
+// vite hva som er lurt å kjøpe blueprint av. Den bruker heller ikke dommens «passed».
+export const NYBEGYNNER = {
+  min_handler: 10,          // «selger helt ok» – handler per dag i Jita
+  min_handler_myk: 3,       // brukes bare hvis lista ellers blir kortere enn ti
+  min_volum: 20,            // stk per dag, hvis handelstallet mangler
+  min_fortjeneste: 5000,    // ISK per run – under dette er det ikke verdt turen
+  maks_margin: 3.0,         // over 300 % er nesten alltid en feilpris
+  runs_per_dag: 3,
+  antall: 10,
+  pick_margin_share: 0.7,
+};
 
-  const bygg = (kostnadstak) => {
-    const ut = [];
-    for (const r of rows) {
-      if (!r.passed || r.bpo_price == null) continue;
-      const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
-      const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
-      if (me0 == null || kost0 == null || me0 < minMargin) continue;
-      const handler = r.factors?.trades_per_day ?? null;
-      if (handler != null && Number(handler) < minTrades) continue;
-      const perRun = Number(r.units_per_run || 1);
-      const kostRun = kost0 * perRun;
-      if (kostnadstak != null && kostRun > kostnadstak) continue;
-      const nettoStk = Number(r.sell_price) * (1 - fees) - kost0;
-      const nettoRun = nettoStk * perRun;
-      if (nettoRun < minProfit) continue;
-      const runsMarked = r.runs_market_per_day == null ? null : Number(r.runs_market_per_day);
-      const runsDag = runsMarked != null ? Math.min(maksRuns, runsMarked) : maksRuns;
-      const perDag = nettoRun * runsDag;
-      const start = Number(r.bpo_price) + kostRun;
-      ut.push({
-        product_type_id: r.product_type_id, blueprint_type_id: r.blueprint_type_id,
-        name: r.name, blueprint_name: `${r.name} Blueprint`,
-        bpo_price: Number(r.bpo_price), bpo_price_source: r.bpo_price_source,
-        units_per_run: perRun, cost_per_unit_me0: kost0, cost_per_run: kostRun,
-        sell_price: Number(r.sell_price), profit_per_unit: nettoStk, profit_per_run: nettoRun,
-        margin_me0: me0, margin_me10: r.margin == null ? null : Number(r.margin),
-        hours_per_run: Math.round((Number(r.time_per_run_s) || 0) / 36) / 100,
-        runs_market_per_day: runsMarked, runs_per_day: runsDag, profit_per_day: perDag,
-        daily_return: kostRun > 0 ? perDag / kostRun : 0,
-        startup_cost: start, affordable: start <= capital,
-        daily_volume: r.daily_volume == null ? null : Number(r.daily_volume),
-        trades_per_day: handler, sell_orders: r.sell_orders, group_name: r.group_name,
-      });
-    }
-    ut.sort((a, b) => (a.affordable === b.affordable ? b.daily_return - a.daily_return
-                                                    : (a.affordable ? -1 : 1)));
-    return ut;
+// Avslag som betyr «tallene er ikke til å stole på» eller «prisen faller».
+const STARTER_SKIP = ["i1x", "i6", "i7", "i9", "i10"];
+
+/** Én kandidatrad → én «kom i gang»-rad: ME 0, én run, alle kostnader med.
+ *  cost_per_unit_me0 inneholder materialer (med kjøpsordregebyr) og jobbavgiften;
+ *  salgssiden trekker broker + skatt. Frakten Ylandoki→Jita er ikke med (noen få m3). */
+function starterRad(r, p, capital) {
+  const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
+  const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
+  if (r.bpo_price == null || me0 == null || kost0 == null || !r.sell_price) return null;
+  if (me0 <= 0 || me0 > NYBEGYNNER.maks_margin) return null;
+  if ((r.failed_rules || []).some((x) => STARTER_SKIP.includes(x))) return null;
+  const perRun = Number(r.units_per_run || 1);
+  const kostRun = kost0 * perRun;
+  const nettoStk = Number(r.sell_price) * (1 - Number(p.sell_fees)) - kost0;
+  const nettoRun = nettoStk * perRun;
+  if (nettoRun < NYBEGYNNER.min_fortjeneste) return null;
+  const handler = r.factors?.trades_per_day ?? null;
+  const runsMarked = r.runs_market_per_day == null ? null : Number(r.runs_market_per_day);
+  const runsDag = runsMarked ? Math.min(NYBEGYNNER.runs_per_dag, runsMarked) : NYBEGYNNER.runs_per_dag;
+  const perDag = nettoRun * runsDag;
+  const start = Number(r.bpo_price) + kostRun;
+  return {
+    product_type_id: r.product_type_id, blueprint_type_id: r.blueprint_type_id,
+    name: r.name, blueprint_name: `${r.name} Blueprint`,
+    bpo_price: Number(r.bpo_price), bpo_price_source: r.bpo_price_source,
+    units_per_run: perRun, cost_per_unit_me0: kost0, cost_per_run: kostRun,
+    sell_price: Number(r.sell_price), profit_per_unit: nettoStk, profit_per_run: nettoRun,
+    margin_me0: me0, margin_me10: r.margin == null ? null : Number(r.margin),
+    hours_per_run: Math.round((Number(r.time_per_run_s) || 0) / 36) / 100,
+    runs_market_per_day: runsMarked, runs_per_day: runsDag, profit_per_day: perDag,
+    daily_return: kostRun > 0 ? perDag / kostRun : 0,
+    startup_cost: start, affordable: start <= capital,
+    daily_volume: r.daily_volume == null ? null : Number(r.daily_volume),
+    trades_per_day: handler == null ? null : Number(handler),
+    sell_orders: r.sell_orders, group_name: r.group_name,
   };
+}
 
-  const tak = capital > 0 ? capital * andel : null;
-  let liste = bygg(tak);
-  if (liste.length < 5 && tak) liste = bygg(tak * 2);
-  if (liste.length < 5) liste = bygg(null);
-  return liste.slice(0, antall);
+/** «Selger helt ok»: nok handler per dag, eller nok dagsvolum hvis handelstallet mangler. */
+function selgerOk(rad, minHandler) {
+  if (rad.trades_per_day != null) return rad.trades_per_day >= minHandler;
+  if (rad.daily_volume != null) return rad.daily_volume >= NYBEGYNNER.min_volum;
+  return false;
+}
+
+/** «Kom i gang»: varene med best margin som selger helt ok. Rangert på margin ved ME 0,
+ *  de du har råd til øverst. Blir lista kortere enn ti, fylles den opp med tynnere markeder
+ *  (merket thin_market) framfor å vise en kort eller tom liste. */
+export function starterList(rows, p, capital, antall = NYBEGYNNER.antall) {
+  const alle = rows.map((r) => starterRad(r, p, capital)).filter(Boolean);
+  const sorter = (liste) => liste.sort((a, b) => (a.affordable === b.affordable
+    ? (b.margin_me0 - a.margin_me0) || ((b.trades_per_day || 0) - (a.trades_per_day || 0))
+    : (a.affordable ? -1 : 1)));
+  const gode = sorter(alle.filter((x) => selgerOk(x, NYBEGYNNER.min_handler)));
+  for (const x of gode) x.thin_market = false;
+  let ut = gode;
+  if (gode.length < antall) {
+    const ekstra = sorter(alle.filter((x) => !selgerOk(x, NYBEGYNNER.min_handler)
+                                          && selgerOk(x, NYBEGYNNER.min_handler_myk)));
+    for (const x of ekstra) x.thin_market = true;
+    ut = gode.concat(ekstra);
+  }
+  return ut.slice(0, antall);
+}
+
+/** «Hvis jeg skulle velge for deg»: blant dem med nesten like god margin (minst 70 % av
+ *  den beste), den som selges oftest. Begrunnelsen skrives ut. Kan ikke skrus på i Avansert. */
+export function myPick(liste) {
+  const kandidater = liste.filter((x) => x.affordable).length ? liste.filter((x) => x.affordable) : liste;
+  if (!kandidater.length) return null;
+  const marg = (x) => Number(x.margin_me0 || 0);
+  const handler = (x) => Number(x.trades_per_day || 0);
+  const beste = Math.max(...kandidater.map(marg));
+  const likeverdige = kandidater.filter((x) => marg(x) >= beste * NYBEGYNNER.pick_margin_share);
+  const valg = likeverdige.reduce((a, b) => (handler(b) > handler(a) ? b : a));
+  const topp = kandidater.reduce((a, b) => (marg(b) > marg(a) ? b : a));
+  const p0 = (v) => `${Math.round(v * 100)} %`;
+  let grunn = valg.product_type_id === topp.product_type_id
+    ? `Best margin (${p0(marg(valg))} med uforsket blueprint) og ${Math.round(handler(valg))} handler per dag – den selges lett.`
+    : `Nesten like god margin som ${topp.name} (${p0(marg(valg))} mot ${p0(marg(topp))}), men `
+      + `${Math.round(handler(valg))} handler per dag mot ${Math.round(handler(topp))} – du får varen `
+      + `ut igjen lettere, og det er det som gjør vondt når man er ny.`;
+  if (valg.thin_market) grunn += ' Markedet er tynt, så legg varen ut og vent framfor å dumpe den.';
+  return { ...valg, reason: grunn };
+}
+
+/** Hvor forsvinner forslagene? Teller de FASTE kravene i tur og orden. */
+export function starterFunnel(rows, p, capital) {
+  const steg = [["vurdert av roboten", 0], ["har blueprint-pris og priser å regne på", 0],
+    ["positiv margin med uforsket blueprint", 0],
+    [`minst ${Math.round(NYBEGYNNER.min_fortjeneste / 1000)}k fortjeneste per run`, 0],
+    [`selges minst ${NYBEGYNNER.min_handler} ganger per dag`, 0]];
+  for (const r of rows) {
+    steg[0][1]++;
+    const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
+    const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
+    if (r.bpo_price == null || me0 == null || kost0 == null || !r.sell_price
+        || (r.failed_rules || []).some((x) => STARTER_SKIP.includes(x))) continue;
+    steg[1][1]++;
+    if (me0 <= 0 || me0 > NYBEGYNNER.maks_margin) continue;
+    steg[2][1]++;
+    const rad = starterRad(r, p, capital);
+    if (!rad) continue;
+    steg[3][1]++;
+    if (!selgerOk(rad, NYBEGYNNER.min_handler)) continue;
+    steg[4][1]++;
+  }
+  return steg.map(([step, count]) => ({ step, count }));
 }
 
 /** Hvorfor kom ikke resten med? Teller avslagsgrunnene, så siden kan forklare seg. */
@@ -131,65 +197,4 @@ export function pickPortfolio(rows, slots, capital) {
     isk_per_day: picks.reduce((s, p) => s + p.isk_per_day_slot, 0),
     capital_used: picks.reduce((s, p) => s + p.capital_per_job, 0),
   };
-}
-
-/** «Hvis jeg skulle velge for deg». Speilet av my_pick() i scripts/industry.py.
- *  Blant dem som er nesten like gode på avkastning, velg den som er lettest å få solgt –
- *  det er likviditeten som gjør vondt når man er ny. Begrunnelsen skrives ut, slik at siden
- *  kan si HVORFOR, ikke bare hva. */
-export function myPick(liste, p) {
-  const kandidater = liste.filter((x) => x.affordable).length ? liste.filter((x) => x.affordable) : liste;
-  if (!kandidater.length) return null;
-  const avk = (x) => Number(x.daily_return || 0);
-  const handler = (x) => Number(x.trades_per_day || 0);
-  const besteAvk = Math.max(...kandidater.map(avk));
-  const andel = Number(p.thresholds?.pick_return_share ?? 0.7);
-  const likeverdige = kandidater.filter((x) => avk(x) >= besteAvk * andel);
-  const valg = likeverdige.reduce((a, b) => (handler(b) > handler(a) ? b : a));
-  const topp = kandidater.reduce((a, b) => (avk(b) > avk(a) ? b : a));
-  const p0 = (v) => `${Math.round(v * 100)} %`;
-  const grunn = valg.product_type_id === topp.product_type_id
-    ? `Best avkastning (${p0(avk(valg))} av pengene per døgn) og ${Math.round(handler(valg))} handler per dag – den selges lett.`
-    : `Nesten samme avkastning som ${topp.name} (${p0(avk(valg))} mot ${p0(avk(topp))}), men `
-      + `${Math.round(handler(valg))} handler per dag mot ${Math.round(handler(topp))} – du får varen ut igjen `
-      + `lettere, og det er det som gjør vondt når man er ny.`;
-  return { ...valg, reason: grunn };
-}
-
-/** Hvor forsvinner forslagene? Speilet av starter_funnel() i scripts/industry.py.
- *  Teller hvor mange som faller for hvert krav i tur og orden, slik at en tom liste kan
- *  forklare seg selv i stedet for at vi må gjette. */
-export function starterFunnel(rows, p, capital) {
-  const th = p.thresholds || {};
-  const minMargin = Number(th.min_margin ?? 0.10);
-  const minProfit = Number(th.min_profit_per_run ?? 50000);
-  const minTrades = Number(th.starter_min_trades ?? 20);
-  const fees = Number(p.sell_fees);
-  const tak = capital > 0 ? capital * Number(th.starter_max_cost_share ?? 0.25) : null;
-
-  const steg = [["passerer reglene", 0], ["har BPO-pris", 0],
-    [`margin ved ME 0 over ${Math.round(minMargin * 100)} %`, 0],
-    [`minst ${Math.round(minTrades)} handler per dag`, 0],
-    ["én run innenfor kostnadstaket", 0],
-    [`minst ${Math.round(minProfit / 1000)}k fortjeneste per run`, 0]];
-  for (const r of rows) {
-    if (!r.passed) continue;
-    steg[0][1]++;
-    if (r.bpo_price == null) continue;
-    steg[1][1]++;
-    const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
-    const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
-    if (me0 == null || kost0 == null || me0 < minMargin) continue;
-    steg[2][1]++;
-    const handler = r.factors?.trades_per_day ?? null;
-    if (handler != null && Number(handler) < minTrades) continue;
-    steg[3][1]++;
-    const perRun = Number(r.units_per_run || 1);
-    const kostRun = kost0 * perRun;
-    if (tak != null && kostRun > tak) continue;
-    steg[4][1]++;
-    if ((Number(r.sell_price) * (1 - fees) - kost0) * perRun < minProfit) continue;
-    steg[5][1]++;
-  }
-  return steg.map(([step, count]) => ({ step, count }));
 }

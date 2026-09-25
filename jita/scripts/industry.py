@@ -420,145 +420,170 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
     return " ".join(parts)
 
 
-def starter_list(rows: list[dict], p: IndustryProfile, capital: float, antall: int = 10) -> list[dict]:
-    """«Kom i gang»: 5–10 blueprints en nybegynner kan kjøpe først.
+# ── «Kom i gang»-lista: faste regler, ikke koblet til tersklene ───────────────
+# Lista skal virke uten at noen går inn i «Avansert» og skrur. Derfor står tallene HER,
+# i koden, og ikke i industry_profile.thresholds: tersklene styrer dommeren (den store
+# tabellen), mens denne lista er for en nybegynner som bare vil vite hva som er lurt å
+# kjøpe blueprint av. Den bruker heller ikke dommens «passed», bare sine egne krav.
+NYBEGYNNER = dict(
+    min_handler=10,          # «selger helt ok» – handler per dag i Jita
+    min_handler_myk=3,       # brukes bare hvis lista ellers blir kortere enn ti
+    min_volum=20,            # stk per dag, hvis handelstallet mangler
+    min_fortjeneste=5_000,   # ISK per run – under dette er det ikke verdt turen
+    maks_margin=3.0,         # over 300 % er nesten alltid en feilpris, ikke en gullgruve
+    runs_per_dag=3,          # hva en nybegynner rekker med én slot
+    antall=10,
+    pick_margin_share=0.7,   # «mitt valg» kan gå ned til 70 % av beste margin for likviditet
+)
 
-    Tenkt for noen som ikke har produsert før, og derfor:
-      - regner med UFORSKET blueprint (ME 0) – det er det du får når du kjøper en BPO
-      - regner per RUN, ikke per stor batch – du starter med én jobb
-      - begrenser til 3 runs per døgn, og aldri mer enn markedet tar
-        (det er dette som hindrer «produser 100 skip du ikke får solgt»)
-      - krever et marked som faktisk handles (`starter_min_trades`, 20 handler/dag) – strengere
-        enn dommen ellers, for en nybegynner må få varen ut igjen
-      - lar ikke én run spise lommeboka (`starter_max_cost_share`, 25 % av kapitalen)
+# Avslag som betyr «tallene er ikke til å stole på» eller «prisen faller» – de teller
+# også for nybegynnerlista. De andre reglene (volum, selgere, kapital, margin-terskel)
+# har lista sine egne, enklere versjoner av.
+STARTER_SKIP = ("i1x", "i6", "i7", "i9", "i10")
 
-    **Rangeres på avkastning per døgn på pengene som er bundet**, ikke på ISK/dag. Sorterer man
-    på ISK/dag, fylles lista av Large-rigger: 4 mill. i materialer per run i markeder med
-    12 handler om dagen. Avkastning gir i stedet billige, likvide varer med god margin.
 
-    Kapital filtrerer ikke bort noe: det du ikke har råd til merkes, for det er nyttig å se
-    hva neste steg koster. Er det færre enn 5 forslag, mykes kostnadstaket opp.
+def _starter_rad(r: dict, p: IndustryProfile, capital: float) -> dict | None:
+    """Regner om én kandidatrad til en «kom i gang»-rad: ME 0, én run, alle kostnader med.
+
+    Kostprisen (`cost_per_unit_me0`) inneholder materialer (med kjøpsordregebyr hvis du
+    legger ordre) *og* jobbavgiften (systemindeks + facility tax + SCC). Salgssiden trekker
+    broker + skatt. Det som IKKE er med, er frakten Ylandoki→Jita – den er noen få m3.
     """
-    min_margin = float(p.t("min_margin", 0.10))
-    min_profit = float(p.t("min_profit_per_run", 50_000))
-    min_trades = float(p.t("starter_min_trades", 20))
-    maks_runs = float(p.t("newbro_runs_per_day", 3))
-    andel = float(p.t("starter_max_cost_share", 0.25))
-
-    def bygg(kostnadstak: float | None) -> list[dict]:
-        ut = []
-        for r in rows:
-            if not r.get("passed") or not r.get("bpo_price"):
-                continue
-            me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
-            if me0 is None or kost0 is None or me0 < min_margin:
-                continue
-            handler = (r.get("factors") or {}).get("trades_per_day")
-            if handler is not None and float(handler) < min_trades:
-                continue
-            per_run = int(r.get("units_per_run") or 1)
-            kost_run = round(kost0 * per_run, 2)
-            if kostnadstak is not None and kost_run > kostnadstak:
-                continue
-            netto_stk = round(r["sell_price"] * (1 - p.sell_fees) - kost0, 2)
-            netto_run = round(netto_stk * per_run, 2)
-            if netto_run < min_profit:
-                continue
-            runs_marked = r.get("runs_market_per_day")
-            runs_dag = min(maks_runs, runs_marked) if runs_marked else maks_runs
-            per_dag = round(netto_run * runs_dag, 2)
-            start = float(r["bpo_price"]) + kost_run
-            ut.append(dict(
-                product_type_id=r["product_type_id"], blueprint_type_id=r.get("blueprint_type_id"),
-                name=r.get("name"), blueprint_name=(r.get("name") or "") + " Blueprint",
-                bpo_price=float(r["bpo_price"]), bpo_price_source=r.get("bpo_price_source"),
-                units_per_run=per_run, cost_per_unit_me0=kost0, cost_per_run=kost_run,
-                sell_price=r.get("sell_price"), profit_per_unit=netto_stk, profit_per_run=netto_run,
-                margin_me0=me0, margin_me10=r.get("margin"),
-                hours_per_run=round((r.get("time_per_run_s") or 0) / 3600, 2),
-                runs_market_per_day=runs_marked, runs_per_day=round(runs_dag, 2),
-                profit_per_day=per_dag,
-                # Avkastning per døgn på ISK-ene som ligger i materialene – rangeringstallet
-                daily_return=round(per_dag / kost_run, 4) if kost_run > 0 else 0.0,
-                startup_cost=round(start, 2), affordable=start <= capital,
-                daily_volume=r.get("daily_volume"), trades_per_day=handler,
-                sell_orders=r.get("sell_orders")))
-        ut.sort(key=lambda x: (not x["affordable"], -x["daily_return"]))
-        return ut
-
-    tak = capital * andel if capital > 0 else None
-    liste = bygg(tak)
-    if len(liste) < 5 and tak:                 # for få forslag → myk opp taket i to trinn
-        liste = bygg(tak * 2)
-    if len(liste) < 5:
-        liste = bygg(None)
-    return liste[:antall]
+    me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
+    if r.get("bpo_price") is None or me0 is None or kost0 is None or not r.get("sell_price"):
+        return None
+    if me0 <= 0 or me0 > NYBEGYNNER["maks_margin"]:
+        return None
+    if any(x in STARTER_SKIP for x in (r.get("failed_rules") or [])):
+        return None
+    per_run = int(r.get("units_per_run") or 1)
+    kost_run = round(kost0 * per_run, 2)
+    netto_stk = round(r["sell_price"] * (1 - p.sell_fees) - kost0, 2)
+    netto_run = round(netto_stk * per_run, 2)
+    if netto_run < NYBEGYNNER["min_fortjeneste"]:
+        return None
+    handler = (r.get("factors") or {}).get("trades_per_day")
+    volum = r.get("daily_volume")
+    runs_marked = r.get("runs_market_per_day")
+    runs_dag = min(NYBEGYNNER["runs_per_dag"], runs_marked) if runs_marked else NYBEGYNNER["runs_per_dag"]
+    per_dag = round(netto_run * runs_dag, 2)
+    start = float(r["bpo_price"]) + kost_run
+    return dict(
+        product_type_id=r["product_type_id"], blueprint_type_id=r.get("blueprint_type_id"),
+        name=r.get("name"), blueprint_name=(r.get("name") or "") + " Blueprint",
+        bpo_price=float(r["bpo_price"]), bpo_price_source=r.get("bpo_price_source"),
+        units_per_run=per_run, cost_per_unit_me0=kost0, cost_per_run=kost_run,
+        sell_price=r.get("sell_price"), profit_per_unit=netto_stk, profit_per_run=netto_run,
+        margin_me0=me0, margin_me10=r.get("margin"),
+        hours_per_run=round((r.get("time_per_run_s") or 0) / 3600, 2),
+        runs_market_per_day=runs_marked, runs_per_day=round(runs_dag, 2), profit_per_day=per_dag,
+        daily_return=round(per_dag / kost_run, 4) if kost_run > 0 else 0.0,
+        startup_cost=round(start, 2), affordable=start <= capital,
+        daily_volume=volum, trades_per_day=handler, sell_orders=r.get("sell_orders"),
+        group_name=r.get("group_name"))
 
 
-def my_pick(liste: list[dict], p: IndustryProfile) -> dict | None:
-    """«Hvis jeg skulle velge for deg». Blant dem som er nesten like gode på avkastning,
-    velg den som er lettest å få solgt – det er likviditeten som gjør vondt når man er ny.
+def _selger_ok(rad: dict, min_handler: float) -> bool:
+    """«Selger helt ok»: nok handler per dag. Mangler handelstallet, godtas nok dagsvolum –
+    men aldri en vare uten noen av dem, for da vet vi ingenting om salgbarheten."""
+    if rad["trades_per_day"] is not None:
+        return float(rad["trades_per_day"]) >= min_handler
+    if rad["daily_volume"] is not None:
+        return float(rad["daily_volume"]) >= NYBEGYNNER["min_volum"]
+    return False
 
-    Terskel: alle med minst `pick_return_share` (70 %) av beste avkastning regnes som
-    likeverdige; av dem vinner flest handler per dag. Begrunnelsen skrives ut, slik at
-    siden kan si hvorfor – ikke bare hva.
+
+def starter_list(rows: list[dict], p: IndustryProfile, capital: float,
+                 antall: int | None = None) -> list[dict]:
+    """«Kom i gang»: de varene som gir best margin og som selger helt ok.
+
+    Alt regnes som en nybegynner faktisk starter: **uforsket blueprint (ME 0)**, **én run**,
+    og med alle kostnader inne (materialer, jobbavgift, broker og skatt ved salg).
+
+    Rangeringen er **margin ved ME 0**, høyest først – det er spørsmålet «hva er lurt å kjøpe
+    blueprint av» oversatt til tall. De du har råd til ligger øverst; resten er med, merket,
+    fordi det er nyttig å se hva neste steg koster.
+
+    Ingen av kravene kommer fra `thresholds`. Er det færre enn ti varer som handles minst
+    ti ganger om dagen, fylles lista opp med varer ned til tre handler per dag, merket
+    `thin_market`, framfor å vise en kort eller tom liste.
+    """
+    antall = antall or NYBEGYNNER["antall"]
+    alle = [x for x in (_starter_rad(r, p, capital) for r in rows) if x]
+
+    def sorter(liste):
+        return sorted(liste, key=lambda x: (not x["affordable"], -float(x["margin_me0"]),
+                                            -float(x["trades_per_day"] or 0)))
+
+    gode = sorter([x for x in alle if _selger_ok(x, NYBEGYNNER["min_handler"])])
+    for x in gode:
+        x["thin_market"] = False
+    if len(gode) < antall:                     # fyll opp med tynnere markeder, tydelig merket
+        ekstra = sorter([x for x in alle if not _selger_ok(x, NYBEGYNNER["min_handler"])
+                         and _selger_ok(x, NYBEGYNNER["min_handler_myk"])])
+        for x in ekstra:
+            x["thin_market"] = True
+        gode = gode + ekstra
+    return gode[:antall]
+
+
+def my_pick(liste: list[dict], p: IndustryProfile | None = None) -> dict | None:
+    """«Hvis jeg skulle velge for deg». Blant dem som er nesten like gode på margin, velg den
+    som er lettest å få solgt – det er likviditeten som gjør vondt når man er ny.
+
+    Terskel: alle med minst `pick_margin_share` (70 %) av beste margin regnes som likeverdige;
+    av dem vinner flest handler per dag. Begrunnelsen skrives ut, slik at siden kan si hvorfor
+    – ikke bare hva. `p` tas imot for bakoverkompatibilitet, men brukes ikke: valget skal ikke
+    kunne skrus på i «Avansert».
     """
     kandidater = [x for x in liste if x.get("affordable")] or liste
     if not kandidater:
         return None
-    beste_avk = max(x.get("daily_return") or 0 for x in kandidater)
-    andel = float(p.t("pick_return_share", 0.7))
-    likeverdige = [x for x in kandidater if (x.get("daily_return") or 0) >= beste_avk * andel]
-    valg = max(likeverdige, key=lambda x: (x.get("trades_per_day") or 0))
-    topp = max(kandidater, key=lambda x: x.get("daily_return") or 0)
+    beste_margin = max(float(x.get("margin_me0") or 0) for x in kandidater)
+    andel = NYBEGYNNER["pick_margin_share"]
+    likeverdige = [x for x in kandidater
+                   if float(x.get("margin_me0") or 0) >= beste_margin * andel]
+    valg = max(likeverdige, key=lambda x: float(x.get("trades_per_day") or 0))
+    topp = max(kandidater, key=lambda x: float(x.get("margin_me0") or 0))
 
-    if valg is topp or valg["product_type_id"] == topp["product_type_id"]:
-        grunn = (f"Best avkastning ({(valg['daily_return'] or 0) * 100:.0f} % av pengene per døgn) "
-                 f"og {valg.get('trades_per_day') or 0:.0f} handler per dag – den selges lett.")
+    handler = float(valg.get("trades_per_day") or 0)
+    if valg["product_type_id"] == topp["product_type_id"]:
+        grunn = (f"Best margin ({float(valg['margin_me0']) * 100:.0f} % med uforsket blueprint) "
+                 f"og {handler:.0f} handler per dag – den selges lett.")
     else:
-        grunn = (f"Nesten samme avkastning som {topp['name']} "
-                 f"({(valg['daily_return'] or 0) * 100:.0f} % mot {(topp['daily_return'] or 0) * 100:.0f} %), "
-                 f"men {valg.get('trades_per_day') or 0:.0f} handler per dag mot "
-                 f"{topp.get('trades_per_day') or 0:.0f} – du får varen ut igjen lettere, "
-                 f"og det er det som gjør vondt når man er ny.")
+        grunn = (f"Nesten like god margin som {topp['name']} "
+                 f"({float(valg['margin_me0']) * 100:.0f} % mot {float(topp['margin_me0']) * 100:.0f} %), "
+                 f"men {handler:.0f} handler per dag mot {float(topp.get('trades_per_day') or 0):.0f} "
+                 f"– du får varen ut igjen lettere, og det er det som gjør vondt når man er ny.")
+    if valg.get("thin_market"):
+        grunn += " Markedet er tynt, så legg varen ut og vent framfor å dumpe den."
     return dict(valg, reason=grunn)
 
 
 def starter_funnel(rows: list[dict], p: IndustryProfile, capital: float) -> list[dict]:
-    """Hvor forsvinner forslagene? Teller hvor mange som faller for hvert krav i tur og orden,
-    slik at en tom liste kan forklare seg selv i stedet for at vi må gjette."""
-    min_margin = float(p.t("min_margin", 0.10))
-    min_profit = float(p.t("min_profit_per_run", 50_000))
-    min_trades = float(p.t("starter_min_trades", 20))
-    tak = capital * float(p.t("starter_max_cost_share", 0.25)) if capital > 0 else None
-
-    steg = [("passerer reglene", 0), ("har BPO-pris", 0), (f"margin ved ME 0 over {min_margin * 100:.0f} %", 0),
-            (f"minst {min_trades:.0f} handler per dag", 0),
-            ("én run innenfor kostnadstaket", 0), (f"minst {min_profit / 1000:.0f}k fortjeneste per run", 0)]
+    """Hvor forsvinner forslagene? Teller hvor mange varer som klarer hvert av de FASTE kravene
+    i tur og orden, slik at en tom liste kan forklare seg selv i stedet for at vi må gjette."""
+    steg = [("vurdert av roboten", 0), ("har blueprint-pris og priser å regne på", 0),
+            ("positiv margin med uforsket blueprint", 0),
+            (f"minst {NYBEGYNNER['min_fortjeneste'] // 1000}k fortjeneste per run", 0),
+            (f"selges minst {NYBEGYNNER['min_handler']} ganger per dag", 0)]
     for r in rows:
-        if not r.get("passed"):
-            continue
         steg[0] = (steg[0][0], steg[0][1] + 1)
-        if not r.get("bpo_price"):
+        me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
+        if (r.get("bpo_price") is None or me0 is None or kost0 is None or not r.get("sell_price")
+                or any(x in STARTER_SKIP for x in (r.get("failed_rules") or []))):
             continue
         steg[1] = (steg[1][0], steg[1][1] + 1)
-        me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
-        if me0 is None or kost0 is None or me0 < min_margin:
+        if me0 <= 0 or me0 > NYBEGYNNER["maks_margin"]:
             continue
         steg[2] = (steg[2][0], steg[2][1] + 1)
-        handler = (r.get("factors") or {}).get("trades_per_day")
-        if handler is not None and float(handler) < min_trades:
+        rad = _starter_rad(r, p, capital)
+        if rad is None:
             continue
         steg[3] = (steg[3][0], steg[3][1] + 1)
-        per_run = int(r.get("units_per_run") or 1)
-        kost_run = kost0 * per_run
-        if tak is not None and kost_run > tak:
+        if not _selger_ok(rad, NYBEGYNNER["min_handler"]):
             continue
         steg[4] = (steg[4][0], steg[4][1] + 1)
-        netto_run = (r["sell_price"] * (1 - p.sell_fees) - kost0) * per_run
-        if netto_run < min_profit:
-            continue
-        steg[5] = (steg[5][0], steg[5][1] + 1)
     return [dict(step=navn, count=antall) for navn, antall in steg]
 
 

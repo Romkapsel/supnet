@@ -124,7 +124,7 @@ function komIGang() {
       <h2 style="margin-top:0">Ingen forslag akkurat nå</h2>
       <div class="muted small">${D.run_at
         ? `Roboten vurderte ${num(D.counts?.total ?? 0)} varer. Ingen av dem hadde både
-           kjøpbar blueprint, marked som flyter, og nok margin med en <b>uforsket</b> BPO.`
+           kjøpbar blueprint, priser å regne på, og et marked som handles.`
         : 'Roboten har ikke kjørt ennå – trykk «Oppdater alt» over.'}</div>
       ${trakt.length ? `<div style="margin-top:10px"><div class="small"><b>Her forsvinner de:</b></div>
         <div class="tblwrap" style="margin-top:6px"><table style="min-width:auto">
@@ -133,7 +133,8 @@ function komIGang() {
             <td class="${t.count ? '' : 'accent'}">${num(t.count)}</td></tr>`).join('')}
         </table></div>
         <div class="muted small" style="margin-top:6px">Der tallet blir 0, er det det kravet som stopper
-          alt. Senk det under <b>Avansert</b> nederst på siden.</div></div>` : ''}
+          alt – da mangler det data fra spillet, og «Oppdater alt» over er riktig knapp.
+          Du skal ikke trenge å endre noe under Avansert for å få lista.</div></div>` : ''}
       ${grunner.length ? `<div class="muted small" style="margin-top:8px">Vanligste grunner til at varer
         forkastes helt: ${grunner.map((g) => `${esc(g.text)} (${g.count})`).join(' · ')}</div>` : ''}</div>`;
   }
@@ -148,7 +149,8 @@ function komIGang() {
       <td>${i + 1}</td>
       <td style="text-align:left">${esc(x.blueprint_name)}${copyBtn(x.blueprint_name)}
         ${valg && valg.product_type_id === x.product_type_id ? '<span class="pill ok">mitt valg</span>' : ''}
-        ${x.affordable ? '' : `<span class="pill bad" title="Du mangler ${isk(x.startup_cost - kapital)} ISK">ikke råd</span>`}</td>
+        ${x.affordable ? '' : `<span class="pill bad" title="Du mangler ${isk(x.startup_cost - kapital)} ISK">ikke råd</span>`}
+        ${x.thin_market ? '<span class="pill warn" title="Under 10 handler om dagen – med her fordi lista ellers ble kort. Legg varen ut og vent framfor å dumpe den.">tynt marked</span>' : ''}</td>
       <td>${isk(x.bpo_price)}${x.bpo_price_source === 'esi_average'
         ? '<span class="pill" title="ESI-ens snittpris, som for NPC-seedede blueprints er NPC-prisen. Dobbeltsjekk i spillet.">anslag</span>' : ''}</td>
       <td>${isk(x.cost_per_run)}</td>
@@ -181,14 +183,15 @@ function komIGang() {
         <span class="muted">Trykk på raden under for materiallista</span>
       </div>
     </div>` : ''}
-    <div class="row"><h2 style="margin:0">Kom i gang: ${s.length} blueprints</h2>
-      <span class="muted small">${harRaad} av dem har du råd til nå (${isk(kapital)} ISK)</span></div>
-    <div class="muted small" style="margin-top:4px">Valgt på margin og salgbarhet, regnet med
-      <b>uforsket</b> blueprint og <b>én run</b> av gangen. Sortert på hvor mye pengene dine gir per døgn –
-      ikke på størst beløp, for da fylles lista av dyre varer i tynne markeder.
-      Krever minst ${num(p.thresholds?.starter_min_trades ?? 20)} handler per dag i markedet, og
-      at én run koster under ${pct(p.thresholds?.starter_max_cost_share ?? 0.25, 0)} av kapitalen.
-      <b>Klikk en rad</b> for materialene du må handle i Jita.</div>
+    <div class="row"><h2 style="margin:0">Kjøp blueprint av disse</h2>
+      <span class="muted small">${harRaad} av ${s.length} har du råd til nå (${isk(kapital)} ISK)</span></div>
+    <div class="muted small" style="margin-top:4px">De ti varene med <b>best margin</b> som også
+      <b>selges helt ok</b> i Jita (minst 10 handler om dagen). Regnet som du faktisk starter:
+      <b>uforsket</b> blueprint (ME 0), <b>én run</b>, og med alle kostnader inne – materialer,
+      jobbavgift og broker + skatt ved salg. De du har råd til ligger øverst.
+      <b>Klikk en rad</b> for materialene du må handle i Jita.
+      <br/>Lista bruker faste regler og er <b>ikke</b> koblet til tersklene under «Avansert» –
+      du trenger ikke gå inn dit.</div>
     <div class="tblwrap" style="margin-top:10px"><table>
       <tr><th>#</th><th style="text-align:left">Blueprint</th><th>BPO</th><th>Materialer/run</th>
         <th>Fortjeneste/run</th><th>Margin ME 0</th><th>Handler/dag</th><th>Start totalt</th></tr>
@@ -293,7 +296,6 @@ function tegn() {
            ['newbro_runs_per_day', 'Runs per døgn i «kom i gang»', 1],
            ['starter_min_trades', 'Min. handler/dag i «kom i gang»', 1],
            ['starter_max_cost_share', 'Maks andel av kapitalen per run', 0.05],
-           ['pick_return_share', 'Hvor nær beste avkastning «mitt valg» kan gå (0,7 = 70 %)', 0.05],
            ['max_margin', 'Maks margin (over = ikke ekte pris)', 0.1],
            ['min_daily_volume', 'Min. dagsvolum (stk)', 1], ['min_sell_orders', 'Min. antall selgere', 1],
            ['min_trades_per_day', 'Min. handler per dag', 1],
@@ -379,7 +381,7 @@ function koble() {
         'max_spread', 'max_price_drop_30d', 'max_price_spike', 'max_bpo_price', 'max_capital_per_job',
         'max_payback_days', 'volume_share', 'batch_days', 'capital_share_per_job', 'max_sell_days',
         'min_trades_per_day', 'min_profit_per_run', 'newbro_runs_per_day', 'starter_min_trades',
-        'starter_max_cost_share', 'pick_return_share'])) {
+        'starter_max_cost_share'])) {
       const e = el('t-' + k);
       if (e && e.value !== '') th[k] = Number(e.value);
     }
