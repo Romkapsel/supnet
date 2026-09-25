@@ -420,6 +420,73 @@ def reason(row: dict, f: dict, failed: list[str], p: IndustryProfile) -> str:
     return " ".join(parts)
 
 
+def starter_list(rows: list[dict], p: IndustryProfile, capital: float, antall: int = 10) -> list[dict]:
+    """«Kom i gang»: 5–10 blueprints en nybegynner kan kjøpe først.
+
+    Tenkt for noen som ikke har produsert før, og derfor:
+      - regner med UFORSKET blueprint (ME 0) – det er det du får når du kjøper en BPO
+      - regner per RUN, ikke per stor batch – du starter med én jobb, ikke tusen enheter
+      - begrenser til 3 runs per døgn, og aldri mer enn markedet tar
+        (det er dette som hindrer «produser 100 skip du ikke får solgt»)
+      - filtrerer IKKE bort noe på kapital: det du ikke har råd til nå merkes i stedet,
+        for det er nyttig å se hva neste steg koster
+
+    Kravene er at varen passerer dommen (marked som flyter, kjøpbar blueprint, ingen pristopp),
+    at den er lønnsom alt ved ME 0, og at én run er verdt bryet (`min_profit_per_run`).
+    """
+    min_margin = float(p.t("min_margin", 0.10))
+    min_profit = float(p.t("min_profit_per_run", 50_000))
+    maks_runs = float(p.t("newbro_runs_per_day", 3))
+    ut = []
+    for r in rows:
+        if not r.get("passed") or not r.get("bpo_price"):
+            continue
+        me0 = r.get("margin_me0")
+        kost0 = r.get("cost_per_unit_me0")
+        if me0 is None or kost0 is None or me0 < min_margin:
+            continue
+        per_run = int(r.get("units_per_run") or 1)
+        netto_stk = round(r["sell_price"] * (1 - p.sell_fees) - kost0, 2)
+        netto_run = round(netto_stk * per_run, 2)
+        if netto_run < min_profit:
+            continue
+        runs_marked = r.get("runs_market_per_day")
+        runs_dag = min(maks_runs, runs_marked) if runs_marked else maks_runs
+        tid_run = (r.get("time_per_run_s") or 0) / 3600
+        kost_run = round(kost0 * per_run, 2)
+        start = float(r["bpo_price"]) + kost_run
+        ut.append(dict(
+            product_type_id=r["product_type_id"], name=r.get("name"),
+            blueprint_name=(r.get("name") or "") + " Blueprint",
+            bpo_price=float(r["bpo_price"]), bpo_price_source=r.get("bpo_price_source"),
+            units_per_run=per_run, cost_per_unit_me0=kost0, cost_per_run=kost_run,
+            sell_price=r.get("sell_price"), profit_per_unit=netto_stk, profit_per_run=netto_run,
+            margin_me0=me0, margin_me10=r.get("margin"),
+            hours_per_run=round(tid_run, 2),
+            runs_market_per_day=runs_marked, runs_per_day=round(runs_dag, 2),
+            profit_per_day=round(netto_run * runs_dag, 2),
+            startup_cost=round(start, 2), affordable=start <= capital,
+            daily_volume=r.get("daily_volume"),
+            trades_per_day=(r.get("factors") or {}).get("trades_per_day"),
+            sell_orders=r.get("sell_orders"),
+            blueprint_type_id=r.get("blueprint_type_id")))
+    # Det du har råd til først, ellers mest fortjeneste per døgn
+    ut.sort(key=lambda x: (not x["affordable"], -(x["profit_per_day"] or 0)))
+    return ut[:antall]
+
+
+def why_not(rows: list[dict], rules: dict | None = None) -> list[dict]:
+    """Hvorfor kom ikke resten med? Teller avslagsgrunnene, så siden kan forklare seg
+    i stedet for å vise 1 100 rader ingen leser."""
+    teller: dict[str, int] = {}
+    for r in rows:
+        for regel in (r.get("failed_rules") or []):
+            teller[regel] = teller.get(regel, 0) + 1
+    labels = rules or RULES
+    return [dict(rule=k, text=labels.get(k, k), count=v)
+            for k, v in sorted(teller.items(), key=lambda kv: -kv[1])]
+
+
 def start_recommendation(rows: list[dict], p: IndustryProfile, capital: float,
                          antall: int = 3) -> list[dict]:
     """Hva bør du kjøpe FØRST? Rangeringen ellers antar ferdig forsket blueprint (ME 10).

@@ -417,6 +417,11 @@ def load_industry_profile(conn) -> IndustryProfile:
     for k in ("facility_tax", "scc_rate", "sell_fee_override"):
         if k in kw:
             kw[k] = float(kw[k])
+    # Skillsene kommer fra EVE-synken. Override-kolonnene finnes for hva-om-regning.
+    if row.get("industry_override") is not None:
+        kw["industry"] = int(row["industry_override"])
+    if row.get("advanced_industry_override") is not None:
+        kw["advanced_industry"] = int(row["advanced_industry_override"])
     p = IndustryProfile(**kw)
     p.broker = float(calc.get("broker") or 0.01)
     p.tax = float(calc.get("tax") or 0.075)
@@ -591,6 +596,13 @@ def main():
                 r["startup_cost"] = round(r["bpo_price"] + (r.get("capital_per_job") or 0), 2)
             # Marginen med en NYKJØPT (uforsket) BPO – avgjørende for hva du bør starte med
             r["margin_me0"] = margin_at_me(r, cands[r["blueprint_type_id"]], p, quotes, 0)
+            if r["margin_me0"] is not None:
+                # Kostpris per enhet ved ME 0 følger av marginen (samme salgspris og gebyrer)
+                r["cost_per_unit_me0"] = round(r["sell_price"] * (1 - p.sell_fees) / (1 + r["margin_me0"]), 2)
+            if r.get("daily_volume") and r.get("units_per_run"):
+                # Hvor mange runs markedet tåler per døgn – gjør «start med 1 run» konkret
+                r["runs_market_per_day"] = round(
+                    float(r["daily_volume"]) * float(p.t("volume_share", 0.10)) / r["units_per_run"], 2)
 
         # 7. dom
         for r in rows:
@@ -640,7 +652,8 @@ COLS = ("product_type_id", "blueprint_type_id", "runs", "units", "units_per_run"
         "job_cost", "eiv", "total_cost", "cost_per_unit", "sell_price", "net_per_unit", "margin",
         "time_per_run_s", "time_per_batch_s", "units_per_day_slot", "daily_volume", "daily_volume_90d",
         "realistic_units_per_day", "isk_per_day_slot", "isk_per_hour_slot", "capital_per_job",
-        "bpo_price", "bpo_price_source", "startup_cost", "margin_me0", "payback_days",
+        "bpo_price", "bpo_price_source", "startup_cost", "margin_me0", "cost_per_unit_me0",
+        "runs_market_per_day", "payback_days",
         "sell_orders", "price_avg_30d", "price_drop_30d",
         "price_volatility", "m3_in", "m3_out", "score", "passed", "failed_rules", "reason")
 

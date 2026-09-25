@@ -17,7 +17,10 @@ FEIL = []
 
 
 def sjekk(navn: str, fikk, vil, tol=1e-6):
-    ok = abs(float(fikk) - float(vil)) <= tol * max(1.0, abs(float(vil)))
+    if isinstance(vil, str) or isinstance(fikk, str):
+        ok = str(fikk) == str(vil)
+    else:
+        ok = abs(float(fikk) - float(vil)) <= tol * max(1.0, abs(float(vil)))
     print(f"{'ok  ' if ok else 'FEIL'} {navn}: {fikk} (ventet {vil})")
     if not ok:
         FEIL.append(navn)
@@ -277,6 +280,61 @@ def main():
     sjekk("anbefaling: startkostnad = BPO + batch", anb[0]["startup_cost"], 3_000_000)
     sjekk("anbefaling: tom liste når ingenting passer",
           len(start_recommendation([tynn_margin, for_dyr, uten_pris], P, 8_000_000)), 0)
+
+    # ── «Kom i gang»-lista for en nybegynner ──
+    from industry import starter_list, why_not
+    P3 = IndustryProfile(**{**{k: getattr(P, k) for k in
+        ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
+         'cost_index','material_source')},
+        'thresholds': dict(P.thresholds, min_profit_per_run=50_000, newbro_runs_per_day=3)})
+    fellesfelt = dict(passed=True, sell_price=100_000.0, units_per_run=2, time_per_run_s=3600,
+                      margin=0.60, daily_volume=5000, factors={'trades_per_day': 40},
+                      failed_rules=[])
+    god_start = dict(fellesfelt, product_type_id=1, name="God start", bpo_price=1_000_000,
+                     margin_me0=0.40, cost_per_unit_me0=60_000.0, runs_market_per_day=50)
+    dyr_bpo = dict(fellesfelt, product_type_id=2, name="Dyr BPO", bpo_price=200_000_000,
+                   margin_me0=0.50, cost_per_unit_me0=50_000.0, runs_market_per_day=50)
+    tynn_me0 = dict(fellesfelt, product_type_id=3, name="Dør ved ME 0", bpo_price=500_000,
+                    margin_me0=0.02, cost_per_unit_me0=93_000.0, runs_market_per_day=50)
+    smaatt = dict(fellesfelt, product_type_id=4, name="Ikke verdt bryet", bpo_price=100_000,
+                  margin_me0=0.40, cost_per_unit_me0=600.0, runs_market_per_day=50,
+                  units_per_run=1, sell_price=1_000.0)
+    tregt = dict(fellesfelt, product_type_id=5, name="Markedet tar lite", bpo_price=500_000,
+                 margin_me0=0.40, cost_per_unit_me0=60_000.0, runs_market_per_day=0.5)
+    forkastet = dict(fellesfelt, product_type_id=6, name="Forkastet", passed=False,
+                     bpo_price=500_000, margin_me0=0.40, cost_per_unit_me0=60_000.0,
+                     failed_rules=['i2'])
+    liste = starter_list([god_start, dyr_bpo, tynn_me0, smaatt, tregt, forkastet], P3, 8_000_000)
+
+    navn = [x["name"] for x in liste]
+    sjekk("kom i gang: forkastet vare er ikke med", 1 if "Forkastet" not in navn else 0, 1)
+    sjekk("kom i gang: vare som dør ved ME 0 er ikke med", 1 if "Dør ved ME 0" not in navn else 0, 1)
+    sjekk("kom i gang: for liten fortjeneste per run er ikke med",
+          1 if "Ikke verdt bryet" not in navn else 0, 1)
+    sjekk("kom i gang: dyr BPO er MED, men merket", 1 if "Dyr BPO" in navn else 0, 1)
+    sjekk("kom i gang: det du har råd til kommer først", navn[0], "God start")
+    sjekk("kom i gang: dyr BPO er ikke merket som overkommelig",
+          1 if [x for x in liste if x["name"] == "Dyr BPO"][0]["affordable"] else 0, 0)
+
+    g = [x for x in liste if x["name"] == "God start"][0]
+    netto_stk = 100_000 * (1 - P3.sell_fees) - 60_000
+    sjekk("kom i gang: netto per enhet", g["profit_per_unit"], round(netto_stk, 2))
+    sjekk("kom i gang: netto per run (2 stk)", g["profit_per_run"], round(netto_stk * 2, 2))
+    sjekk("kom i gang: startkostnad = BPO + én run materialer", g["startup_cost"],
+          round(1_000_000 + 60_000 * 2, 2))
+    sjekk("kom i gang: maks 3 runs per døgn for en nybegynner", g["runs_per_day"], 3)
+
+    t = [x for x in liste if x["name"] == "Markedet tar lite"][0]
+    sjekk("kom i gang: markedet begrenser runs når det tar mindre enn 3", t["runs_per_day"], 0.5)
+    sjekk("kom i gang: fortjeneste per døgn følger markedet",
+          t["profit_per_day"], round(t["profit_per_run"] * 0.5, 2))
+
+    grunner = why_not([forkastet, dict(fellesfelt, failed_rules=['i2', 'i11']),
+                       dict(fellesfelt, failed_rules=['i2'])])
+    sjekk("hvorfor ikke: teller vanligste grunn først", grunner[0]["rule"], "i2")
+    sjekk("hvorfor ikke: riktig antall", grunner[0]["count"], 3)
+    sjekk("hvorfor ikke: grunnen har lesbar tekst",
+          1 if "dagsvolum" in grunner[0]["text"].lower() else 0, 1)
 
     # ── Oppskrift-parseren mot de to formene kildene faktisk bruker (sjekket med probe_sources.py) ──
     from ingest_industry import parse_blueprints

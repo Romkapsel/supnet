@@ -19,6 +19,16 @@ const JITA_44 = 60003760;
 // skill-ID-er
 const SKILLS = { 3446: "broker_relations", 16622: "accounting", 16597: "adv_broker_relations",
   3443: "trade", 3444: "retail", 16596: "wholesale", 18580: "tycoon" };
+// Industri- og reprosesseringsskills går til jita.industry_profile / jita.mining_profile, ikke til
+// jita.profile. Hentes fra spillet så du ikke må fylle dem inn: Industry og Advanced Industry gir
+// kortere jobbtid, Mass Production og Advanced Mass Production gir flere slots.
+const INDUSTRY_SKILLS = { 3380: "industry", 3388: "advanced_industry",
+  3387: "mass_production", 24625: "adv_mass_production" };
+const REPROCESS_SKILLS = { 3385: "reprocessing", 3389: "reprocessing_efficiency" };
+// NPC-stasjon: 50 % grunnutbytte × (1 + 3 % per Reprocessing) × (1 + 2 % per Reprocessing Efficiency)
+export function reprocessYield(reprocessing = 0, efficiency = 0) {
+  return 0.5 * (1 + 0.03 * reprocessing) * (1 + 0.02 * efficiency);
+}
 const CALDARI_STATE = 500001, CALDARI_NAVY = 1000035;
 
 function creds() {
@@ -149,6 +159,24 @@ export async function syncCharacter(q, notify, light = false) {   // light: bare
     const prof = { updated_at: now };
     if (wallet != null) { prof.cash_isk = Number(wallet); out.wallet = Number(wallet); }
     if (skills?.skills) { const m = {}; for (const s of skills.skills) if (SKILLS[s.skill_id]) m[SKILLS[s.skill_id]] = s.active_skill_level; Object.assign(prof, m); out.skills = m; }
+    if (skills?.skills) {
+      // Industri-skills → industry_profile (slots = 1 + Mass Production + Advanced Mass Production)
+      const ind = { skills_from_eve_at: now };
+      const rep = { skills_from_eve_at: now };
+      for (const s of skills.skills) {
+        if (INDUSTRY_SKILLS[s.skill_id]) ind[INDUSTRY_SKILLS[s.skill_id]] = s.active_skill_level;
+        if (REPROCESS_SKILLS[s.skill_id]) rep[REPROCESS_SKILLS[s.skill_id]] = s.active_skill_level;
+      }
+      if (Object.keys(ind).length > 1) {
+        await q`update jita.industry_profile set ${q(ind)} where id = 1`;
+        out.industry_skills = ind;
+      }
+      if (Object.keys(rep).length > 1) {
+        rep.reprocess_yield = reprocessYield(rep.reprocessing || 0, rep.reprocessing_efficiency || 0);
+        await q`update jita.mining_profile set ${q(rep)} where id = 1`;
+        out.reprocess_skills = rep;
+      }
+    }
     if (standings) { prof.standing_faction = standings.find((s) => s.from_id === CALDARI_STATE)?.standing ?? 0; prof.standing_corp = standings.find((s) => s.from_id === CALDARI_NAVY)?.standing ?? 0; out.standings = { faction: prof.standing_faction, corp: prof.standing_corp }; }
     await q`update jita.profile set ${q(prof)} where id = 1`;
   });
