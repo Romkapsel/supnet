@@ -161,21 +161,24 @@ export async function syncCharacter(q, notify, light = false) {   // light: bare
     if (skills?.skills) { const m = {}; for (const s of skills.skills) if (SKILLS[s.skill_id]) m[SKILLS[s.skill_id]] = s.active_skill_level; Object.assign(prof, m); out.skills = m; }
     if (skills?.skills) {
       // Industri-skills → industry_profile (slots = 1 + Mass Production + Advanced Mass Production)
+      // ESI lister BARE skills karakteren har trent. En skill som mangler i svaret er altså 0 –
+      // ikke «uendret». Starter vi på 0 for alle, kan ikke en gammel gjetning bli stående og lyve
+      // (Industry sto som 5 i profilen mens karakteren hadde 1).
       const ind = { skills_from_eve_at: now };
       const rep = { skills_from_eve_at: now };
+      for (const navn of Object.values(INDUSTRY_SKILLS)) ind[navn] = 0;
+      for (const navn of Object.values(REPROCESS_SKILLS)) rep[navn] = 0;
       for (const s of skills.skills) {
         if (INDUSTRY_SKILLS[s.skill_id]) ind[INDUSTRY_SKILLS[s.skill_id]] = s.active_skill_level;
         if (REPROCESS_SKILLS[s.skill_id]) rep[REPROCESS_SKILLS[s.skill_id]] = s.active_skill_level;
       }
-      if (Object.keys(ind).length > 1) {
-        await q`update jita.industry_profile set ${q(ind)} where id = 1`;
-        out.industry_skills = ind;
-      }
-      if (Object.keys(rep).length > 1) {
-        rep.reprocess_yield = reprocessYield(rep.reprocessing || 0, rep.reprocessing_efficiency || 0);
-        await q`update jita.mining_profile set ${q(rep)} where id = 1`;
-        out.reprocess_skills = rep;
-      }
+      await q`update jita.industry_profile set ${q(ind)} where id = 1`;
+      out.industry_skills = ind;
+      // Utbyttet regnes av skillsene, med mindre du har satt en override (struktur med rigger)
+      const [mp] = await q`select reprocess_yield_override from jita.mining_profile where id = 1`;
+      rep.reprocess_yield = mp?.reprocess_yield_override ?? reprocessYield(rep.reprocessing, rep.reprocessing_efficiency);
+      await q`update jita.mining_profile set ${q(rep)} where id = 1`;
+      out.reprocess_skills = rep;
     }
     if (standings) { prof.standing_faction = standings.find((s) => s.from_id === CALDARI_STATE)?.standing ?? 0; prof.standing_corp = standings.find((s) => s.from_id === CALDARI_NAVY)?.standing ?? 0; out.standings = { faction: prof.standing_faction, corp: prof.standing_corp }; }
     await q`update jita.profile set ${q(prof)} where id = 1`;
