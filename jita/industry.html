@@ -150,7 +150,8 @@ function komIGang() {
       <div class="row small">
         <span class="muted">Markedet tar <b>${x.runs_market_per_day == null ? '–' : num(x.runs_market_per_day, 1)} runs/dag</b>
           – ${num(x.daily_volume)} stk/dag${x.trades_per_day != null ? `, ${num(x.trades_per_day, 0)} handler` : ''}</span>
-        <span class="accent">~${isk(x.profit_per_day)} ISK/dag hvis du kjører ${num(x.runs_per_day, 1)} runs</span>
+        <span class="accent">~${isk(x.profit_per_day)} ISK/dag hvis du kjører ${num(x.runs_per_day, 1)} runs
+          ${x.daily_return != null ? `<span class="muted" title="Fortjeneste per døgn delt på ISK-ene som ligger i materialene – dette er tallet lista rangeres på">(${pct(x.daily_return, 0)} av pengene per dag)</span>` : ''}</span>
       </div>
       <details style="margin-top:8px"><summary class="small accent" style="cursor:pointer">Materialer du må handle i Jita</summary>
         <div style="margin-top:6px">${materialtabell(x)}</div></details>
@@ -162,7 +163,10 @@ function komIGang() {
     <div class="row"><h2 style="margin:0">Kom i gang: ${s.length} blueprints</h2>
       <span class="muted small">${harRaad} av dem har du råd til nå (${isk(kapital)} ISK)</span></div>
     <div class="muted small" style="margin-top:4px">Valgt på margin og salgbarhet, regnet med
-      <b>uforsket</b> blueprint og <b>én run</b> av gangen. Ingen av dem foreslår mer enn markedet tar.</div>
+      <b>uforsket</b> blueprint og <b>én run</b> av gangen. Sortert på hvor mye pengene dine gir per døgn –
+      ikke på størst beløp, for da fylles lista av dyre varer i tynne markeder.
+      Krever minst ${num(p.thresholds?.starter_min_trades ?? 20)} handler per dag i markedet, og
+      at én run koster under ${pct(p.thresholds?.starter_max_cost_share ?? 0.25, 0)} av kapitalen.</div>
     ${vis.map(kort).join('')}
     ${s.length > 5 ? `<div class="row" style="margin-top:10px"><button id="visalle" class="ghost">${state.visAlle ? 'Vis bare de 5 beste' : `Vis alle ${s.length}`}</button></div>` : ''}
   </div>`;
@@ -261,6 +265,8 @@ function tegn() {
       <div class="grid2">
         ${[['min_margin', 'Min. margin', 0.01], ['min_profit_per_run', 'Min. fortjeneste per run', 10000],
            ['newbro_runs_per_day', 'Runs per døgn i «kom i gang»', 1],
+           ['starter_min_trades', 'Min. handler/dag i «kom i gang»', 1],
+           ['starter_max_cost_share', 'Maks andel av kapitalen per run', 0.05],
            ['max_margin', 'Maks margin (over = ikke ekte pris)', 0.1],
            ['min_daily_volume', 'Min. dagsvolum (stk)', 1], ['min_sell_orders', 'Min. antall selgere', 1],
            ['min_trades_per_day', 'Min. handler per dag', 1],
@@ -336,7 +342,8 @@ function koble() {
     for (const k of Object.keys(th).concat(['min_margin', 'max_margin', 'min_daily_volume', 'min_sell_orders',
         'max_spread', 'max_price_drop_30d', 'max_price_spike', 'max_bpo_price', 'max_capital_per_job',
         'max_payback_days', 'volume_share', 'batch_days', 'capital_share_per_job', 'max_sell_days',
-        'min_trades_per_day', 'min_profit_per_run', 'newbro_runs_per_day'])) {
+        'min_trades_per_day', 'min_profit_per_run', 'newbro_runs_per_day', 'starter_min_trades',
+        'starter_max_cost_share'])) {
       const e = el('t-' + k);
       if (e && e.value !== '') th[k] = Number(e.value);
     }

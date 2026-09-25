@@ -425,54 +425,74 @@ def starter_list(rows: list[dict], p: IndustryProfile, capital: float, antall: i
 
     Tenkt for noen som ikke har produsert før, og derfor:
       - regner med UFORSKET blueprint (ME 0) – det er det du får når du kjøper en BPO
-      - regner per RUN, ikke per stor batch – du starter med én jobb, ikke tusen enheter
+      - regner per RUN, ikke per stor batch – du starter med én jobb
       - begrenser til 3 runs per døgn, og aldri mer enn markedet tar
         (det er dette som hindrer «produser 100 skip du ikke får solgt»)
-      - filtrerer IKKE bort noe på kapital: det du ikke har råd til nå merkes i stedet,
-        for det er nyttig å se hva neste steg koster
+      - krever et marked som faktisk handles (`starter_min_trades`, 20 handler/dag) – strengere
+        enn dommen ellers, for en nybegynner må få varen ut igjen
+      - lar ikke én run spise lommeboka (`starter_max_cost_share`, 25 % av kapitalen)
 
-    Kravene er at varen passerer dommen (marked som flyter, kjøpbar blueprint, ingen pristopp),
-    at den er lønnsom alt ved ME 0, og at én run er verdt bryet (`min_profit_per_run`).
+    **Rangeres på avkastning per døgn på pengene som er bundet**, ikke på ISK/dag. Sorterer man
+    på ISK/dag, fylles lista av Large-rigger: 4 mill. i materialer per run i markeder med
+    12 handler om dagen. Avkastning gir i stedet billige, likvide varer med god margin.
+
+    Kapital filtrerer ikke bort noe: det du ikke har råd til merkes, for det er nyttig å se
+    hva neste steg koster. Er det færre enn 5 forslag, mykes kostnadstaket opp.
     """
     min_margin = float(p.t("min_margin", 0.10))
     min_profit = float(p.t("min_profit_per_run", 50_000))
+    min_trades = float(p.t("starter_min_trades", 20))
     maks_runs = float(p.t("newbro_runs_per_day", 3))
-    ut = []
-    for r in rows:
-        if not r.get("passed") or not r.get("bpo_price"):
-            continue
-        me0 = r.get("margin_me0")
-        kost0 = r.get("cost_per_unit_me0")
-        if me0 is None or kost0 is None or me0 < min_margin:
-            continue
-        per_run = int(r.get("units_per_run") or 1)
-        netto_stk = round(r["sell_price"] * (1 - p.sell_fees) - kost0, 2)
-        netto_run = round(netto_stk * per_run, 2)
-        if netto_run < min_profit:
-            continue
-        runs_marked = r.get("runs_market_per_day")
-        runs_dag = min(maks_runs, runs_marked) if runs_marked else maks_runs
-        tid_run = (r.get("time_per_run_s") or 0) / 3600
-        kost_run = round(kost0 * per_run, 2)
-        start = float(r["bpo_price"]) + kost_run
-        ut.append(dict(
-            product_type_id=r["product_type_id"], name=r.get("name"),
-            blueprint_name=(r.get("name") or "") + " Blueprint",
-            bpo_price=float(r["bpo_price"]), bpo_price_source=r.get("bpo_price_source"),
-            units_per_run=per_run, cost_per_unit_me0=kost0, cost_per_run=kost_run,
-            sell_price=r.get("sell_price"), profit_per_unit=netto_stk, profit_per_run=netto_run,
-            margin_me0=me0, margin_me10=r.get("margin"),
-            hours_per_run=round(tid_run, 2),
-            runs_market_per_day=runs_marked, runs_per_day=round(runs_dag, 2),
-            profit_per_day=round(netto_run * runs_dag, 2),
-            startup_cost=round(start, 2), affordable=start <= capital,
-            daily_volume=r.get("daily_volume"),
-            trades_per_day=(r.get("factors") or {}).get("trades_per_day"),
-            sell_orders=r.get("sell_orders"),
-            blueprint_type_id=r.get("blueprint_type_id")))
-    # Det du har råd til først, ellers mest fortjeneste per døgn
-    ut.sort(key=lambda x: (not x["affordable"], -(x["profit_per_day"] or 0)))
-    return ut[:antall]
+    andel = float(p.t("starter_max_cost_share", 0.25))
+
+    def bygg(kostnadstak: float | None) -> list[dict]:
+        ut = []
+        for r in rows:
+            if not r.get("passed") or not r.get("bpo_price"):
+                continue
+            me0, kost0 = r.get("margin_me0"), r.get("cost_per_unit_me0")
+            if me0 is None or kost0 is None or me0 < min_margin:
+                continue
+            handler = (r.get("factors") or {}).get("trades_per_day")
+            if handler is not None and float(handler) < min_trades:
+                continue
+            per_run = int(r.get("units_per_run") or 1)
+            kost_run = round(kost0 * per_run, 2)
+            if kostnadstak is not None and kost_run > kostnadstak:
+                continue
+            netto_stk = round(r["sell_price"] * (1 - p.sell_fees) - kost0, 2)
+            netto_run = round(netto_stk * per_run, 2)
+            if netto_run < min_profit:
+                continue
+            runs_marked = r.get("runs_market_per_day")
+            runs_dag = min(maks_runs, runs_marked) if runs_marked else maks_runs
+            per_dag = round(netto_run * runs_dag, 2)
+            start = float(r["bpo_price"]) + kost_run
+            ut.append(dict(
+                product_type_id=r["product_type_id"], blueprint_type_id=r.get("blueprint_type_id"),
+                name=r.get("name"), blueprint_name=(r.get("name") or "") + " Blueprint",
+                bpo_price=float(r["bpo_price"]), bpo_price_source=r.get("bpo_price_source"),
+                units_per_run=per_run, cost_per_unit_me0=kost0, cost_per_run=kost_run,
+                sell_price=r.get("sell_price"), profit_per_unit=netto_stk, profit_per_run=netto_run,
+                margin_me0=me0, margin_me10=r.get("margin"),
+                hours_per_run=round((r.get("time_per_run_s") or 0) / 3600, 2),
+                runs_market_per_day=runs_marked, runs_per_day=round(runs_dag, 2),
+                profit_per_day=per_dag,
+                # Avkastning per døgn på ISK-ene som ligger i materialene – rangeringstallet
+                daily_return=round(per_dag / kost_run, 4) if kost_run > 0 else 0.0,
+                startup_cost=round(start, 2), affordable=start <= capital,
+                daily_volume=r.get("daily_volume"), trades_per_day=handler,
+                sell_orders=r.get("sell_orders")))
+        ut.sort(key=lambda x: (not x["affordable"], -x["daily_return"]))
+        return ut
+
+    tak = capital * andel if capital > 0 else None
+    liste = bygg(tak)
+    if len(liste) < 5 and tak:                 # for få forslag → myk opp taket i to trinn
+        liste = bygg(tak * 2)
+    if len(liste) < 5:
+        liste = bygg(None)
+    return liste[:antall]
 
 
 def why_not(rows: list[dict], rules: dict | None = None) -> list[dict]:

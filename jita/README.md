@@ -169,6 +169,27 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### «Kom i gang» – fanen bygget om for nybegynner (25. sept 2026)
+Fanen åpnet med 1 149 rader der de fleste lå under marginen, og porteføljen ga 0 forslag fordi
+kapitalen ikke rakk. `starter_list()` (speilet i `lib/industry.js`) svarer i stedet på
+«hvilke 5–10 blueprints kan jeg kjøpe nå»:
+
+- **Uforsket blueprint (ME 0) og én run** er utgangspunktet – det er der man starter.
+- **Rangeres på avkastning per døgn på bundet kapital**, ikke ISK/dag. Sorterte vi på ISK/dag,
+  fylte Large-riggene lista: 4 mill. i materialer per run i markeder med 12 handler om dagen.
+  Med avkastning kommer Small-riggene opp: BPO 125k, 140–260k per run, 40–66 % margin, 12 min.
+- **`starter_min_trades` (20/dag)** er strengere enn dommen ellers (3/dag) – en nybegynner må få
+  varen ut igjen.
+- **`starter_max_cost_share` (25 %)** hindrer at én run spiser lommeboka. Blir lista kortere enn
+  5 forslag, mykes taket opp i to trinn framfor å vise en tom liste.
+- **Kapital filtrerer ingenting.** For dyre forslag merkes «mangler X ISK».
+- **Materialliste per run** følger hvert forslag (antall for ME 0, priser fra Jita).
+- **Skills hentes fra EVE:** Industry, Advanced Industry, Mass Production og Advanced Mass
+  Production → `industry_profile`; Reprocessing + Reprocessing Efficiency → refine-utbyttet i
+  `mining_profile` (`reprocessYield()` i `lib/eve.js`). Feltene er fjernet fra fanen.
+  Skill-ID-ene er verifisert mot `jita.types`.
+- Tabellen og tersklene ligger i kollapsede seksjoner, og `why_not()` teller avslagsgrunnene.
+
 ### «Start med …» – anbefalingen øverst i fanen (24. sept 2026)
 Rangeringen antar ferdig forsket blueprint (ME 10). Skal du *kjøpe* en BPO, er den ME 0, og da gjelder
 tre andre krav. `start_recommendation()` (speilet i `lib/industry.js`) velger blant varene som passerer:

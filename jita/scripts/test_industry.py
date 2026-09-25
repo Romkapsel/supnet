@@ -16,6 +16,14 @@ from industry import (IndustryProfile, economics, factors, job_cost, judge, mate
 FEIL = []
 
 
+def dyr_tynn_isk(rangert):
+    """Sjekker at den dyre varen faktisk har høyere ISK/dag enn den billige – altså at
+    rangeringen valgte den billige PÅ TROSS AV lavere absolutt fortjeneste."""
+    billig = [x for x in rangert if x["name"] == "Billig og likvid"][0]
+    dyr = [x for x in rangert if x["name"] == "Dyr men stor"][0]
+    return dyr["profit_per_day"] > billig["profit_per_day"]
+
+
 def sjekk(navn: str, fikk, vil, tol=1e-6):
     if isinstance(vil, str) or isinstance(fikk, str):
         ok = str(fikk) == str(vil)
@@ -286,10 +294,12 @@ def main():
     P3 = IndustryProfile(**{**{k: getattr(P, k) for k in
         ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
          'cost_index','material_source')},
-        'thresholds': dict(P.thresholds, min_profit_per_run=50_000, newbro_runs_per_day=3)})
+        'thresholds': dict(P.thresholds, min_profit_per_run=50_000, newbro_runs_per_day=3,
+                           starter_min_trades=20, starter_max_cost_share=0.25)})
     fellesfelt = dict(passed=True, sell_price=100_000.0, units_per_run=2, time_per_run_s=3600,
                       margin=0.60, daily_volume=5000, factors={'trades_per_day': 40},
                       failed_rules=[])
+    # kapital 8 mill. → kostnadstak 2 mill. per run
     god_start = dict(fellesfelt, product_type_id=1, name="God start", bpo_price=1_000_000,
                      margin_me0=0.40, cost_per_unit_me0=60_000.0, runs_market_per_day=50)
     dyr_bpo = dict(fellesfelt, product_type_id=2, name="Dyr BPO", bpo_price=200_000_000,
@@ -328,6 +338,41 @@ def main():
     sjekk("kom i gang: markedet begrenser runs når det tar mindre enn 3", t["runs_per_day"], 0.5)
     sjekk("kom i gang: fortjeneste per døgn følger markedet",
           t["profit_per_day"], round(t["profit_per_run"] * 0.5, 2))
+
+    # ── Rangeringen: avkastning på bundet kapital, ikke absolutt ISK/dag ──
+    billig = dict(fellesfelt, product_type_id=10, name="Billig og likvid", bpo_price=125_000,
+                  margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
+                  units_per_run=1, sell_price=160_000.0)
+    dyr_tynn = dict(fellesfelt, product_type_id=11, name="Dyr men stor", bpo_price=1_250_000,
+                    margin_me0=0.30, cost_per_unit_me0=1_500_000.0, runs_market_per_day=50,
+                    units_per_run=1, sell_price=2_100_000.0)
+    rangert = starter_list([dyr_tynn, billig], P3, 8_000_000)
+    sjekk("rangering: billig og likvid slår dyr med større ISK/dag",
+          rangert[0]["name"], "Billig og likvid")
+    sjekk("rangering: den dyre gir mer ISK per døgn likevel",
+          1 if dyr_tynn_isk(rangert) else 0, 1)
+    sjekk("avkastning per døgn regnes ut",
+          rangert[0]["daily_return"], round(rangert[0]["profit_per_day"] / rangert[0]["cost_per_run"], 4))
+
+    # For tynt handlet marked er ikke noe for en nybegynner, selv med god margin
+    tynn_handel = dict(fellesfelt, product_type_id=12, name="Få handler", bpo_price=125_000,
+                       margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
+                       units_per_run=1, sell_price=160_000.0,
+                       factors={'trades_per_day': 5})
+    sjekk("få handler per dag er ikke for en nybegynner",
+          len([x for x in starter_list([tynn_handel], P3, 8_000_000) if x["name"] == "Få handler"]), 0)
+
+    # Én run skal ikke spise lommeboka: tak på 25 % av kapitalen
+    for_stor_run = dict(fellesfelt, product_type_id=13, name="Spiser lommeboka",
+                        bpo_price=125_000, margin_me0=0.30, cost_per_unit_me0=4_000_000.0,
+                        runs_market_per_day=50, units_per_run=1, sell_price=5_600_000.0)
+    med_alternativ = starter_list([for_stor_run] + [dict(billig, product_type_id=20 + i,
+                                  name=f"Billig {i}") for i in range(5)], P3, 8_000_000)
+    sjekk("kostnadstak holder store runs ute når det finnes nok alternativer",
+          len([x for x in med_alternativ if x["name"] == "Spiser lommeboka"]), 0)
+    # ... men er det ingenting annet, mykes taket opp framfor å vise en tom liste
+    sjekk("taket mykes opp når lista ellers blir tom",
+          len(starter_list([for_stor_run], P3, 8_000_000)), 1)
 
     grunner = why_not([forkastet, dict(fellesfelt, failed_rules=['i2', 'i11']),
                        dict(fellesfelt, failed_rules=['i2'])])
