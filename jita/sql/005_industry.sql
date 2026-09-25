@@ -41,7 +41,11 @@ create table if not exists jita.industry_profile (
     "batch_days": 1,
     "capital_share_per_job": 0.5,
     "max_sell_days": 5,
-    "min_trades_per_day": 3
+    "min_trades_per_day": 3,
+    "min_profit_per_run": 50000,
+    "newbro_runs_per_day": 3,
+    "starter_min_trades": 20,
+    "starter_max_cost_share": 0.25
   }'::jsonb,
   updated_at timestamptz default now()
 );

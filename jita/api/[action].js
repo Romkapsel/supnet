@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
-import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio, startRecommendation } from "../lib/industry.js";
+import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio, startRecommendation, starterList, whyNot } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -555,6 +555,26 @@ async function industry(q, query) {
   const capital = Number(query.capital) || Number(p.cash_isk ?? p.capital_isk) || 0;
   const portfolio = pickPortfolio(rows, slots, capital);
   const start = startRecommendation(rows, Number(p.thresholds?.min_margin ?? 0.10), capital);
+  // «Kom i gang»: 5–10 blueprints med materialliste per run – det siden åpner med
+  const starter = starterList(rows, p, capital);
+  const materials = starter.length ? await q`
+    select m.blueprint_type_id, m.material_type_id, t.name, m.quantity,
+           mq.buy_max, mq.sell_min, t.volume
+    from jita.blueprint_materials m
+    join jita.types t on t.type_id = m.material_type_id
+    left join jita.market_quotes mq on mq.type_id = m.material_type_id
+    where m.blueprint_type_id = any(${starter.map((x) => x.blueprint_type_id)})
+    order by m.blueprint_type_id, m.quantity desc` : [];
+  for (const x of starter) {
+    x.materials = materials.filter((m) => m.blueprint_type_id === x.blueprint_type_id).map((m) => {
+      const pris = p.material_source === "buy" ? Number(m.buy_max ?? 0) : Number(m.sell_min ?? 0);
+      const antall = Number(m.quantity);           // ME 0 = grunnmengden, uten fradrag
+      return { type_id: m.material_type_id, name: m.name, quantity: antall,
+               price: pris || null, cost: pris ? antall * pris * (p.material_source === "buy" ? 1 + Number(p.broker) : 1) : null,
+               volume: m.volume == null ? null : Number(m.volume) };
+    });
+  }
+  const why = whyNot(rows, INDUSTRY_RULES);
 
   const [robot] = await q`select run_at, duration_s, ok, message, orders_count
                           from jita.robot_runs where job = 'industry' order by run_at desc limit 1`;
@@ -568,8 +588,8 @@ async function industry(q, query) {
     order by a.created_at desc limit 10`;
   const [sde] = await q`select count(*)::int as n, max(updated_at) as at,
                           count(*) filter (where npc_bpo) as npc from jita.blueprints`;
-  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, robot, counts, alerts, sde,
-           rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
+  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, starter, why, robot,
+           counts, alerts, sde, rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
 }
 
 // Én vare: siste tall + hvordan margin og kostpris har beveget seg (brief punkt 3)

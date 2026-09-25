@@ -21,6 +21,75 @@ export const INDUSTRY_RULES = {
 // Kategoriene vi rangerer (ESI category_id) – brukes til filteret i fanen.
 export const CATEGORY_NAMES = { 6: "Skip", 7: "Moduler", 8: "Ammo og charges", 18: "Droner", 22: "Deployables" };
 
+/** «Kom i gang»: 5–10 blueprints for en nybegynner. Speilet av starter_list() i scripts/industry.py.
+ *  Regner med UFORSKET blueprint (ME 0), per RUN, maks 3 runs per døgn og aldri mer enn markedet tar.
+ *  Rangeres på AVKASTNING per døgn på bundet kapital – sorterer man på ISK/dag, fylles lista av
+ *  Large-rigger med 4 mill. i materialer per run i markeder med 12 handler om dagen.
+ *  Krever 20 handler/dag, og at én run ikke koster mer enn 25 % av kapitalen (mykes opp om lista
+ *  blir for kort). Filtrerer ikke bort noe på kapital; det du ikke har råd til merkes i stedet. */
+export function starterList(rows, p, capital, antall = 10) {
+  const th = p.thresholds || {};
+  const minMargin = Number(th.min_margin ?? 0.10);
+  const minProfit = Number(th.min_profit_per_run ?? 50000);
+  const minTrades = Number(th.starter_min_trades ?? 20);
+  const maksRuns = Number(th.newbro_runs_per_day ?? 3);
+  const andel = Number(th.starter_max_cost_share ?? 0.25);
+  const fees = Number(p.sell_fees);
+
+  const bygg = (kostnadstak) => {
+    const ut = [];
+    for (const r of rows) {
+      if (!r.passed || r.bpo_price == null) continue;
+      const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
+      const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
+      if (me0 == null || kost0 == null || me0 < minMargin) continue;
+      const handler = r.factors?.trades_per_day ?? null;
+      if (handler != null && Number(handler) < minTrades) continue;
+      const perRun = Number(r.units_per_run || 1);
+      const kostRun = kost0 * perRun;
+      if (kostnadstak != null && kostRun > kostnadstak) continue;
+      const nettoStk = Number(r.sell_price) * (1 - fees) - kost0;
+      const nettoRun = nettoStk * perRun;
+      if (nettoRun < minProfit) continue;
+      const runsMarked = r.runs_market_per_day == null ? null : Number(r.runs_market_per_day);
+      const runsDag = runsMarked != null ? Math.min(maksRuns, runsMarked) : maksRuns;
+      const perDag = nettoRun * runsDag;
+      const start = Number(r.bpo_price) + kostRun;
+      ut.push({
+        product_type_id: r.product_type_id, blueprint_type_id: r.blueprint_type_id,
+        name: r.name, blueprint_name: `${r.name} Blueprint`,
+        bpo_price: Number(r.bpo_price), bpo_price_source: r.bpo_price_source,
+        units_per_run: perRun, cost_per_unit_me0: kost0, cost_per_run: kostRun,
+        sell_price: Number(r.sell_price), profit_per_unit: nettoStk, profit_per_run: nettoRun,
+        margin_me0: me0, margin_me10: r.margin == null ? null : Number(r.margin),
+        hours_per_run: Math.round((Number(r.time_per_run_s) || 0) / 36) / 100,
+        runs_market_per_day: runsMarked, runs_per_day: runsDag, profit_per_day: perDag,
+        daily_return: kostRun > 0 ? perDag / kostRun : 0,
+        startup_cost: start, affordable: start <= capital,
+        daily_volume: r.daily_volume == null ? null : Number(r.daily_volume),
+        trades_per_day: handler, sell_orders: r.sell_orders, group_name: r.group_name,
+      });
+    }
+    ut.sort((a, b) => (a.affordable === b.affordable ? b.daily_return - a.daily_return
+                                                    : (a.affordable ? -1 : 1)));
+    return ut;
+  };
+
+  const tak = capital > 0 ? capital * andel : null;
+  let liste = bygg(tak);
+  if (liste.length < 5 && tak) liste = bygg(tak * 2);
+  if (liste.length < 5) liste = bygg(null);
+  return liste.slice(0, antall);
+}
+
+/** Hvorfor kom ikke resten med? Teller avslagsgrunnene, så siden kan forklare seg. */
+export function whyNot(rows, rules) {
+  const teller = new Map();
+  for (const r of rows) for (const regel of (r.failed_rules || [])) teller.set(regel, (teller.get(regel) || 0) + 1);
+  return [...teller.entries()].sort((a, b) => b[1] - a[1])
+    .map(([rule, count]) => ({ rule, text: rules[rule] || rule, count }));
+}
+
 /** Hva bør du kjøpe FØRST? Speilet av start_recommendation() i scripts/industry.py.
  *  Rangeringen ellers antar ferdig forsket blueprint (ME 10). Kjøper du en ny BPO, er den ME 0,
  *  og da må varen (1) ha en startkostnad du har råd til, og (2) være lønnsom alt ved ME 0 –

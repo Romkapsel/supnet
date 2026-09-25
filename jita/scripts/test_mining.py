@@ -12,7 +12,10 @@ FEIL = []
 
 
 def sjekk(navn: str, fikk, vil, tol=1e-6):
-    ok = abs(float(fikk) - float(vil)) <= tol * max(1.0, abs(float(vil)))
+    if isinstance(vil, str) or isinstance(fikk, str):
+        ok = str(fikk) == str(vil)
+    else:
+        ok = abs(float(fikk) - float(vil)) <= tol * max(1.0, abs(float(vil)))
     print(f"{'ok  ' if ok else 'FEIL'} {navn}: {fikk} (ventet {vil})")
     if not ok:
         FEIL.append(navn)

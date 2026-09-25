@@ -32,7 +32,7 @@ tr.fail td { opacity:0.55; }
 document.head.appendChild(s);
 
 let D = null;                       // siste svar fra /api/industry
-const state = { kategori: '', minVolum: 0, maksBpo: 0, maksKapital: 0, sok: '', visForkastet: false, apen: null };
+const state = { kategori: '', minVolum: 0, maksBpo: 0, maksKapital: 0, sok: '', visForkastet: false, apen: null, visAlle: false };
 
 const hrs = (sek) => sek == null ? '–' : (sek / 3600 < 1 ? Math.round(sek / 60) + ' min' : (sek / 3600).toFixed(1).replace('.', ',') + ' t');
 
@@ -92,49 +92,83 @@ function detaljRad(r) {
 }
 
 // Det første du skal se: hva bør du kjøpe først, i klartekst.
-function startKort() {
+// ── Det første du ser: hvilke blueprints du kan kjøpe nå, og hva de krever ──────
+// Alt regnes med UFORSKET blueprint (ME 0) og per RUN, fordi det er der en nybegynner starter.
+function komIGang() {
   const p = D.profile;
-  const s = D.start || [];
-  const kapital = isk(D.portfolio?.capital ?? p.cash_isk ?? p.capital_isk);
+  const s = D.starter || [];
+  const kapital = Number(D.portfolio?.capital ?? p.cash_isk ?? p.capital_isk ?? 0);
+
   if (!s.length) {
+    const grunner = (D.why || []).slice(0, 4);
     return `<div class="card" style="border:1px solid #f0c04055">
-      <h2 style="margin-top:0">Hva bør du starte med?</h2>
-      <div class="muted small">${D.counts?.passed
-        ? `Ingen av de ${D.counts.passed} varene som passerer har både en startkostnad du har råd til (${kapital} ISK)
-           og margin nok med en <b>uforsket</b> BPO. Tabellen under viser dem som passerer med ferdig forsket
-           blueprint (ME ${p.me}) – eier du en slik alt, kan du bruke den.`
-        : 'Ingen varer passerer reglene ennå. Kjør industri-jobben, eller senk tersklene nederst.'}</div></div>`;
+      <h2 style="margin-top:0">Ingen forslag akkurat nå</h2>
+      <div class="muted small">${D.run_at
+        ? `Roboten vurderte ${num(D.counts?.total ?? 0)} varer. Ingen av dem hadde både
+           kjøpbar blueprint, marked som flyter, og nok margin med en <b>uforsket</b> BPO.`
+        : 'Roboten har ikke kjørt ennå – trykk «Oppdater alt» under.'}</div>
+      ${grunner.length ? `<div class="muted small" style="margin-top:8px">Vanligste grunner:
+        ${grunner.map((g) => `${esc(g.text)} (${g.count})`).join(' · ')}</div>` : ''}
+      <div class="muted small" style="margin-top:8px">Vil du se flere forslag, kan du senke
+        «min. margin» eller «min. fortjeneste per run» under Avansert.</div></div>`;
   }
-  const beste = s[0];
-  const rad = (x, i) => `
-    <div class="card" style="background:var(--card2);margin:${i ? '8px' : '10px'} 0 0">
-      <div class="row"><h3 style="margin:0">${i + 1}. ${esc(x.name)}${copyBtn(x.name + ' Blueprint')}</h3>
-        <span class="big accent">${isk(x.isk_per_day_slot)} ISK/dag</span></div>
+
+  const materialtabell = (x) => {
+    const m = x.materials || [];
+    if (!m.length) return '<div class="muted small">Materiallista mangler for denne.</div>';
+    const sum = m.reduce((a, b) => a + (b.cost || 0), 0);
+    return `<div class="tblwrap"><table>
+      <tr><th>Materiale</th><th>Antall per run</th><th>Pris/stk</th><th>Sum</th></tr>
+      ${m.map((y) => `<tr><td style="text-align:left">${esc(y.name)}${copyBtn(y.name)}</td>
+        <td>${num(y.quantity)}</td><td>${y.price == null ? '–' : price(y.price)}</td>
+        <td>${y.cost == null ? '–' : isk(y.cost)}</td></tr>`).join('')}
+      <tr><td style="text-align:left"><b>Sum per run</b></td><td></td><td></td><td><b>${isk(sum)}</b></td></tr>
+      </table></div>
+      <div class="muted small" style="margin-top:4px">Antallet er for <b>uforsket</b> blueprint.
+        Med ME ${p.me} trenger du ca. 10 % mindre. Prisene er ${p.material_source === 'buy'
+        ? 'høyeste kjøpsbud i Jita (du legger kjøpsordre og venter)' : 'laveste salgspris i Jita (kjøp med én gang)'}.</div>`;
+  };
+
+  const kort = (x, i) => `
+    <div class="card" style="background:var(--card2);margin:10px 0 0">
+      <div class="row">
+        <h3 style="margin:0">${i + 1}. ${esc(x.name)}
+          ${x.affordable ? '<span class="pill ok">har du råd til</span>'
+            : `<span class="pill bad">mangler ${isk(x.startup_cost - kapital)} ISK</span>`}</h3>
+        <span class="big accent">+${isk(x.profit_per_run)} ISK per run</span>
+      </div>
       <div class="row small" style="margin-top:6px">
-        <span><b>1.</b> Kjøp <b>${esc(x.name)} Blueprint</b> – ca. <b>${isk(x.bpo_price)} ISK</b>
-          ${x.bpo_price_source === 'esi_average' ? '<span class="pill" title="Prisen er ESI-ens snittpris, som for NPC-seedede BPO-er er selve NPC-prisen. Sjekk i spillet.">anslag</span>' : `<span class="pill ok">${esc(x.bpo_price_source || '')}</span>`}</span>
-        <span><b>2.</b> Forsk til ME ${p.me} / TE ${p.te} når du kan</span>
+        <span><b>Kjøp:</b> ${esc(x.blueprint_name)}${copyBtn(x.blueprint_name)} – <b>${isk(x.bpo_price)} ISK</b>
+          ${x.bpo_price_source === 'esi_average' ? '<span class="pill" title="Prisen er ESI-ens snittpris, som for NPC-seedede blueprints er selve NPC-prisen. Dobbeltsjekk i spillet.">anslag</span>' : ''}</span>
+        <span class="muted">Trenger <b>${isk(x.startup_cost)} ISK</b> for blueprint + materialer til én run</span>
       </div>
       <div class="row small">
-        <span><b>3.</b> Produser <b>${x.runs} runs → ${num(x.units)} stk</b> (${num(x.hours, 1)} t),
-          materialer <b>${isk(x.capital_per_job)} ISK</b></span>
-        <span><b>4.</b> Selg i Jita på <b>${price(x.sell_price)}</b></span>
+        <span><b>Én run:</b> ${num(x.units_per_run)} stk på ${num(x.hours_per_run, 1)} t ·
+          materialer <b>${isk(x.cost_per_run)}</b> → selges <b>${price(x.sell_price)}</b>/stk</span>
+        <span class="muted">Margin <b class="${Number(x.margin_me0) >= 0.25 ? 'green' : 'accent'}">${pct(x.margin_me0)}</b> uforsket${x.margin_me10 != null ? ` (${pct(x.margin_me10)} ferdig forsket)` : ''}</span>
       </div>
-      <div class="row small" style="margin-top:6px">
-        <span class="muted">Start: <b>${isk(x.startup_cost)} ISK</b> · BPO nedbetalt på
-          ${x.payback_days == null ? '–' : num(x.payback_days, 1) + ' d'}</span>
-        <span class="muted">Margin <b>${pct(x.margin)}</b> forsket ·
-          <b class="${Number(x.margin_me0) >= 0.25 ? 'green' : 'accent'}">${pct(x.margin_me0)}</b> uforsket</span>
-        <span class="muted">${num(x.daily_volume)} stk/dag i markedet${x.trades_per_day != null ? `, ${num(x.trades_per_day, 0)} handler` : ''}</span>
+      <div class="row small">
+        <span class="muted">Markedet tar <b>${x.runs_market_per_day == null ? '–' : num(x.runs_market_per_day, 1)} runs/dag</b>
+          – ${num(x.daily_volume)} stk/dag${x.trades_per_day != null ? `, ${num(x.trades_per_day, 0)} handler` : ''}</span>
+        <span class="accent">~${isk(x.profit_per_day)} ISK/dag hvis du kjører ${num(x.runs_per_day, 1)} runs
+          ${x.daily_return != null ? `<span class="muted" title="Fortjeneste per døgn delt på ISK-ene som ligger i materialene – dette er tallet lista rangeres på">(${pct(x.daily_return, 0)} av pengene per dag)</span>` : ''}</span>
       </div>
+      <details style="margin-top:8px"><summary class="small accent" style="cursor:pointer">Materialer du må handle i Jita</summary>
+        <div style="margin-top:6px">${materialtabell(x)}</div></details>
     </div>`;
+
+  const vis = state.visAlle ? s : s.slice(0, 5);
+  const harRaad = s.filter((x) => x.affordable).length;
   return `<div class="card" style="border:1px solid var(--accent)">
-    <div class="row"><h2 style="margin:0">Start med ${esc(beste.name)}</h2>
-      <span class="muted small">kapital ${kapital} ISK · ${p.slots_effective} slot${p.slots_effective > 1 ? 's' : ''}</span></div>
-    <div class="muted small" style="margin-top:4px">Valgt blant de ${D.counts?.passed ?? 0} varene som passerer, etter tre krav:
-      du har råd til BPO + én batch, varen er lønnsom <b>alt med uforsket BPO</b> (ME 0 bruker 11 % mer materialer),
-      og markedet flyter. Rangeringen i tabellen under antar ferdig forsket blueprint.</div>
-    ${s.map(rad).join('')}
+    <div class="row"><h2 style="margin:0">Kom i gang: ${s.length} blueprints</h2>
+      <span class="muted small">${harRaad} av dem har du råd til nå (${isk(kapital)} ISK)</span></div>
+    <div class="muted small" style="margin-top:4px">Valgt på margin og salgbarhet, regnet med
+      <b>uforsket</b> blueprint og <b>én run</b> av gangen. Sortert på hvor mye pengene dine gir per døgn –
+      ikke på størst beløp, for da fylles lista av dyre varer i tynne markeder.
+      Krever minst ${num(p.thresholds?.starter_min_trades ?? 20)} handler per dag i markedet, og
+      at én run koster under ${pct(p.thresholds?.starter_max_cost_share ?? 0.25, 0)} av kapitalen.</div>
+    ${vis.map(kort).join('')}
+    ${s.length > 5 ? `<div class="row" style="margin-top:10px"><button id="visalle" class="ghost">${state.visAlle ? 'Vis bare de 5 beste' : `Vis alle ${s.length}`}</button></div>` : ''}
   </div>`;
 }
 
@@ -145,50 +179,42 @@ function tegn() {
   const pf = D.portfolio;
 
   el('app').innerHTML = `
-    <h1>Industri <span class="muted" style="font-size:0.9rem">produksjon i ${esc(p.system_name || '?')} → salg i Jita 4-4</span></h1>
+    <h1>Industri <span class="muted" style="font-size:0.9rem">produser i ${esc(p.system_name || '?')} → selg i Jita 4-4</span></h1>
     ${nav('industry.html')}
-    ${startKort()}
-    <div class="card">
-      <div class="stats">
-        <div class="stat"><div class="l">Kostnadsindeks</div><div class="v">${p.cost_index == null ? '–' : (p.cost_index * 100).toFixed(2).replace('.', ',') + ' %'}</div><div class="muted" style="font-size:0.7rem">${p.cost_index_at ? ago(p.cost_index_at) : 'ikke hentet'}</div></div>
-        <div class="stat"><div class="l">Avgifter på jobben</div><div class="v">${pct(Number(p.facility_tax) + Number(p.scc_rate) + Number(p.cost_index || 0), 2)}</div><div class="muted" style="font-size:0.7rem">indeks + 0,25 % + SCC ${pct(p.scc_rate, 0)}</div></div>
-        <div class="stat"><div class="l">Salgsgebyr</div><div class="v">${pct(p.sell_fees, 2)}</div><div class="muted" style="font-size:0.7rem">broker ${pct(p.broker, 2)} + skatt ${pct(p.tax, 2)}</div></div>
-        <div class="stat"><div class="l">Blueprint</div><div class="v">ME ${p.me} / TE ${p.te}</div></div>
-        <div class="stat"><div class="l">Slots</div><div class="v">${p.slots_effective}</div></div>
-        <div class="stat"><div class="l">Data fra</div><div class="v">${D.run_at ? ago(D.run_at) : 'aldri'}</div><div class="muted" style="font-size:0.7rem">${D.counts?.passed ?? 0} av ${D.counts?.total ?? 0} passerer</div></div>
+
+    <div class="card small">
+      <div class="row">
+        <span>Hentet fra spillet: <b>${isk(p.cash_isk ?? p.capital_isk)} ISK</b> i kassa ·
+          Industry <b>${p.industry ?? '–'}</b>, Advanced Industry <b>${p.advanced_industry ?? '–'}</b>,
+          <b>${p.slots_effective}</b> produksjonsslot${p.slots_effective > 1 ? 's' : ''}
+          ${p.skills_from_eve_at ? `<span class="muted">(${ago(p.skills_from_eve_at)})</span>` : '<span class="pill warn">skills ikke hentet – trykk Oppdater alt</span>'}</span>
+        <span class="muted">Avgifter: ${pct(Number(p.facility_tax) + Number(p.scc_rate) + Number(p.cost_index || 0), 2)} på jobben,
+          ${pct(p.sell_fees, 2)} på salget · Tall fra ${D.run_at ? ago(D.run_at) : 'aldri'}</span>
       </div>
-      <div class="row" style="margin-top:10px">
-        <button id="kjor">Kjør industri-jobben nå</button>
-        <span id="kjormsg" class="muted small"></span>
-        <span class="muted small">${D.sde?.n ? `${num(D.sde.n)} oppskrifter (${ago(D.sde.at)})` : 'ingen oppskrifter hentet ennå'}</span>
+      <div class="row" style="margin-top:8px">
+        <button id="oppdater">Oppdater alt</button>
+        <span id="oppdatermsg" class="muted small"></span>
+        <span class="muted small">Henter skills og kapital fra EVE, og starter industri-jobben på nytt.</span>
       </div>
       ${D.robot && !D.robot.ok ? `<div class="banner" style="margin-top:10px">Siste kjøring feilet: ${esc(D.robot.message || '')}</div>` : ''}
-      ${!D.run_at ? `<div class="banner" style="background:#3a331f;color:var(--accent);margin-top:10px">Ingen kjøring ennå. Trykk «Kjør industri-jobben nå» – den tar ~10 min første gang (henter oppskriftene).</div>` : ''}
     </div>
 
-    <h2>Forslag: hva slottene bør bruke tiden på</h2>
-    <div class="card">
-      <div class="row">
-        <label style="flex:1;min-width:120px">Slots<input id="slots" type="number" min="1" max="50" value="${pf?.slots ?? p.slots_effective}"/></label>
-        <label style="flex:2;min-width:160px">Kapital (ISK)<input id="kapital" type="number" step="1000000" value="${Math.round(pf?.capital ?? 0)}"/></label>
-        <button id="regn" class="ghost" style="align-self:flex-end">Regn om</button>
-      </div>
-      ${pf?.picks?.length ? `<div class="tblwrap" style="margin-top:10px"><table>
-        <tr><th>Vare</th><th>Runs</th><th>Stk</th><th>Tid</th><th>Kapital</th><th>ISK/dag</th><th title="Med ferdig forsket blueprint, og med nykjøpt uforsket BPO (ME 0)">Margin</th></tr>
-        ${pf.picks.map((x) => `<tr><td style="text-align:left"><b>${esc(x.name)}</b>${copyBtn(x.name)}</td><td>${x.runs}</td><td>${num(x.units)}</td>
-          <td>${num(x.hours, 1)} t</td><td>${isk(x.capital_per_job)}</td><td class="accent"><b>${isk(x.isk_per_day_slot)}</b></td><td>${pct(x.margin)}</td></tr>`).join('')}
-        <tr><td style="text-align:left"><b>Sum</b></td><td></td><td></td><td></td><td><b>${isk(pf.capital_used)}</b></td><td class="accent"><b>${isk(pf.isk_per_day)}</b></td><td></td></tr>
-        </table></div>
-        <div class="muted small" style="margin-top:6px">Ingen av forslagene tar mer enn ${pct(p.thresholds?.volume_share ?? 0.1, 0)} av dagsvolumet i Jita. Ledig kapital etterpå: ${isk(pf.left)} ISK.</div>`
-      : `<div class="muted small" style="margin-top:8px">${D.counts?.passed ? 'Ingen av varene som passerer er innenfor kapitalen – øk kapitalen eller senk «maks kapital per jobb» i innstillingene.' : 'Ingen varer passerer reglene ennå.'}</div>`}
-    </div>
+    ${komIGang()}
+
+    <div id="mining"><h2>Mining</h2><div class="card muted">Laster…</div></div>
+
+    ${(D.why || []).length ? `<details class="card"><summary class="accent" style="cursor:pointer"><b>Hvorfor ikke de andre ${num((D.counts?.total ?? 0) - (D.counts?.passed ?? 0))} varene?</b></summary>
+      <div class="tblwrap" style="margin-top:8px"><table>
+        <tr><th>Grunn</th><th>Antall varer</th></tr>
+        ${D.why.map((g) => `<tr><td style="text-align:left">${esc(g.text)}</td><td>${num(g.count)}</td></tr>`).join('')}
+      </table></div>
+      <div class="muted small" style="margin-top:6px">En vare kan ryke på flere grunner samtidig.</div></details>` : ''}
 
     ${(D.alerts || []).length ? `<h2>Varsler <span class="muted small">(margin under terskel, siste 7 d)</span></h2>
     <div class="card">${D.alerts.map((a) => `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40"><span>📉 ${esc(a.text || a.name || '')}</span><span class="muted">${ago(a.created_at)}</span></div>`).join('')}</div>` : ''}
 
-    <h2>Rangering <span class="muted small">(${rows.length} varer · sortert på realistisk ISK per døgn per slot)</span></h2>
-    <div class="card">
-      <div class="filters">
+    <details class="card"><summary class="accent" style="cursor:pointer"><b>Alle varer</b> <span class="muted small">(${num(D.counts?.total ?? 0)} vurdert, ${num(D.counts?.passed ?? 0)} passerer – for når du vil grave)</span></summary>
+      <div class="filters" style="margin-top:10px">
         <label>Kategori<select id="f-kat"><option value="">alle</option>${Object.entries(D.categories || {}).map(([k, v]) => `<option value="${k}" ${state.kategori === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
         <label>Min. dagsvolum<input id="f-vol" type="number" min="0" value="${state.minVolum || ''}" placeholder="0"/></label>
         <label>Maks BPO-pris<input id="f-bpo" type="number" min="0" step="1000000" value="${state.maksBpo || ''}" placeholder="ingen grense"/></label>
@@ -196,55 +222,65 @@ function tegn() {
         <label>Søk<input id="f-sok" value="${esc(state.sok)}" placeholder="f.eks. Scourge"/></label>
         <label style="align-self:end"><input id="f-fail" type="checkbox" ${state.visForkastet ? 'checked' : ''} style="width:auto"/> vis forkastede</label>
       </div>
-    </div>
-    <div class="card tblwrap">
-      <table>
+      <div class="tblwrap" style="margin-top:10px"><table>
         <tr><th>Vare</th><th>ISK/dag/slot</th><th title="Med ferdig forsket blueprint, og med nykjøpt uforsket BPO (ME 0)">Margin</th><th>Netto/stk</th><th>Kostpris</th><th>Selg på</th>
             <th title="ESI-historikk, 30-dagers snitt for The Forge">Volum/dag</th><th title="Antall handler per dag – volum alene kan være én stor ordre">Handler/dag</th><th title="Det minste av: hva slotten rekker, 10 % av dagsvolumet, og hva kapitalen rekker å snu rundt">Du tar/dag</th>
             <th title="Materialer + avgift for én full jobb">Kapital/jobb</th><th>BPO</th><th>Nedbetalt</th><th title="Salgsordrer i Jita 4-4">Selgere</th><th>Tid/jobb</th></tr>
         ${rows.length ? rows.map((r) => rad(r, valgte.has(r.product_type_id))).join('')
           : '<tr><td colspan="14" class="muted">Ingen varer passerer filtrene.</td></tr>'}
-      </table>
-    </div>
-    <div class="muted small">Trykk på en rad for materialliste, begrunnelse og utvikling over tid.</div>
+      </table></div>
+      <div class="muted small">Trykk på en rad for materialliste, begrunnelse og utvikling over tid.</div>
+    </details>
 
-    <h2>Innstillinger</h2>
-    <div class="card">
+    <details class="card"><summary class="accent" style="cursor:pointer"><b>Avansert</b> <span class="muted small">(portefølje for flere slots, og alle tersklene)</span></summary>
+      <h3>Flere slots samtidig</h3>
+      <div class="row">
+        <label style="flex:1;min-width:120px">Slots<input id="slots" type="number" min="1" max="50" value="${pf?.slots ?? p.slots_effective}"/></label>
+        <label style="flex:2;min-width:160px">Kapital (ISK)<input id="kapital" type="number" step="1000000" value="${Math.round(pf?.capital ?? 0)}"/></label>
+        <button id="regn" class="ghost" style="align-self:flex-end">Regn om</button>
+      </div>
+      ${pf?.picks?.length ? `<div class="tblwrap" style="margin-top:10px"><table>
+        <tr><th>Vare</th><th>Runs</th><th>Stk</th><th>Tid</th><th>Kapital</th><th>ISK/dag</th><th>Margin</th></tr>
+        ${pf.picks.map((x) => `<tr><td style="text-align:left"><b>${esc(x.name)}</b>${copyBtn(x.name)}</td><td>${x.runs}</td><td>${num(x.units)}</td>
+          <td>${num(x.hours, 1)} t</td><td>${isk(x.capital_per_job)}</td><td class="accent"><b>${isk(x.isk_per_day_slot)}</b></td><td>${pct(x.margin)}</td></tr>`).join('')}
+        </table></div>` : '<div class="muted small" style="margin-top:8px">Porteføljen er tom – den fyller store batcher og krever mer kapital enn «kom i gang»-lista.</div>'}
+
+      <h3 style="margin-top:16px">Produksjon</h3>
       <div class="grid2">
-        <label>System-ID (produksjon)<input id="i-system_id" type="number" value="${p.system_id ?? ''}"/></label>
+        <label>System-ID<input id="i-system_id" type="number" value="${p.system_id ?? ''}"/></label>
         <label>Systemnavn<input id="i-system_name" value="${esc(p.system_name || '')}"/></label>
         <label>Hopp fra Jita<input id="i-jumps_from_jita" type="number" value="${p.jumps_from_jita ?? ''}"/></label>
-        <label>ME<input id="i-me" type="number" min="0" max="10" value="${p.me ?? ''}"/></label>
+        <label>ME (forsket blueprint)<input id="i-me" type="number" min="0" max="10" value="${p.me ?? ''}"/></label>
         <label>TE<input id="i-te" type="number" min="0" max="20" value="${p.te ?? ''}"/></label>
-        <label>Facility tax (0,0025 = 0,25 %)<input id="i-facility_tax" type="number" step="0.0001" value="${p.facility_tax ?? ''}"/></label>
-        <label>SCC-avgift (0,04 = 4 %)<input id="i-scc_rate" type="number" step="0.01" value="${p.scc_rate ?? ''}"/></label>
-        <label>Industry<input id="i-industry" type="number" min="0" max="5" value="${p.industry ?? ''}"/></label>
-        <label>Advanced Industry<input id="i-advanced_industry" type="number" min="0" max="5" value="${p.advanced_industry ?? ''}"/></label>
-        <label>Mass Production<input id="i-mass_production" type="number" min="0" max="5" value="${p.mass_production ?? ''}"/></label>
-        <label>Advanced Mass Production<input id="i-adv_mass_production" type="number" min="0" max="5" value="${p.adv_mass_production ?? ''}"/></label>
+        <label>Facility tax<input id="i-facility_tax" type="number" step="0.0001" value="${p.facility_tax ?? ''}"/></label>
+        <label>SCC-avgift<input id="i-scc_rate" type="number" step="0.01" value="${p.scc_rate ?? ''}"/></label>
         <label>Slots (tom = fra skills)<input id="i-slots" type="number" min="1" max="50" value="${p.slots ?? ''}"/></label>
         <label>Materialer kjøpes<select id="i-material_source">
           <option value="buy" ${p.material_source === 'buy' ? 'selected' : ''}>med kjøpsordre (høyeste buy)</option>
           <option value="sell" ${p.material_source === 'sell' ? 'selected' : ''}>instant fra laveste sell</option></select></label>
-        <label>Salgsgebyr overstyrt (tom = fra profilen)<input id="i-sell_fee_override" type="number" step="0.001" value="${p.sell_fee_override ?? ''}"/></label>
+        <label>Salgsgebyr overstyrt<input id="i-sell_fee_override" type="number" step="0.001" value="${p.sell_fee_override ?? ''}"/></label>
       </div>
+      <div class="muted small" style="margin-top:6px">Industry, Advanced Industry og Mass Production hentes fra EVE – de kan ikke endres her.</div>
       <h3 style="margin-top:14px">Terskler</h3>
       <div class="grid2">
-        ${[['min_margin', 'Min. margin', 0.01], ['max_margin', 'Maks margin (over = ikke ekte pris)', 0.1],
+        ${[['min_margin', 'Min. margin', 0.01], ['min_profit_per_run', 'Min. fortjeneste per run', 10000],
+           ['newbro_runs_per_day', 'Runs per døgn i «kom i gang»', 1],
+           ['starter_min_trades', 'Min. handler/dag i «kom i gang»', 1],
+           ['starter_max_cost_share', 'Maks andel av kapitalen per run', 0.05],
+           ['max_margin', 'Maks margin (over = ikke ekte pris)', 0.1],
            ['min_daily_volume', 'Min. dagsvolum (stk)', 1], ['min_sell_orders', 'Min. antall selgere', 1],
+           ['min_trades_per_day', 'Min. handler per dag', 1],
            ['max_spread', 'Maks spread', 0.05], ['max_price_drop_30d', 'Maks prisfall 30 d', 0.01],
            ['max_price_spike', 'Maks pristopp (× 30-d snitt)', 0.1], ['max_bpo_price', 'Maks BPO-pris', 1000000],
            ['max_capital_per_job', 'Maks kapital per jobb', 1000000], ['max_payback_days', 'Maks nedbetalingstid (d)', 1],
            ['volume_share', 'Andel av dagsvolum du tar', 0.01], ['batch_days', 'Lengde på én jobb (døgn)', 0.5],
            ['capital_share_per_job', 'Andel av kapitalen én jobb får binde', 0.05],
-           ['max_sell_days', 'Batchen må selges unna innen (døgn)', 1],
-           ['min_trades_per_day', 'Min. handler per dag (moment)', 1]]
+           ['max_sell_days', 'Batchen må selges unna innen (døgn)', 1]]
           .map(([k, label, step]) => `<label>${label}<input id="t-${k}" type="number" step="${step}" value="${p.thresholds?.[k] ?? ''}"/></label>`).join('')}
       </div>
       <div class="row" style="margin-top:12px"><button id="lagre">Lagre</button><span id="lagremsg" class="muted small"></span>
-        <span class="muted small">Nye terskler gjelder ved neste kjøring av industri-jobben.</span></div>
-    </div>
-    <div id="mining"><h2>Mining</h2><div class="card muted">Laster…</div></div>`;
+        <span class="muted small">Gjelder ved neste kjøring.</span></div>
+    </details>`;
 
   koble();
 }
@@ -256,9 +292,9 @@ function koble() {
   };
   f('f-vol', 'minVolum'); f('f-bpo', 'maksBpo'); f('f-kap', 'maksKapital');
   f('f-kat', 'kategori', false);
-  el('f-fail').onchange = () => { state.visForkastet = el('f-fail').checked; tegn(); };
+  if (el('f-fail')) el('f-fail').onchange = () => { state.visForkastet = el('f-fail').checked; tegn(); };
   let timer;
-  el('f-sok').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.sok = el('f-sok').value; tegn(); }, 250); };
+  if (el('f-sok')) el('f-sok').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.sok = el('f-sok').value; tegn(); }, 250); };
 
   for (const tr of document.querySelectorAll('tr.rowlink')) {
     tr.onclick = async (ev) => {
@@ -271,7 +307,7 @@ function koble() {
     };
   }
 
-  el('regn').onclick = async () => {
+  if (el('regn')) el('regn').onclick = async () => {
     el('regn').disabled = true;
     try {
       D = await api('industry', { query: { slots: el('slots').value, capital: el('kapital').value } });
@@ -279,25 +315,35 @@ function koble() {
     } catch (e) { alert(e.message); el('regn').disabled = false; }
   };
 
-  el('kjor').onclick = async () => {
-    el('kjor').disabled = true; el('kjormsg').textContent = '…';
-    try { const r = await api('scan', { method: 'POST', query: { job: 'industry' } }); el('kjormsg').textContent = r.message; }
-    catch (e) { el('kjormsg').textContent = e.message; }
-    el('kjor').disabled = false;
+  // «Oppdater alt»: hent skills og kapital fra EVE, så start industri-jobben på nytt.
+  if (el('oppdater')) el('oppdater').onclick = async () => {
+    el('oppdater').disabled = true;
+    const msg = (t) => { el('oppdatermsg').textContent = t; };
+    msg('henter fra EVE…');
+    try { await api('character', { query: { light: '1' } }); } catch (e) { msg('EVE-synk: ' + e.message); }
+    try {
+      const r = await api('scan', { method: 'POST', query: { job: 'industry' } });
+      msg(r.message + ' – last siden på nytt om noen minutter');
+    } catch (e) { msg(e.message); }
+    try { D = await api('industry'); tegn(); } catch (e) { /* beholder det vi har */ }
+    if (el('oppdater')) el('oppdater').disabled = false;
   };
 
-  el('lagre').onclick = async () => {
+  if (el('visalle')) el('visalle').onclick = () => { state.visAlle = !state.visAlle; tegn(); };
+
+  if (el('lagre')) el('lagre').onclick = async () => {
     el('lagre').disabled = true; el('lagremsg').textContent = '…';
     const body = {};
     for (const k of ['system_id', 'system_name', 'jumps_from_jita', 'me', 'te', 'facility_tax', 'scc_rate',
-                     'industry', 'advanced_industry', 'mass_production', 'adv_mass_production', 'slots',
-                     'sell_fee_override', 'material_source']) {
+                     'slots', 'sell_fee_override', 'material_source']) {
       const e = el('i-' + k); if (e) body[k] = e.value;
     }
     const th = { ...(D.profile.thresholds || {}) };
     for (const k of Object.keys(th).concat(['min_margin', 'max_margin', 'min_daily_volume', 'min_sell_orders',
         'max_spread', 'max_price_drop_30d', 'max_price_spike', 'max_bpo_price', 'max_capital_per_job',
-        'max_payback_days', 'volume_share', 'batch_days'])) {
+        'max_payback_days', 'volume_share', 'batch_days', 'capital_share_per_job', 'max_sell_days',
+        'min_trades_per_day', 'min_profit_per_run', 'newbro_runs_per_day', 'starter_min_trades',
+        'starter_max_cost_share'])) {
       const e = el('t-' + k);
       if (e && e.value !== '') th[k] = Number(e.value);
     }
