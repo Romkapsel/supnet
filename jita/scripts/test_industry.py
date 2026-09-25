@@ -290,7 +290,7 @@ def main():
           len(start_recommendation([tynn_margin, for_dyr, uten_pris], P, 8_000_000)), 0)
 
     # ── «Kom i gang»-lista for en nybegynner ──
-    from industry import starter_list, why_not
+    from industry import my_pick, starter_funnel, starter_list, why_not
     P3 = IndustryProfile(**{**{k: getattr(P, k) for k in
         ('me','te','facility_tax','scc_rate','industry','advanced_industry','broker','tax',
          'cost_index','material_source')},
@@ -373,6 +373,49 @@ def main():
     # ... men er det ingenting annet, mykes taket opp framfor å vise en tom liste
     sjekk("taket mykes opp når lista ellers blir tom",
           len(starter_list([for_stor_run], P3, 8_000_000)), 1)
+
+    # ── «Hvis jeg skulle velge for deg»: likviditet avgjør blant de nesten like gode ──
+    topp_tynn = dict(fellesfelt, product_type_id=30, name="Høyest avkastning", bpo_price=125_000,
+                     margin_me0=0.50, cost_per_unit_me0=100_000.0, runs_market_per_day=50,
+                     units_per_run=1, sell_price=200_000.0, factors={'trades_per_day': 25})
+    nesten_likvid = dict(fellesfelt, product_type_id=31, name="Nesten like god, mye handel",
+                         bpo_price=125_000, margin_me0=0.45, cost_per_unit_me0=100_000.0,
+                         runs_market_per_day=50, units_per_run=1, sell_price=180_000.0,
+                         factors={'trades_per_day': 400})
+    valg = my_pick(starter_list([topp_tynn, nesten_likvid], P3, 8_000_000), P3)
+    sjekk("mitt valg: mest omsatte vinner blant de nesten like gode",
+          valg["name"], "Nesten like god, mye handel")
+    sjekk("mitt valg: begrunnelsen nevner varen som gir mest",
+          1 if "Høyest avkastning" in valg["reason"] else 0, 1)
+
+    # Er forskjellen i avkastning STOR, skal den beste vinne uansett handelstall
+    langt_bak = dict(nesten_likvid, product_type_id=32, name="Langt bak", sell_price=165_000.0,
+                     margin_me0=0.11)
+    valg2 = my_pick(starter_list([topp_tynn, langt_bak], P3, 8_000_000), P3)
+    sjekk("mitt valg: for dårlig avkastning vinner ikke på handelstall",
+          valg2["name"], "Høyest avkastning")
+    sjekk("mitt valg: begrunnelsen sier at den er best",
+          1 if "Best avkastning" in valg2["reason"] else 0, 1)
+
+    # Har du ikke råd til noe, får du likevel et valg – ellers sier siden ingenting
+    sjekk("mitt valg: velger blant det du ikke har råd til om nødvendig",
+          my_pick(starter_list([dyr_bpo], P3, 8_000_000), P3)["name"], "Dyr BPO")
+    sjekk("mitt valg: tom liste gir ingen anbefaling",
+          1 if my_pick([], P3) is None else 0, 1)
+
+    # ── Trakten: en tom liste må kunne forklare hvor forslagene ble borte ──
+    trakt = starter_funnel([god_start, dyr_bpo, tynn_me0, smaatt, tregt, forkastet,
+                            dict(fellesfelt, product_type_id=40, name="Uten BPO", bpo_price=None,
+                                 margin_me0=0.40, cost_per_unit_me0=60_000.0)], P3, 8_000_000)
+    steg = {t["step"]: t["count"] for t in trakt}
+    sjekk("trakt: seks steg", len(trakt), 6)
+    sjekk("trakt: teller dem som passerer reglene", steg["passerer reglene"], 6)
+    sjekk("trakt: teller bort dem uten BPO-pris", steg["har BPO-pris"], 5)
+    sjekk("trakt: teller bort dem som dør ved ME 0", steg["margin ved ME 0 over 10 %"], 4)
+    sjekk("trakt: siste steg = for liten fortjeneste per run",
+          steg["minst 50k fortjeneste per run"], 3)
+    sjekk("trakt: stegene er i samme rekkefølge som filteret",
+          trakt[0]["step"], "passerer reglene")
 
     grunner = why_not([forkastet, dict(fellesfelt, failed_rules=['i2', 'i11']),
                        dict(fellesfelt, failed_rules=['i2'])])

@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
-import { INDUSTRY_RULES, CATEGORY_NAMES, pickPortfolio, startRecommendation, starterList, whyNot } from "../lib/industry.js";
+import { INDUSTRY_RULES, CATEGORY_NAMES, myPick, pickPortfolio, startRecommendation, starterFunnel, starterList, whyNot } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
 function db() {
@@ -574,6 +574,9 @@ async function industry(q, query) {
                volume: m.volume == null ? null : Number(m.volume) };
     });
   }
+  // «Hvis jeg skulle velge for deg» – og en trakt som forklarer en tom liste
+  const pick = myPick(starter, p);
+  const funnel = starterFunnel(rows, p, capital);
   const why = whyNot(rows, INDUSTRY_RULES);
 
   const [robot] = await q`select run_at, duration_s, ok, message, orders_count
@@ -588,8 +591,8 @@ async function industry(q, query) {
     order by a.created_at desc limit 10`;
   const [sde] = await q`select count(*)::int as n, max(updated_at) as at,
                           count(*) filter (where npc_bpo) as npc from jita.blueprints`;
-  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, starter, why, robot,
-           counts, alerts, sde, rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
+  return { profile: p, run_at: run?.run_at || null, rows, portfolio, start, starter, pick, funnel,
+           why, robot, counts, alerts, sde, rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
 }
 
 // Én vare: siste tall + hvordan margin og kostpris har beveget seg (brief punkt 3)

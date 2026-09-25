@@ -45,7 +45,8 @@ create table if not exists jita.industry_profile (
     "min_profit_per_run": 50000,
     "newbro_runs_per_day": 3,
     "starter_min_trades": 20,
-    "starter_max_cost_share": 0.25
+    "starter_max_cost_share": 0.25,
+    "pick_return_share": 0.7
   }'::jsonb,
   updated_at timestamptz default now()
 );

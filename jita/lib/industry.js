@@ -132,3 +132,64 @@ export function pickPortfolio(rows, slots, capital) {
     capital_used: picks.reduce((s, p) => s + p.capital_per_job, 0),
   };
 }
+
+/** «Hvis jeg skulle velge for deg». Speilet av my_pick() i scripts/industry.py.
+ *  Blant dem som er nesten like gode på avkastning, velg den som er lettest å få solgt –
+ *  det er likviditeten som gjør vondt når man er ny. Begrunnelsen skrives ut, slik at siden
+ *  kan si HVORFOR, ikke bare hva. */
+export function myPick(liste, p) {
+  const kandidater = liste.filter((x) => x.affordable).length ? liste.filter((x) => x.affordable) : liste;
+  if (!kandidater.length) return null;
+  const avk = (x) => Number(x.daily_return || 0);
+  const handler = (x) => Number(x.trades_per_day || 0);
+  const besteAvk = Math.max(...kandidater.map(avk));
+  const andel = Number(p.thresholds?.pick_return_share ?? 0.7);
+  const likeverdige = kandidater.filter((x) => avk(x) >= besteAvk * andel);
+  const valg = likeverdige.reduce((a, b) => (handler(b) > handler(a) ? b : a));
+  const topp = kandidater.reduce((a, b) => (avk(b) > avk(a) ? b : a));
+  const p0 = (v) => `${Math.round(v * 100)} %`;
+  const grunn = valg.product_type_id === topp.product_type_id
+    ? `Best avkastning (${p0(avk(valg))} av pengene per døgn) og ${Math.round(handler(valg))} handler per dag – den selges lett.`
+    : `Nesten samme avkastning som ${topp.name} (${p0(avk(valg))} mot ${p0(avk(topp))}), men `
+      + `${Math.round(handler(valg))} handler per dag mot ${Math.round(handler(topp))} – du får varen ut igjen `
+      + `lettere, og det er det som gjør vondt når man er ny.`;
+  return { ...valg, reason: grunn };
+}
+
+/** Hvor forsvinner forslagene? Speilet av starter_funnel() i scripts/industry.py.
+ *  Teller hvor mange som faller for hvert krav i tur og orden, slik at en tom liste kan
+ *  forklare seg selv i stedet for at vi må gjette. */
+export function starterFunnel(rows, p, capital) {
+  const th = p.thresholds || {};
+  const minMargin = Number(th.min_margin ?? 0.10);
+  const minProfit = Number(th.min_profit_per_run ?? 50000);
+  const minTrades = Number(th.starter_min_trades ?? 20);
+  const fees = Number(p.sell_fees);
+  const tak = capital > 0 ? capital * Number(th.starter_max_cost_share ?? 0.25) : null;
+
+  const steg = [["passerer reglene", 0], ["har BPO-pris", 0],
+    [`margin ved ME 0 over ${Math.round(minMargin * 100)} %`, 0],
+    [`minst ${Math.round(minTrades)} handler per dag`, 0],
+    ["én run innenfor kostnadstaket", 0],
+    [`minst ${Math.round(minProfit / 1000)}k fortjeneste per run`, 0]];
+  for (const r of rows) {
+    if (!r.passed) continue;
+    steg[0][1]++;
+    if (r.bpo_price == null) continue;
+    steg[1][1]++;
+    const me0 = r.margin_me0 == null ? null : Number(r.margin_me0);
+    const kost0 = r.cost_per_unit_me0 == null ? null : Number(r.cost_per_unit_me0);
+    if (me0 == null || kost0 == null || me0 < minMargin) continue;
+    steg[2][1]++;
+    const handler = r.factors?.trades_per_day ?? null;
+    if (handler != null && Number(handler) < minTrades) continue;
+    steg[3][1]++;
+    const perRun = Number(r.units_per_run || 1);
+    const kostRun = kost0 * perRun;
+    if (tak != null && kostRun > tak) continue;
+    steg[4][1]++;
+    if ((Number(r.sell_price) * (1 - fees) - kost0) * perRun < minProfit) continue;
+    steg[5][1]++;
+  }
+  return steg.map(([step, count]) => ({ step, count }));
+}
