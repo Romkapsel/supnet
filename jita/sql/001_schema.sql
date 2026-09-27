@@ -270,6 +270,12 @@ select cron.schedule('jita-vacuum', '20 5 * * *', 'vacuum analyze jita.type_hour
 -- Merk: vanlig vacuum frigjør plass INNE i filene, men gir den ikke tilbake til disken. Vokser basen
 -- mot taket, er det «vacuum (full, analyze) <tabell>» som krymper den – én tabell per kall, og ikke
 -- inne i en transaksjon. 27. sept 2026 tok det basen fra 439 MB til 285 MB uten å slette noe.
+-- Månedlig full vacuum på de to store tabellene, så høyvannsmerket ikke sniker seg opp igjen.
+-- Kl. 04:35/04:45 den 1. i måneden: ingen andre jobber går på de minuttene. Låsen varer sekunder.
+select cron.unschedule(jobid) from cron.job where jobname = 'jita-vacuum-full';
+select cron.schedule('jita-vacuum-full', '35 4 1 * *', 'vacuum (full, analyze) jita.type_flow_hourly');
+select cron.unschedule(jobid) from cron.job where jobname = 'jita-vacuum-full2';
+select cron.schedule('jita-vacuum-full2', '45 4 1 * *', 'vacuum (full, analyze) jita.type_hourly');
 
 -- ── Plan B: vaktjobb (pg_cron + pg_net) ──────────────────────────────────────
 -- GitHubs cron er upålitelig. Kl. :23 og :40 ber databasen Vercel-API-et starte timesjobben via
