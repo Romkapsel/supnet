@@ -187,6 +187,24 @@ export async function syncCharacter(q, notify, light = false) {   // light: bare
   let closed = [];
   await part("ordrer", async () => {
     if (!orders) return;
+    // Prisendringer logges FØR upserten overskriver prisen. jita.my_orders.issued flytter seg når du
+    // endrer pris i EVE, så «sist endret» kommer derfra; denne loggen er for ANTALLET endringer og
+    // hva de har kostet, slik at «Å gjøre» kan si «la den stå» med tall bak (jita.order_changes).
+    const forrige = new Map((await q`select order_id, price::float8 as price, volume_remain
+                                     from jita.my_orders where state = 'open' and character_id = ${cid}`)
+      .map((r) => [String(r.order_id), r]));
+    const brokerSats = Number((await q`select (jita.effective_profile()->>'broker_fee_measured')::float8 as b`)[0]?.b) || 0.02;
+    for (const o of orders) {
+      const f = forrige.get(String(o.order_id));
+      if (f && Math.abs(Number(f.price) - Number(o.price)) > 1e-9) {
+        const qty = Number(o.volume_remain) || 0;
+        const fee = Math.max(0, brokerSats * (Number(o.price) - Number(f.price))) * qty
+                  + 0.5 * brokerSats * Number(o.price) * qty;      // relist-delen, ABR 0
+        await q`insert into jita.order_changes (order_id, changed_at, type_id, is_buy, old_price, new_price, qty_remain, fee_est)
+                values (${o.order_id}, ${now}::timestamptz, ${o.type_id}, ${!!o.is_buy_order}, ${f.price}, ${o.price}, ${qty}, ${fee})
+                on conflict (order_id, changed_at) do nothing`;
+      }
+    }
     for (const o of orders) {
       await q`insert into jita.my_orders (order_id, type_id, is_buy, price, volume_remain, volume_total, issued, duration, state,
                 first_seen, last_seen, escrow, location_id, range, region_id, character_id)

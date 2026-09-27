@@ -242,6 +242,85 @@ def undercut_advice(profile: "Profile", p1: float, remaining: int, best_ask: flo
                 wall_qty=wall_qty, days_wall=round(days_wall, 1), gain_24h=round(gain_24h))
 
 
+# ── Vernet mot for hyppige endringer (27. sept 2026) ─────────────────────────
+# Rådene over svarer på «lønner DENNE endringen seg?». De spør ikke hvor mange ganger du alt har
+# endret ordren. 11.–27. sept gikk ~6 mill. av 10,2 mill. i broker-gebyr til omprising, og 27. sept
+# ble alle 17 ordrer endret på fire minutter: 698k i gebyr mot 429k i salg. Vernet under gjør et
+# «ENDRE/HEV/SENK» om til «LA STÅ» eller «DUMP» når historikken sier at jaging koster mer enn det gir.
+
+
+def _en(v: float) -> str:
+    """Én desimal med komma – JS-speilet skriver komma, og tekstene skal være like."""
+    return f"{v:.1f}".replace(".", ",")
+
+
+def dump_net(best_bid: float, remaining: int, cost_per_unit: float | None, tax: float,
+             broker: float) -> dict:
+    """Hva får du hvis du selger hele resten rett i budet nå? Salg til et kjøpsbud koster
+    bare salgsskatt – ingen broker, ingen ny ordre, ingen kø. Det er utveien fra en priskrig."""
+    brutto = best_bid * remaining * (1 - tax)
+    kost = (cost_per_unit * (1 + broker) * remaining) if cost_per_unit else 0.0
+    return dict(net=round(brutto - kost, 2), gross=round(brutto, 2),
+                margin=round((brutto - kost) / kost, 4) if kost else None)
+
+
+def guard_advice(adv: dict, *, side: str, hours_since_change: float | None, changes_total: int,
+                 changed_before: bool = True,
+                 fees_paid_est: float, position_profit: float, best_bid: float | None,
+                 remaining: int, cost_per_unit: float | None, broker: float, tax: float,
+                 cooldown_h: float = 12.0, fee_share: float = 0.15,
+                 dump_after: int = 3) -> dict:
+    """Legger historikken oppå rådet. Endrer aldri et HOLD til en handling – bare motsatt vei.
+
+    Tre stopp, i rekkefølge:
+    `side` er "buy" eller "sell" – utveien (DUMP) finnes bare for salgsordrer. `changed_before` skiller
+    en ordre som er ENDRET fra en som nettopp er LAGT UT: EVE flytter `issued` i begge tilfeller, og
+    teksten skal ikke påstå at du har endret en ordre du bare har lagt ut.
+
+      1. **Karantene:** ordren ble endret for under `cooldown_h` timer siden. Én endring per ordre
+         per halve døgn er nok; markedet svinger fortere enn posisjonen tjener.
+      2. **Gebyrtaket:** endringene på denne ordren har alt kostet mer enn `fee_share` av det
+         posisjonen kan tjene. Da spiser jaging fortjenesten uansett hvor riktig neste endring ser ut.
+      3. **Utveien:** er ordren endret `dump_after` ganger eller mer, og budet gir penger, er svaret
+         å selge til budet – ikke å følge ned én gang til.
+
+    Returnerer rådet med `action` satt til LA STÅ eller DUMP, og `guard` = hvilket stopp som slo inn.
+    """
+    if adv.get("action") not in ("ENDRE", "HEV", "SENK"):
+        return adv
+    er_salg = side == "sell"          # kalleren vet hvilken side ordren er på (ENDRE brukes på begge)
+
+    # 3. Utveien først når krigen har vart lenge nok – da er «la stå» ikke godt nok svar
+    if er_salg and changes_total >= dump_after and best_bid and remaining > 0:
+        d = dump_net(best_bid, remaining, cost_per_unit, tax, broker)
+        if d["net"] > 0:
+            return dict(adv, action="DUMP", guard="krig", new_price=best_bid,
+                        dump_net=round(d["net"]), dump_margin=d["margin"],   # hele ISK, som JS-speilet
+                        text=(f"du har endret denne ordren {changes_total} ganger. Selg de {remaining} "
+                              f"resterende rett i budet {isk(best_bid)} i stedet: {isk(d['net'])} ISK netto "
+                              f"etter skatt, ingen nytt broker-gebyr, ingen kø. Å følge ned enda en gang "
+                              f"koster {isk(adv.get('fee') or 0)} ISK og starter samme runde på nytt."))
+
+    # 1. Karantene
+    if hours_since_change is not None and hours_since_change < cooldown_h:
+        igjen = cooldown_h - hours_since_change
+        return dict(adv, action="LA STÅ", guard="karantene",
+                    text=((f"du endret denne for {_en(hours_since_change)} t siden. " if changed_before
+                           else f"du la den ut for {_en(hours_since_change)} t siden. ") +
+                          f"Regelen er én endring per "
+                          f"{cooldown_h:.0f} t – la den stå i {_en(igjen)} t til. "
+                          f"Endring nå koster {isk(adv.get('fee') or 0)} ISK i gebyr, og markedet snur "
+                          f"fortere enn posisjonen tjener det inn. ({adv.get('text', '')})"))
+
+    # 2. Gebyrtaket
+    if position_profit > 0 and fees_paid_est > fee_share * position_profit:
+        return dict(adv, action="LA STÅ", guard="gebyrtak",
+                    text=(f"endringene på denne ordren har alt kostet ~{isk(fees_paid_est)} ISK, av en "
+                          f"fortjeneste på ~{isk(position_profit)} ISK ({fees_paid_est / position_profit * 100:.0f} % "
+                          f"spist av gebyr, taket er {fee_share * 100:.0f} %). La den stå – eller selg til budet."))
+    return adv
+
+
 def gone_weight(order_price: float, best_price: float, is_buy: bool) -> float:
     """Hvor nær toppen lå ordren da den forsvant? Nær = sannsynligvis fylt."""
     if best_price <= 0:

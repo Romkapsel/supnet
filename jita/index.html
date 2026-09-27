@@ -42,6 +42,26 @@ async function load() {
   const taken = (type_id) => (openBy[type_id] || []).map((o) =>
     `<span class="pill ${o.filled_at ? 'warn' : 'ok'}">✓ Din ordre ${o.qty} stk à ${price(o.price)}${o.filled_at ? ' · fylt' : ''}</span>`).join('');
 
+  // Handling = gul/rød, «ikke gjør noe» = grå: fargen skal si hva du skal gjøre.
+  const PILLE = { 'TREKK': 'bad', 'DUMP': 'bad', 'LA STÅ': '', 'HEV': 'warn', 'SENK': 'warn', 'RELIST': 'warn' };
+
+  // Gebyrvakten: dagens broker-gebyr mot dagens salg. 27. sept 2026 var tallene 698k i gebyr på
+  // 16 endringer mot 429k i salg. Dette er tallet som skal stoppe hånden din.
+  const gebyrvakt = (f) => {
+    if (!f || (!f.broker_today && !f.sales_today)) return '';
+    const andel = f.share_today, over = andel != null && andel > f.cap;
+    const uke = f.sales_7d > 0 ? f.broker_7d / f.sales_7d : null;
+    return `<div class="card" style="border:1px solid ${over ? '#c04040' : '#2a2e40'}">
+      <div class="row"><b>${over ? '🛑 Stopp: gebyrene løper i dag' : 'Gebyr i dag'}</b>
+        <span class="${over ? 'red' : 'muted'}">${isk(f.broker_today)} ISK broker på ${f.changes_today} endringer${
+          f.sales_today > 0 ? ` · ${pct(andel, 0)} av dagens salg (${isk(f.sales_today)})` : ' · ingen salg ennå i dag'}</span></div>
+      ${over ? `<div class="small" style="margin-top:6px">Du har betalt <b>${isk(f.broker_today)}</b> i broker-gebyr mot
+        <b>${isk(f.sales_today)}</b> i salg. Taket er ${pct(f.cap, 0)} av salget. Ikke endre flere ordrer i dag –
+        la dem stå, eller selg til budet på det du vil ut av. Siste sju dager har ${uke != null ? pct(uke, 0) : '–'} av salget gått til broker.</div>`
+        : `<div class="muted small" style="margin-top:4px">Siste sju dager: ${uke != null ? pct(uke, 0) : '–'} av salget til broker-gebyr. Taket for én dag er ${pct(f.cap, 0)}.</div>`}
+    </div>`;
+  };
+
   // Priskrig koster mer enn folk tror: hver omprising er et nytt broker-gebyr. 11.–27. sept gikk
   // ~6 mill. av 10,2 mill. i broker-gebyr til omprising. Varer med et rulleblad av undercuts
   // merkes derfor her, med gebyret det koster å jage prisen én gang.
@@ -98,13 +118,16 @@ async function load() {
         const over = pf.bound - pf.investable;
         return over > 0 ? `<div class="banner" style="background:#3a331f;color:var(--accent)">Ingen kjøpsforslag – du har ${isk(pf.bound)} ISK bundet mot ${isk(pf.investable)} investerbart (${pct(p.reserve_share, 0)} reserve). Frigjør ${isk(over)} ISK før nye kjøp.</div>`
              : !pf.picks.length ? `<div class="muted small" style="margin-bottom:8px">Ingen kjøpsforslag akkurat nå – ${isk(pf.left)} ISK ledig, men ingen kandidat tåler mer kapital (flyt/35 %-tak).</div>` : ''; })()}
-    ${(d.todo || []).length ? `<h2>Å gjøre <span class="muted small">(${d.todo.length} · sortert på ISK)</span></h2>
+    ${gebyrvakt(d.fees)}
+    ${(d.todo || []).length ? `<h2>Å gjøre <span class="muted small">(${d.todo.length} · handlinger først, sortert på ISK)</span></h2>
     <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
-      <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start">
-        <span style="flex:1;min-width:220px"><span class="pill ${x.action === 'TREKK' ? 'bad' : ['HEV', 'SENK', 'RELIST'].includes(x.action) ? 'warn' : 'ok'}">${x.action}</span>
+      <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start${x.action === 'LA STÅ' ? ';opacity:0.85' : ''}">
+        <span style="flex:1;min-width:220px"><span class="pill ${PILLE[x.action] ?? 'ok'}">${x.action}</span>
           <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a>${copyBtn(x.name)}<div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div></span>
-        <span class="accent" style="white-space:nowrap">~${isk(x.impact)} ISK</span></div>`).join('')}
-      <div class="muted small" style="margin-top:8px">Regnet nå fra dine ordrer i EVE mot siste ordrebok. Ordrer der rådet er «hold» står ikke her. Endring av ordrer krever at du er dokket i Jita 4-4.</div></div>`
+        <span class="${x.action === 'LA STÅ' ? 'muted' : 'accent'}" style="white-space:nowrap">${x.action === 'LA STÅ' ? `sparer ~${isk(x.impact)}` : `~${isk(x.impact)} ISK`}</span></div>`).join('')}
+      <div class="muted small" style="margin-top:8px">Regnet nå fra dine ordrer i EVE mot siste ordrebok. Endring av ordrer krever at du er dokket i Jita 4-4.
+        <b>«LA STÅ»</b> betyr at markedet har gått mot deg, men at det koster mer i gebyr å følge etter enn du henter inn –
+        rør den ikke før tiden som står der. <b>«DUMP»</b> er utveien fra en priskrig: selg rett til kjøpsbudet, da betaler du bare skatt.</div></div>`
     : `<h2>Å gjøre</h2><div class="card muted">Ingenting krever handling akkurat nå.</div>`}
     ${(d.alerts || []).length ? `<h2>Varsler <span class="muted small">(siste 48 t)</span></h2><div class="card">${d.alerts.map((a) =>
       `<div class="row small" style="padding:4px 0;border-bottom:1px solid #2a2e40"><span>${a.kind === 'unlisted' ? '📦' : a.kind === 'expiry' ? '⏳' : '✅'} ${a.type_id ? `<a href="type.html?id=${a.type_id}">${esc(a.text)}</a>` : esc(a.text)}</span><span class="muted">${ago(a.created_at)}</span></div>`).join('')}</div>` : ''}

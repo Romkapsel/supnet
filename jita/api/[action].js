@@ -5,7 +5,7 @@
 import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
-import { overbidAdvice, undercutAdvice, tick as tickOf } from "../lib/advice.js";
+import { overbidAdvice, undercutAdvice, guardAdvice, dumpNet, tick as tickOf } from "../lib/advice.js";
 import { INDUSTRY_RULES, CATEGORY_NAMES, myPick, pickPortfolio, startRecommendation, starterFunnel, starterList, whyNot } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
@@ -180,6 +180,17 @@ async function summary(q) {
     select c.type_id, t.name, t.market_group_path, c.score, c.buy_price, c.sell_price, c.net_per_unit, c.s2b_per_day, c.bfs_per_day, c.days_to_fill_buy
     from jita.candidates c join jita.types t using (type_id)
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed order by c.score desc nulls last`;
+  // Dagens gebyrregnskap (EVE-dagen er UTC). Er gebyret stort mot salget, skal siden si stopp.
+  const [fees] = await q`
+    select coalesce(sum(case when ref_type = 'brokers_fee' then -amount else 0 end), 0)::float8 as broker_today,
+           coalesce(sum(case when ref_type = 'transaction_tax' then -amount else 0 end), 0)::float8 as tax_today,
+           coalesce(sum(case when ref_type = 'market_transaction' then amount else 0 end), 0)::float8 as sales_today,
+           count(*) filter (where ref_type = 'brokers_fee')::int as changes_today
+    from jita.my_journal where date >= date_trunc('day', now())`;
+  const [fees7] = await q`
+    select coalesce(sum(case when ref_type = 'brokers_fee' then -amount else 0 end), 0)::float8 as broker_7d,
+           coalesce(sum(case when ref_type = 'market_transaction' then amount else 0 end), 0)::float8 as sales_7d
+    from jita.my_journal where date > now() - interval '7 days'`;
   const eve = await ssoStatus(q);
   const alerts = await q`select a.kind, a.type_id, t.name, a.payload->>'text' as text, a.created_at
                          from jita.alerts a left join jita.types t using (type_id)
@@ -197,7 +208,38 @@ async function summary(q) {
   const todo = await buildTodo(q, profile, portfolio, hangar);
   const timing = await bestHours(q, top.map((c) => c.type_id));
   for (const c of top) c.timing = timing[c.type_id] || null;
-  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio, robot, counts, db: dbinfo, rules: RULES };
+  return { profile, eve, alerts, hangar, todo, run_at: runAt, snapshot_at: counts.snapshot_at, top, open, portfolio,
+           robot, counts, db: dbinfo, rules: RULES,
+           fees: { ...fees, ...fees7, share_today: fees.sales_today > 0 ? fees.broker_today / fees.sales_today : null,
+                   cap: Number(profile.thresholds?.daily_fee_share ?? 0.10) } };
+}
+
+// ── Vernet: hva vi vet om denne ordrens historikk, og hvordan «la den stå» skrives ut ─────────
+// Posisjonens fortjeneste = det som er igjen å hente på ordren (rest × netto per enhet ved dagens pris).
+// Gebyret som alt er brukt hentes fra jita.order_changes (logget av EVE-synken).
+function vernKontekst(o, p, side) {
+  const th = p.thresholds || {};
+  const broker = Number(p.broker), tax = Number(p.tax);
+  const nettoStk = side === "sell"
+    ? o.price * (1 - broker - tax) - (o.cost ? o.cost * (1 + broker) : 0)
+    : (o.best_ask ? (o.best_ask - tickOf(o.best_ask)) * (1 - broker - tax) - o.price * (1 + broker) : 0);
+  return {
+    side, hoursSinceChange: o.hours_since_change, changesTotal: o.changes_total,
+    changedBefore: !!o.changed_before,
+    feesPaidEst: o.fees_paid_est, positionProfit: Math.max(0, nettoStk * o.remaining),
+    bestBid: o.best_bid, remaining: o.remaining, costPerUnit: o.cost, broker, tax,
+    cooldownH: Number(th.relist_cooldown_h ?? 12), feeShare: Number(th.relist_fee_share ?? 0.15),
+    dumpAfter: Number(th.dump_after_changes ?? 3),
+  };
+}
+
+// «LA STÅ» er et punkt på lista, ikke en stillhet: markedet HAR gått mot deg, og det skal stå
+// hvorfor du likevel ikke skal røre ordren – ellers gjør man det uansett.
+function vernPunkt(o, adv, hva) {
+  const grunn = { karantene: "nylig endret", gebyrtak: "gebyrene har spist nok", krig: "priskrig" }[adv.guard] || "";
+  return { kind: "guard", type_id: o.type_id, name: o.name, action: "LA STÅ",
+    title: `La ${hva} ${o.name} stå (${grunn})`, detail: adv.text,
+    impact: Number(adv.fee || 0), where: "ingen handling – dette er en advarsel mot å endre" };
 }
 
 // ── «Å gjøre»: alt som krever handling i spillet, regnet LIVE fra dine ordrer (EVE) mot siste ordrebok ─
@@ -215,8 +257,18 @@ async function buildTodo(q, p, portfolio, hangar) {
            h.best_bid::float8 as best_bid, h.best_ask::float8 as best_ask, h.bid_qty_1pct::bigint as bid_qty_1pct, h.ask_qty_1pct::bigint as ask_qty_1pct, h.bid_top_qty::bigint as bid_top_qty,
            c.s2b_per_day::float8 as s2b, c.bfs_per_day::float8 as bfs, c.score::float8 as score, c.days_to_fill_buy::float8 as dtf,
            (select sum(unit_price * quantity) / nullif(sum(quantity), 0) from jita.my_transactions x where x.type_id = o.type_id and x.is_buy and x.date > now() - interval '90 days')::float8 as cost,
-           a.payload as alert
+           a.payload as alert,
+           -- «sist endret»: EVE flytter issued når du endrer prisen på en ordre
+           round(extract(epoch from (now() - o.issued)) / 3600.0, 2)::float8 as hours_since_change,
+           coalesce(ch.n, 0)::int as changes_total, coalesce(ch.fee, 0)::float8 as fees_paid_est,
+           coalesce(ch.n24, 0)::int as changes_24h,
+           -- «endret før» = vi har logget en endring, eller issued har flyttet seg godt etter at
+           -- vi først så ordren. Ellers er ordren bare nylig LAGT UT, og teksten skal si det.
+           (coalesce(ch.n, 0) > 0 or o.issued > o.first_seen + interval '10 minutes') as changed_before
     from jita.my_orders o join jita.types t using (type_id)
+    left join lateral (select count(*) n, sum(fee_est) fee,
+                              count(*) filter (where changed_at > now() - interval '24 hours') n24
+                       from jita.order_changes c where c.order_id = o.order_id) ch on true
     left join jita.type_hourly h on h.type_id = o.type_id and h.snapshot_at = (select max(snapshot_at) from jita.type_hourly)
     left join jita.candidates c on c.type_id = o.type_id and c.run_at = (select max(run_at) from jita.candidates)
     left join lateral (select payload from jita.alerts al where al.type_id = o.type_id and al.kind in ('overbid', 'undercut')
@@ -230,7 +282,9 @@ async function buildTodo(q, p, portfolio, hangar) {
     if (o.is_buy && o.best_bid > o.price + 1e-9) {
       // mur = enheter over deg; robotens eksakte tall hvis ferskt, ellers anslag fra ordreboken (innenfor 1 %)
       const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.bid_qty_1pct || 0) - (o.price >= o.best_bid * 0.99 ? o.remaining : 0));
-      const adv = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "HEV" : o.alert.action } : overbidAdvice(p, o.price, o.remaining, o.best_bid, wall, o.s2b || 0, o.best_ask, minMargin);
+      const raa = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "HEV" : o.alert.action } : overbidAdvice(p, o.price, o.remaining, o.best_bid, wall, o.s2b || 0, o.best_ask, minMargin);
+      const adv = guardAdvice(raa, vernKontekst(o, p, "buy"));
+      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "kjøpsordren"));
       if (adv.action === "HEV") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "HEV",
         title: `Hev kjøpsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
       else if (adv.action === "TREKK") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "TREKK",
@@ -238,7 +292,12 @@ async function buildTodo(q, p, portfolio, hangar) {
     }
     if (!o.is_buy && o.best_ask < o.price - 1e-9) {
       const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.ask_qty_1pct || 0) - (o.price <= o.best_ask * 1.01 ? o.remaining : 0));
-      const adv = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "SENK" : o.alert.action } : undercutAdvice(p, o.price, o.remaining, o.best_ask, wall, o.bfs || 0, o.cost, minMargin);
+      const raa = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "SENK" : o.alert.action } : undercutAdvice(p, o.price, o.remaining, o.best_ask, wall, o.bfs || 0, o.cost, minMargin);
+      const adv = guardAdvice(raa, vernKontekst(o, p, "sell"));
+      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "salgsordren"));
+      if (adv.action === "DUMP") items.push({ kind: "war", type_id: o.type_id, name: o.name, action: "DUMP",
+        title: `Selg ${o.remaining} × ${o.name} rett i budet ${Math.round(o.best_bid).toLocaleString("nb-NO")}`,
+        detail: adv.text, impact: Number(adv.dump_net || 0), where: "Jita 4-4 – selg til kjøpsordren (ingen broker, bare skatt)" });
       if (adv.action === "SENK") items.push({ kind: "undercut", type_id: o.type_id, name: o.name, action: "SENK",
         title: `Senk salgsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
     }
@@ -273,6 +332,7 @@ async function buildTodo(q, p, portfolio, hangar) {
   // Trend mot deg på varer du sitter med og har salgsordre for → SENK (spec 2.4). Uten salgsordre dekkes det av SELG over.
   const trend = await q`
     select o.type_id, t.name, o.price::float8 as my_ask, o.volume_remain::int as remaining,
+           round(extract(epoch from (now() - o.issued)) / 3600.0, 2)::float8 as hours_since_change,
            now_.best_ask::float8 as ask_now, then_.best_ask::float8 as ask_then, now_.ask_orders_1pct as cl_now, then_.ask_orders_1pct as cl_then
     from jita.my_orders o join jita.types t using (type_id)
     join lateral (select best_ask, ask_orders_1pct from jita.type_hourly where type_id = o.type_id order by snapshot_at desc limit 1) now_ on true
@@ -281,7 +341,9 @@ async function buildTodo(q, p, portfolio, hangar) {
   for (const r of trend) {
     const drop = r.ask_then > 0 ? (r.ask_then - r.ask_now) / r.ask_then : 0;
     const cluster = r.cl_then > 0 && r.cl_now >= 3 * r.cl_then;
-    if ((drop > 0.05 || cluster) && r.my_ask > r.ask_now && !items.some((x) => x.type_id === r.type_id && x.action === "SENK")) {
+    const iKarantene = r.hours_since_change != null && r.hours_since_change < Number(p.thresholds?.relist_cooldown_h ?? 12);
+    if ((drop > 0.05 || cluster) && r.my_ask > r.ask_now && !iKarantene
+        && !items.some((x) => x.type_id === r.type_id && ["SENK", "LA STÅ", "DUMP"].includes(x.action))) {
       const target = r.ask_now - tick(r.ask_now);
       items.push({ kind: "trend", type_id: r.type_id, name: r.name, action: "SENK",
         title: `Senk salgsordren ${r.name} → ${Math.round(target).toLocaleString("nb-NO")} (markedet går mot deg)`,
@@ -299,8 +361,11 @@ async function buildTodo(q, p, portfolio, hangar) {
   }
   // Én anbefaling per vare og side (kjøp/salg). Utløper ordren, er RELIST svaret uansett (ny ordre til riktig pris,
   // ikke relist-gebyr på en ordre som dør). Ellers: HEV/SENK før TREKK – kan heving løse det, skal ordren ikke trekkes.
-  const PRIO = { RELIST: 0, HEV: 1, SENK: 1, TREKK: 2, SELG: 3, KJØP: 3, ØK: 3 };
-  const side = (x) => (["SENK", "SELG"].includes(x.action) || (x.kind === "expiry" && /^Salgsordre/.test(x.title))) ? "sell" : "buy";
+  // DUMP og «LA STÅ» slår HEV/SENK: har vernet sagt nei til å endre, skal ikke en annen kilde
+  // (et ferskt varsel, trendregelen) legge inn samme endring på nytt lenger ned i lista.
+  const PRIO = { RELIST: 0, DUMP: 1, "LA STÅ": 1, HEV: 2, SENK: 2, TREKK: 3, SELG: 4, KJØP: 4, ØK: 4 };
+  const side = (x) => (["SENK", "SELG", "DUMP"].includes(x.action) || (x.kind === "guard" && /salgsordren/.test(x.title))
+                       || (x.kind === "expiry" && /^Salgsordre/.test(x.title))) ? "sell" : "buy";
   const best = {};
   for (const x of items) {
     const k = `${x.type_id}:${side(x)}`;

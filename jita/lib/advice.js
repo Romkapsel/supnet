@@ -43,3 +43,54 @@ export function undercutAdvice(p, p1, remaining, bestAsk, wallQty, bfsPerDay, co
   else { action = "HOLD"; text = `senking til ${isk(p2)} koster ${isk(fee)} + ${isk(lossVsNow)} ISK og gir ~${isk(gain)} neste 24 t – ikke verdt det. Mur ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
   return { action, text, new_price: p2, fee: Math.round(fee), wall_qty: wallQty, days_wall: +daysWall.toFixed(1), gain_24h: Math.round(gain), margin_at_new: margin2 };
 }
+
+// ── Vernet mot for hyppige endringer (27. sept 2026). Speil av guard_advice/dump_net i common.py ──
+// Rådene over svarer på «lønner DENNE endringen seg?». De spør ikke hvor mange ganger ordren alt er
+// endret. 11.–27. sept gikk ~6 mill. av 10,2 mill. i broker-gebyr til omprising, og 27. sept ble alle
+// 17 ordrer endret på fire minutter: 698k i gebyr mot 429k i salg.
+
+/** Hva får du om du selger hele resten rett i budet nå? Salg til et bud koster bare salgsskatt –
+ *  ingen broker, ingen ny ordre, ingen kø. Det er utveien fra en priskrig. */
+export function dumpNet(bestBid, remaining, costPerUnit, tax, broker) {
+  const gross = bestBid * remaining * (1 - tax);
+  const cost = costPerUnit ? costPerUnit * (1 + broker) * remaining : 0;
+  return { net: gross - cost, gross, margin: cost ? (gross - cost) / cost : null };
+}
+
+/** Legger historikken oppå rådet. Gjør aldri et HOLD til en handling – bare motsatt vei.
+ *  1) karantene: endret (eller lagt ut) for under cooldownH timer siden → LA STÅ. changedBefore
+ *     skiller de to, slik at teksten ikke påstår en endring du ikke har gjort.
+ *  2) gebyrtak: endringene har spist mer enn feeShare av posisjonens fortjeneste → LA STÅ
+ *  3) utveien: endret dumpAfter ganger eller mer, og budet gir penger → DUMP (bare salgsordrer) */
+export function guardAdvice(adv, ctx) {
+  if (!["ENDRE", "HEV", "SENK"].includes(adv.action)) return adv;
+  const { side, hoursSinceChange, changesTotal = 0, changedBefore = true, feesPaidEst = 0, positionProfit = 0,
+          bestBid, remaining = 0, costPerUnit, broker, tax,
+          cooldownH = 12, feeShare = 0.15, dumpAfter = 3 } = ctx;
+  const n = (v) => isk(v || 0);
+  const en = (v, d = 1) => v.toFixed(d).replace(".", ",");
+
+  if (side === "sell" && changesTotal >= dumpAfter && bestBid && remaining > 0) {
+    const d = dumpNet(bestBid, remaining, costPerUnit, tax, broker);
+    if (d.net > 0) return { ...adv, action: "DUMP", guard: "krig", new_price: bestBid,
+      dump_net: Math.round(d.net), dump_margin: d.margin,
+      text: `du har endret denne ordren ${changesTotal} ganger. Selg de ${remaining} resterende rett i budet `
+          + `${n(bestBid)} i stedet: ${n(d.net)} ISK netto etter skatt, ingen nytt broker-gebyr, ingen kø. `
+          + `Å følge ned enda en gang koster ${n(adv.fee)} ISK og starter samme runde på nytt.` };
+  }
+  if (hoursSinceChange != null && hoursSinceChange < cooldownH) {
+    return { ...adv, action: "LA STÅ", guard: "karantene",
+      text: (changedBefore ? `du endret denne for ${en(hoursSinceChange)} t siden. `
+                           : `du la den ut for ${en(hoursSinceChange)} t siden. `)
+          + `Regelen er én endring per ${Math.round(cooldownH)} t `
+          + `– la den stå i ${en(cooldownH - hoursSinceChange)} t til. Endring nå koster ${n(adv.fee)} ISK i gebyr, `
+          + `og markedet snur fortere enn posisjonen tjener det inn. (${adv.text || ""})` };
+  }
+  if (positionProfit > 0 && feesPaidEst > feeShare * positionProfit) {
+    return { ...adv, action: "LA STÅ", guard: "gebyrtak",
+      text: `endringene på denne ordren har alt kostet ~${n(feesPaidEst)} ISK, av en fortjeneste på `
+          + `~${n(positionProfit)} ISK (${Math.round(feesPaidEst / positionProfit * 100)} % spist av gebyr, `
+          + `taket er ${Math.round(feeShare * 100)} %). La den stå – eller selg til budet.` };
+  }
+  return adv;
+}
