@@ -189,6 +189,12 @@ samme prosjekt (`okonomi`, `hanna`, `hund`, `finn`, `warera`). Tre funn:
 Varselet har fått to nivåer og sier hva taket er: **over 400 MB** «ryddejobben går hver time; vokser den
 likevel, må oppbevaringen strammes», **over 450 MB** «basen blir skrivebeskyttet – rydd nå».
 
+**Etterspill samme kveld:** basen var tilbake på 332 MB etter ti timer, uten at radtallene hadde endret
+seg (type_hourly 393k → 401k). Det var ikke data, men slakk: standard autovacuum venter til 20 % av
+tabellen er død – 80 000 rader i type_hourly – og i mellomtiden må filen vokse. De seks churn-tabellene
+er derfor satt til `autovacuum_vacuum_scale_factor = 0.02`, så plassen gjenbrukes i stedet. Etter en ny
+full vacuum: 294 MB. Forvent at den legger seg rundt 300–320 MB, ikke at den klatrer.
+
 For at høyvannsmerket ikke skal snike seg opp igjen, går `vacuum (full, analyze)` på de to store
 tabellene **månedlig** (den 1. kl. 04:35 og 04:45 – ingen andre jobber går på de minuttene, og låsen
 varer sekunder).
