@@ -229,7 +229,7 @@ Rundt det:
   JS-teksten er **ord for ord** lik Python-teksten. Kjøres i timesjobben og i industri-jobben.
 
 ### Gjennomgang av markedssiden ved 50 mill. kapital (27. sept 2026)
-Eieren spurte om han burde selge ut og starte med ny profil. Svaret var nei – tallene 11.–27. sept:
+Eieren spurte om det var på tid å selge ut og starte med ny profil. Svaret var nei – tallene 11.–27. sept:
 102,1 mill. kjøpt, 129,0 mill. solgt, ~29 mill. realisert etter gebyr (17,4 mill. av formuen er
 donasjoner, ikke handel). Det som var galt, var ikke strategien, men innstillingene og gebyrene:
 
@@ -263,7 +263,7 @@ terskelen – og vakten sto over. Terskelen for industri/mining er satt til **20
 
 ### «Kjøp blueprint av disse» – lista koblet fra tersklene (25. sept 2026)
 Kravet fra eieren: *«Jeg vil bare logge inn nå og se hva som er lurt å kjøpe blueprint av»* – uten å gå
-inn i «Avansert» og skru på terskler han ikke kan vurdere. Lista er derfor bygget om:
+inn i «Avansert» og skru på terskler som ikke er mulige å vurdere uten erfaring. Lista er derfor bygget om:
 
 - **Faste regler i koden** (`NYBEGYNNER` i `scripts/industry.py`, speilet i `lib/industry.js`), ikke i
   `thresholds`: minst 10 handler per dag, minst 5k fortjeneste per run, positiv margin ved ME 0, og
