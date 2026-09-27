@@ -263,6 +263,18 @@ begin
   end if;
 end $$;
 
+-- ── Autovacuum på tabellene som churner (27. sept 2026) ──────────────────────
+-- 7 500 rader inn og ut per time. Standard autovacuum venter til 20 % av tabellen er død
+-- (80 000 rader i type_hourly) før den rydder, og i mellomtiden må FILEN vokse selv om antallet
+-- rader står stille: basen gikk fra 285 til 332 MB på ti timer etter en full vacuum. Med 2 %
+-- gjenbrukes plassen i stedet. Kostnaden er hyppigere, men sekundkorte autovacuum-kjøringer.
+alter table jita.type_hourly      set (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.05);
+alter table jita.type_flow_hourly set (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.05);
+alter table jita.fills            set (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.05);
+alter table jita.history_daily    set (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.05);
+alter table jita.candidates       set (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.05);
+alter table jita.type_daily       set (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.10);
+
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-cleanup';
 select cron.schedule('jita-cleanup', '55 * * * *', 'select jita.cleanup()');   -- hver time, se kommentaren i cleanup()
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-vacuum';
