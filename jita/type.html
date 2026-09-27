@@ -35,7 +35,7 @@ async function load() {
       ${m.rounds} runder · ${m.sold_qty} solgt · realisert margin <b>${pct(m.realized_margin)}</b> · snitt ${num(m.avg_hold_days, 1)} d fra kjøp til salg</span>
       <span class="muted">overbudt ${m.overbid_count}× · underbudt ${m.undercut_count}×${m.fill_ratio ? ` · fylling faktisk/spådd ${num(m.fill_ratio, 2)}×` : ''} · score × ${num(m.factor, 2)}</span></div></div>` : '';
 
-  // flyt siste 24 t (foretrekk 20-min-oppløsning) og per klokkeslett (14 d)
+  // flyt siste 24 t (foretrekk 20-min-oppløsning) og per klokkeslett (7 d – så langt flyten lagres)
   const cut = Date.now() - 25 * 3600e3;
   const f24 = d.flow.filter((f) => new Date(f.hour).getTime() > cut);
   const res = f24.some((f) => f.resolution === 20) ? 20 : 60;
@@ -92,7 +92,7 @@ async function load() {
       <div class="stat"><div class="l">Lift-handler</div><div class="v">${sum(fr, 'bfs_trades')}</div></div>
       <div class="stat"><div class="l">Dump-handler</div><div class="v">${sum(fr, 's2b_trades')}</div></div>
     </div>
-    <h3 style="margin-top:12px">Per klokkeslett (14 d, norsk tid)</h3>
+    <h3 style="margin-top:12px">Per klokkeslett (7 d, norsk tid)</h3>
     <div style="display:flex;gap:2px;align-items:flex-end;height:70px">${byHour.map((x, h) =>
       `<div title="kl ${h}: lift ${x.b.toFixed(0)}, dump ${x.s.toFixed(0)}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px">
         <div style="height:${(x.b / maxH * 60).toFixed(0)}px;background:var(--accent);border-radius:2px"></div>

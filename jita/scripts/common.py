@@ -581,8 +581,15 @@ class RunLog:
             f"ordrer {self.orders_count} db={round((size or 0) / 1e6, 1)}MB {self.message}")
         if not self.ok:
             notify(f"⚠️ Jita-robot `{self.job}` feilet: {self.message[:300]}")
-        if size and size > 350_000_000:
-            notify(f"⚠️ Jita: databasen er {round(size / 1e6)} MB (> 350 MB) – rydding trengs")
+        # Supabase gratisplan har et HARDT tak på 500 MB: over det blir basen skrivebeskyttet,
+        # og da stopper alt – også familiens andre apper i samme prosjekt. Derfor to nivåer.
+        if size and size > 450_000_000:
+            notify(f"🛑 Jita: databasen er {round(size / 1e6)} MB av gratisplanens 500 MB. "
+                   f"Over taket blir basen skrivebeskyttet. Kjør `select jita.cleanup()` og "
+                   f"`vacuum full` på de største tabellene nå.")
+        elif size and size > 400_000_000:
+            notify(f"⚠️ Jita: databasen er {round(size / 1e6)} MB (taket på gratisplanen er 500 MB). "
+                   f"Ryddejobben går hver time; vokser den likevel, må oppbevaringen strammes.")
 
 
 def fail(runlog: RunLog, msg: str, conn=None, code: int = 1):

@@ -84,7 +84,7 @@ async function load() {
       <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
       ${krangel(c)}
       ${c.factors ? `<div style="margin-top:4px">${factorPills(c.factors)}</div>` : ''}
-      ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 14 d)</span></div>` : ''}
+      ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 7 d)</span></div>` : ''}
       <div class="reason">${esc(c.reason)}</div>
       ${openBy[c.type_id] ? `<div style="margin-top:6px">${taken(c.type_id)}</div>` : ''}
     </div>`).join('')

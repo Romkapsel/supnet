@@ -169,6 +169,29 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### Databasen: 439 → 285 MB, og hvorfor den vokste (27. sept 2026)
+Roboten varslet «databasen er 460 MB». Prosjektet ligger på **Supabase gratisplan, som har et hardt tak
+på 500 MB** – over det blir basen skrivebeskyttet, og da stopper ikke bare Jita, men alt familien har i
+samme prosjekt (`okonomi`, `hanna`, `hund`, `finn`, `warera`). Tre funn:
+
+1. **Ryddejobben gikk bare én gang i døgnet.** Med 7 500 varer i timen rakk `type_hourly` og `fills` å
+   samle et helt døgns overskudd mellom kjøringene: 45 000 + 22 000 rader som skulle vært slettet.
+   `jita-cleanup` går nå **hver time** (`55 * * * *`). Oppbevaringen er den samme som før, bare håndhevet.
+2. **`vacuum analyze` gir ikke plass tilbake til disken.** Den frigjør plass *inne* i filene, så basen
+   vokste til høyvannsmerket og ble liggende der. Tabellene var 2–5 × større enn radene tilsa:
+   `candidates` 39,5 MB for 11 700 rader, `type_flow_hourly` 108 MB for 475 000.
+   **`vacuum (full, analyze)`** på de seks største tabellene tok basen fra 439 MB til 285 MB
+   uten å slette en eneste rad. Én tabell per kall, og ikke inne i en transaksjon.
+3. **Oppbevaring strammet der dataene ikke brukes:** `type_flow_hourly` 10 → 7 d, `candidates` 3 → 2 d,
+   `history_daily` 60 → 35 d (reglene bruker 7- og 20-dagers vinduer). `bestHours()` ba om 14 dager og
+   fikk 10 – den spør nå om 7, som er det som finnes. Teksten «14 d» på forsiden og varesiden er rettet.
+
+Varselet har fått to nivåer og sier hva taket er: **over 400 MB** «ryddejobben går hver time; vokser den
+likevel, må oppbevaringen strammes», **over 450 MB** «basen blir skrivebeskyttet – rydd nå».
+
+Etter ryddingen: `jita` 205 MB, `wow_ah` 48 MB, `public` 12 MB, resten under 2 MB.
+`wow_ah` og `public.graded_prices` hører til et annet prosjekt og er ikke rørt.
+
 ### Vernet mot for hyppige ordreendringer (27. sept 2026)
 Rådene i «Å gjøre» svarte på «lønner DENNE endringen seg?», men spurte aldri hvor mange ganger ordren
 alt var endret. Resultatet var en gebyrlekkasje: 27. sept ble alle 17 ordrer endret mellom 08:19 og 08:23
