@@ -258,6 +258,8 @@ def dump_net(best_bid: float, remaining: int, cost_per_unit: float | None, tax: 
              broker: float) -> dict:
     """Hva får du hvis du selger hele resten rett i budet nå? Salg til et kjøpsbud koster
     bare salgsskatt – ingen broker, ingen ny ordre, ingen kø. Det er utveien fra en priskrig."""
+    best_bid, remaining, tax, broker = float(best_bid), int(remaining), float(tax), float(broker)
+    cost_per_unit = float(cost_per_unit) if cost_per_unit else None
     brutto = best_bid * remaining * (1 - tax)
     kost = (cost_per_unit * (1 + broker) * remaining) if cost_per_unit else 0.0
     return dict(net=round(brutto - kost, 2), gross=round(brutto, 2),
@@ -288,6 +290,16 @@ def guard_advice(adv: dict, *, side: str, hours_since_change: float | None, chan
     """
     if adv.get("action") not in ("ENDRE", "HEV", "SENK"):
         return adv
+    # Tallene kommer rett fra databasen, og psycopg2 gir numeric som Decimal. Decimal og float kan
+    # sammenlignes, men ikke regnes med om hverandre (TypeError) – så de konverteres her, én gang.
+    hours_since_change = None if hours_since_change is None else float(hours_since_change)
+    fees_paid_est = float(fees_paid_est or 0)
+    position_profit = float(position_profit or 0)
+    best_bid = None if best_bid is None else float(best_bid)
+    cost_per_unit = None if cost_per_unit is None else float(cost_per_unit)
+    remaining, changes_total = int(remaining or 0), int(changes_total or 0)
+    broker, tax = float(broker), float(tax)
+    cooldown_h, fee_share, dump_after = float(cooldown_h), float(fee_share), int(dump_after)
     er_salg = side == "sell"          # kalleren vet hvilken side ordren er på (ENDRE brukes på begge)
 
     # 3. Utveien først når krigen har vart lenge nok – da er «la stå» ikke godt nok svar

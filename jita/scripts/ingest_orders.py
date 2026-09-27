@@ -195,13 +195,16 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
                        from jita.alerts where kind in ('overbid', 'overbid_cleared')
                        order by (payload->>'decision_id')::bigint, created_at desc""")
         last = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
-        cur.execute("""select o.type_id, min(extract(epoch from (now() - o.issued)) / 3600.0),
+        cur.execute("""select o.type_id, min(extract(epoch from (now() - o.issued)) / 3600.0)::float8,
                               sum((select count(*) from jita.order_changes c where c.order_id = o.order_id))::int,
-                              sum((select coalesce(sum(fee_est), 0) from jita.order_changes c where c.order_id = o.order_id))::float8
+                              sum((select coalesce(sum(fee_est), 0) from jita.order_changes c where c.order_id = o.order_id))::float8,
+                              bool_or((select count(*) from jita.order_changes c where c.order_id = o.order_id) > 0
+                                      or o.issued > o.first_seen + interval '10 minutes')
                        from jita.my_orders o where o.state = 'open' and o.is_buy group by o.type_id""")
-        buy_age, buy_changes, buy_fees = {}, {}, {}
-        for tid_, age_, n_, fee_ in cur.fetchall():
+        buy_age, buy_changes, buy_fees, buy_changed = {}, {}, {}, {}
+        for tid_, age_, n_, fee_, endret_ in cur.fetchall():
             buy_age[tid_], buy_changes[tid_], buy_fees[tid_] = age_, n_, fee_
+            buy_changed[tid_] = bool(endret_)
     n = 0
     for did, tid, name, p1, remaining in open_buys:
         bl, sl = buys.get(tid, []), sells.get(tid, [])
@@ -220,6 +223,7 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
         wall = sum(o[cm.O_VOL] for o in bl if o[cm.O_PRICE] > p1)
         adv = overbid_advice(profile, p1, remaining, best_bid, wall, s2b.get(tid, 0.0), best_ask, min_margin)
         adv = guard_advice(adv, side="buy", hours_since_change=buy_age.get(tid), changes_total=buy_changes.get(tid, 0),
+                           changed_before=buy_changed.get(tid, True),
                            fees_paid_est=buy_fees.get(tid, 0.0),
                            position_profit=max(0.0, adv.get("gain_24h") or 0),
                            best_bid=best_bid, remaining=remaining, cost_per_unit=None,
@@ -249,7 +253,7 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
         # issued = tidspunktet for siste prisendring (EVE flytter den når du endrer pris),
         # order_changes = hvor mange ganger og hva det har kostet. Begge trengs av vernet.
         cur.execute("""select o.order_id, o.type_id, t.name, o.price::float8, o.volume_remain::int,
-                              extract(epoch from (now() - o.issued)) / 3600.0 as hours_since_change,
+                              (extract(epoch from (now() - o.issued)) / 3600.0)::float8 as hours_since_change,
                               (select count(*) from jita.order_changes c where c.order_id = o.order_id)::int,
                               (select coalesce(sum(fee_est), 0) from jita.order_changes c where c.order_id = o.order_id)::float8,
                               ((select count(*) from jita.order_changes c where c.order_id = o.order_id) > 0
@@ -292,7 +296,7 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
         # Vernet mot for hyppige endringer: karantene, gebyrtak og utveien (selg til budet).
         # Uten dette ber varselet deg senke prisen hver gang noen legger seg 1 ISK under.
         broker, tax = fees(profile)
-        netto_stk = p1 * (1 - broker - tax) - (cost.get(tid, 0) or 0) * (1 + broker)
+        netto_stk = p1 * (1 - broker - tax) - float(cost.get(tid) or 0) * (1 + broker)
         adv = guard_advice(adv, side="sell", hours_since_change=siden_endret, changes_total=endringer,
                            changed_before=bool(endret_før),
                            fees_paid_est=gebyr_brukt, position_profit=max(0.0, netto_stk * remaining),
