@@ -51,6 +51,10 @@ const THRESH = [
   ['max_bid_rise_7d', 'Regel 7: maks økning i kjøpspris 7 d'],
   ['prefilter_spread', 'Forfilter: minste brutto spread'],
   ['prefilter_min_orders', 'Forfilter: minste antall ordrer per side'],
+  ['relist_cooldown_h', 'Vern: timer en ordre skal stå i fred etter en prisendring (12)'],
+  ['relist_fee_share', 'Vern: hvor stor del av posisjonens fortjeneste endringene får koste (0,15 = 15 %)'],
+  ['dump_after_changes', 'Vern: etter så mange endringer er svaret å selge til budet (3)'],
+  ['daily_fee_share', 'Vern: dagens broker-gebyr over denne andelen av dagens salg gir stoppvarsel (0,10)'],
 ];
 // exclude_categories er en LISTE, ikke et tall – egen rute. Tomt felt = ingen kategorier utelatt.
 const KATEGORINAVN = { 4: 'Materialer', 6: 'Skip', 7: 'Moduler', 8: 'Charges/ammo', 16: 'Skillbøker',

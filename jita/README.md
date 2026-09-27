@@ -169,6 +169,38 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### Vernet mot for hyppige ordreendringer (27. sept 2026)
+Rådene i «Å gjøre» svarte på «lønner DENNE endringen seg?», men spurte aldri hvor mange ganger ordren
+alt var endret. Resultatet var en gebyrlekkasje: 27. sept ble alle 17 ordrer endret mellom 08:19 og 08:23
+(16 broker-trekk, 698k) mot 429k i salg samme dag – 163 % av salget. Over perioden 11.–27. sept var
+~6 mill. av 10,2 mill. i broker-gebyr omprising.
+
+`guard_advice()` i `scripts/common.py` (speilet av `guardAdvice()` i `lib/advice.js`) legges nå oppå
+rådet, både i robotens varsler (`ingest_orders.py`) og i «Å gjøre» på siden. Den gjør **aldri** et HOLD
+til en handling – bare motsatt vei:
+
+1. **Karantene** (`relist_cooldown_h`, 12 t): ordren ble rørt for under 12 t siden → **LA STÅ**, med
+   klokketimer igjen. `changed_before` skiller «du endret denne» fra «du la den ut», siden EVE flytter
+   `issued` i begge tilfeller.
+2. **Gebyrtaket** (`relist_fee_share`, 15 %): endringene på ordren har alt kostet mer enn 15 % av det
+   posisjonen kan tjene → **LA STÅ**. Gebyret hentes fra `jita.order_changes`.
+3. **Utveien** (`dump_after_changes`, 3): er ordren endret tre ganger eller mer og budet gir penger, er
+   svaret **DUMP** – selg resten rett i kjøpsbudet. Da betaler du bare salgsskatt: ingen broker, ingen kø.
+   Finnes bare for salgsordrer; en kjøpsordre kan man ikke dumpe.
+
+Rundt det:
+- **`jita.order_changes`** (`sql/007_order_guard.sql`) logger hver prisendring med anslått gebyr.
+  EVE-synken (`lib/eve.js`) sammenligner prisen mot forrige snapshot FØR upserten overskriver den.
+  `jita.my_orders.issued` er «sist rørt» (EVE flytter den ved prisendring), så karantenen virket fra dag én.
+- **Gebyrvakten** øverst på forsiden: dagens broker-gebyr mot dagens salg, med sju-dagers snitt. Over
+  `daily_fee_share` (10 %) blir den rød og sier «ikke endre flere ordrer i dag».
+- **«LA STÅ» er et punkt på lista**, ikke stillhet. Markedet HAR gått mot deg; står det ingenting, endrer
+  man ordren likevel. Punktet viser hva man sparer, og PRIO gjør at LA STÅ/DUMP slår HEV/SENK, slik at
+  trendregelen eller et ferskt varsel ikke legger inn samme endring lenger ned i lista.
+- **`scripts/test_advice.py`** (40 sjekker) dekker alle tre stoppene mot ekte tall fra Cap Booster 3200
+  (917 stk, kostpris 6 229, ask 12 610, bud 10 200), og kjører `advice_probe.mjs` for å kreve at
+  JS-teksten er **ord for ord** lik Python-teksten. Kjøres i timesjobben og i industri-jobben.
+
 ### Gjennomgang av markedssiden ved 50 mill. kapital (27. sept 2026)
 Eieren spurte om han burde selge ut og starte med ny profil. Svaret var nei – tallene 11.–27. sept:
 102,1 mill. kjøpt, 129,0 mill. solgt, ~29 mill. realisert etter gebyr (17,4 mill. av formuen er

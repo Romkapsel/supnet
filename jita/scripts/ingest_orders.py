@@ -173,8 +173,9 @@ def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int, mods
 def check_positions(conn, buys: dict, sells: dict, profile) -> int:
     """Overbuds-vakt (spec 2.4): for hver åpen kjøpsordre i jita.decisions – ligger noen over?
     Regner mur, gebyr og råd (HOLD / ENDRE / TREKK), lagrer i jita.alerts og varsler Discord ved endring."""
-    from common import overbid_advice, isk
+    from common import fees, guard_advice, overbid_advice, isk
     min_margin = float((profile.thresholds or {}).get("min_margin", 0.10))
+    broker_b, tax_b = fees(profile)
     with conn.cursor() as cur:
         # én vurdering per vare: din HØYESTE egen pris er referansen (egne ordrer skal ikke telle som overbud)
         cur.execute("""select max(d.id), d.type_id, t.name, max(d.price)::float8,
@@ -194,6 +195,13 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
                        from jita.alerts where kind in ('overbid', 'overbid_cleared')
                        order by (payload->>'decision_id')::bigint, created_at desc""")
         last = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+        cur.execute("""select o.type_id, min(extract(epoch from (now() - o.issued)) / 3600.0),
+                              sum((select count(*) from jita.order_changes c where c.order_id = o.order_id))::int,
+                              sum((select coalesce(sum(fee_est), 0) from jita.order_changes c where c.order_id = o.order_id))::float8
+                       from jita.my_orders o where o.state = 'open' and o.is_buy group by o.type_id""")
+        buy_age, buy_changes, buy_fees = {}, {}, {}
+        for tid_, age_, n_, fee_ in cur.fetchall():
+            buy_age[tid_], buy_changes[tid_], buy_fees[tid_] = age_, n_, fee_
     n = 0
     for did, tid, name, p1, remaining in open_buys:
         bl, sl = buys.get(tid, []), sells.get(tid, [])
@@ -211,6 +219,14 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
             continue
         wall = sum(o[cm.O_VOL] for o in bl if o[cm.O_PRICE] > p1)
         adv = overbid_advice(profile, p1, remaining, best_bid, wall, s2b.get(tid, 0.0), best_ask, min_margin)
+        adv = guard_advice(adv, side="buy", hours_since_change=buy_age.get(tid), changes_total=buy_changes.get(tid, 0),
+                           fees_paid_est=buy_fees.get(tid, 0.0),
+                           position_profit=max(0.0, adv.get("gain_24h") or 0),
+                           best_bid=best_bid, remaining=remaining, cost_per_unit=None,
+                           broker=broker_b, tax=tax_b,
+                           cooldown_h=float((profile.thresholds or {}).get("relist_cooldown_h", 12)),
+                           fee_share=float((profile.thresholds or {}).get("relist_fee_share", 0.15)),
+                           dump_after=int((profile.thresholds or {}).get("dump_after_changes", 3)))
         payload = dict(decision_id=did, price=p1, remaining=remaining, best_bid=best_bid, best_ask=best_ask, **adv)
         # varsle bare ved endring: annet råd, toppbudet flyttet > 2 %, eller > 2 t siden sist (1-ISK-hakk hvert 20. min er støy)
         if (prev_kind == "overbid" and prev_payload.get("action") == adv["action"]
@@ -227,9 +243,17 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
 
 def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
     """Undercut-vakt for dine salgsordrer i Jita 4-4 (fra jita.my_orders, fase 2)."""
-    from common import undercut_advice, isk
+    from common import fees, guard_advice, undercut_advice, isk
+    th = profile.thresholds or {}
     with conn.cursor() as cur:
-        cur.execute("""select o.order_id, o.type_id, t.name, o.price::float8, o.volume_remain::int
+        # issued = tidspunktet for siste prisendring (EVE flytter den når du endrer pris),
+        # order_changes = hvor mange ganger og hva det har kostet. Begge trengs av vernet.
+        cur.execute("""select o.order_id, o.type_id, t.name, o.price::float8, o.volume_remain::int,
+                              extract(epoch from (now() - o.issued)) / 3600.0 as hours_since_change,
+                              (select count(*) from jita.order_changes c where c.order_id = o.order_id)::int,
+                              (select coalesce(sum(fee_est), 0) from jita.order_changes c where c.order_id = o.order_id)::float8,
+                              ((select count(*) from jita.order_changes c where c.order_id = o.order_id) > 0
+                               or o.issued > o.first_seen + interval '10 minutes') as changed_before
                        from jita.my_orders o join jita.types t using (type_id)
                        where o.state = 'open' and not o.is_buy and o.location_id = 60003760""")
         my_sells = cur.fetchall()
@@ -249,11 +273,13 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
                        order by (payload->>'order_id')::bigint, created_at desc""")
         last = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
     n = 0
-    for oid, tid, name, p1, remaining in my_sells:
+    for oid, tid, name, p1, remaining, siden_endret, endringer, gebyr_brukt, endret_før in my_sells:
         sl = sells.get(tid, [])
         if not sl:
             continue
         best_ask = min(o[cm.O_PRICE] for o in sl)
+        bl = buys.get(tid, [])
+        best_bid = max((o[cm.O_PRICE] for o in bl), default=None)
         prev_kind, prev_payload, prev_age = last.get(oid, (None, {}, 99))
         if best_ask >= p1 - 1e-9:                       # du er billigst
             if prev_kind == "undercut":
@@ -263,6 +289,18 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
             continue
         wall = sum(o[cm.O_VOL] for o in sl if o[cm.O_PRICE] < p1)
         adv = undercut_advice(profile, p1, remaining, best_ask, wall, bfs.get(tid, 0.0), cost.get(tid), min_margin)
+        # Vernet mot for hyppige endringer: karantene, gebyrtak og utveien (selg til budet).
+        # Uten dette ber varselet deg senke prisen hver gang noen legger seg 1 ISK under.
+        broker, tax = fees(profile)
+        netto_stk = p1 * (1 - broker - tax) - (cost.get(tid, 0) or 0) * (1 + broker)
+        adv = guard_advice(adv, side="sell", hours_since_change=siden_endret, changes_total=endringer,
+                           changed_before=bool(endret_før),
+                           fees_paid_est=gebyr_brukt, position_profit=max(0.0, netto_stk * remaining),
+                           best_bid=best_bid, remaining=remaining, cost_per_unit=cost.get(tid),
+                           broker=broker, tax=tax,
+                           cooldown_h=float(th.get("relist_cooldown_h", 12)),
+                           fee_share=float(th.get("relist_fee_share", 0.15)),
+                           dump_after=int(th.get("dump_after_changes", 3)))
         payload = dict(order_id=oid, type_id=tid, price=p1, remaining=remaining, best_ask=best_ask, **adv)
         if (prev_kind == "undercut" and prev_payload.get("action") == adv["action"]
                 and abs(float(prev_payload.get("best_ask", 0)) - best_ask) / best_ask < 0.02 and prev_age < 2):

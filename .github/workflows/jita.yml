@@ -49,6 +49,8 @@ jobs:
           path: jita/snapshots
           key: jita-snapshot-${{ github.run_id }}
           restore-keys: jita-snapshot-
+      - name: "Vernet mot for hyppige endringer: formlene, og JS-speilet"
+        run: python jita/scripts/test_advice.py
       - name: Ordrebok → diff → type_hourly → judge
         run: python jita/scripts/ingest_orders.py
       - name: Lagre nytt snapshot
@@ -140,6 +142,7 @@ jobs:
         run: |
           python jita/scripts/test_industry.py
           python jita/scripts/test_mining.py
+          python jita/scripts/test_advice.py
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots

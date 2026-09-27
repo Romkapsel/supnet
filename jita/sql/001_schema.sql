@@ -120,6 +120,10 @@ create table if not exists jita.profile (
     "war_mods_per_hour": 4,
     "min_position_profit_share": 0.005,
     "exclude_categories": [16, 25],
+    "relist_cooldown_h": 12,
+    "relist_fee_share": 0.15,
+    "dump_after_changes": 3,
+    "daily_fee_share": 0.10,
     "wall_days": 2
   }'::jsonb,
   last_manual_scan timestamptz,
