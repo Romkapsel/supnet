@@ -189,6 +189,10 @@ samme prosjekt (`okonomi`, `hanna`, `hund`, `finn`, `warera`). Tre funn:
 Varselet har fått to nivåer og sier hva taket er: **over 400 MB** «ryddejobben går hver time; vokser den
 likevel, må oppbevaringen strammes», **over 450 MB** «basen blir skrivebeskyttet – rydd nå».
 
+For at høyvannsmerket ikke skal snike seg opp igjen, går `vacuum (full, analyze)` på de to store
+tabellene **månedlig** (den 1. kl. 04:35 og 04:45 – ingen andre jobber går på de minuttene, og låsen
+varer sekunder).
+
 Etter ryddingen: `jita` 205 MB, `wow_ah` 48 MB, `public` 12 MB, resten under 2 MB.
 `wow_ah` og `public.graded_prices` hører til et annet prosjekt og er ikke rørt.
 
