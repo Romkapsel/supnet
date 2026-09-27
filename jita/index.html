@@ -50,7 +50,7 @@ async function load() {
     if (c.mem_verdict !== 'krangel' && u < 10) return '';
     const gebyr = Number(d.profile?.broker || 0) * Number(c.qty || 0) * Number(c.sell_price || 0);
     return `<div class="row small" style="margin-top:4px"><span class="pill warn" title="Du har blitt underbudt ${u} ganger og overbudt ${o} ganger i denne varen">priskrig: ${u} undercuts</span>
-      <span class="muted">Å prise om hele posisjonen koster <b>${isk(gebyr)}</b> i broker-gebyr. La ordren stå, eller dump til budet – ikke jag prisen.</span></div>`;
+      <span class="muted">Omprising koster <b>inntil ${isk(gebyr)}</b> i broker-gebyr (satsen på full ordreverdi; i praksis har snittet ditt vært ~25k per trekk). La ordren stå, eller dump til budet – ikke jag prisen.</span></div>`;
   };
 
   const top = d.top.length ? d.top.map((c, i) => `
