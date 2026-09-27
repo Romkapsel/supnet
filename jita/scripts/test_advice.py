@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 
+from decimal import Decimal
+
 from common import dump_net, guard_advice
 
 FEIL = []
@@ -142,6 +144,23 @@ def main():
           dump_net(10_200.0, 10, None, 0.05, 0.018)["net"], round(10_200 * 10 * 0.95, 2))
     sjekk("dump_net: margin er null når kostprisen mangler",
           1 if dump_net(10_200.0, 10, None, 0.05, 0.018)["margin"] is None else 0, 1)
+
+    # ── Tall fra databasen: psycopg2 gir numeric som Decimal ──
+    # 27. sept 2026 krasjet timesjobben på nettopp dette: «float − Decimal» i karantene-regnestykket.
+    dec = guard_advice(dict(RAAD), hours_since_change=Decimal("2.18"),
+                       **{**KONTEKST, "fees_paid_est": Decimal("0"),
+                          "position_profit": Decimal("5000000"), "best_bid": Decimal("10200"),
+                          "cost_per_unit": Decimal("6229")})
+    sjekk("Decimal fra basen krasjer ikke karantenen", dec["action"], "LA STÅ")
+    sjekk("Decimal fra basen gir samme tekst", 1 if "2,2 t siden" in dec["text"] else 0, 1)
+    dec2 = guard_advice(dict(RAAD), hours_since_change=Decimal("30"),
+                        **{**KONTEKST, "changes_total": 4, "best_bid": Decimal("10200"),
+                           "cost_per_unit": Decimal("6229"), "fees_paid_est": Decimal("0"),
+                           "position_profit": Decimal("5000000")})
+    sjekk("Decimal fra basen krasjer ikke utveien", dec2["action"], "DUMP")
+    sjekk("Decimal fra basen gir samme netto", dec2["dump_net"], 3_070_921)
+    sjekk("dump_net tåler Decimal", dump_net(Decimal("10200"), 917, Decimal("6229"), 0.05, 0.018)["net"],
+          3_070_921.13)
 
     sjekk_paritet()
 
