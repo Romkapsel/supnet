@@ -103,7 +103,7 @@ language sql stable as $$
     select b.type_id, t.name, t.market_group_path,
            b.best_bid::float8 bid, b.best_ask::float8 ask,
            b.bid_top_qty, b.bid_orders_1pct, b.bid_qty_1pct, b.ask_qty_1pct,
-           t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1, t.npc_seeded,
+           t.is_excluded, t.is_meta, t.is_t2, t.is_faction, t.is_t1, t.npc_seeded, t.category_id,
            mem.verdict as mem_verdict, coalesce(mem.factor, 1)::float8 as mem_factor, mem.rounds as mem_rounds,
            mem.avg_hold_days::float8 as mem_hold, mem.realized_margin::float8 as mem_margin,
            least(coalesce(f.s2b_qty / greatest(f.hours, 1) * 24, 0), coalesce(h.vol5, 1e12))::float8 s2b,   -- tak: regionens dagsvolum
@@ -172,7 +172,12 @@ language sql stable as $$
              case when mods_per_hour >= 3 * coalesce((th.t->>'war_mods_per_hour')::float8, 4) then '10' end,   -- priskrig: ≥ 3× terskel prisendringer/t nær toppen
              case when is_excluded or is_meta
                     or (is_t2 and not coalesce((p->>'allow_t2')::boolean, false))
-                    or (is_faction and not coalesce((p->>'allow_faction')::boolean, false)) then '9' end
+                    or (is_faction and not coalesce((p->>'allow_faction')::boolean, false)) then '9' end,
+             -- 9k (27. sept 2026): kategorier du ikke handler i. Malm (25) ga 0,17 i margin og
+             -- skillbøker (16) tapte penger; roboten foreslo likevel 710 000 stk komprimert Veldspar.
+             case when category_id = any (coalesce(
+                    (select array_agg(x::int) from jsonb_array_elements_text(
+                       coalesce(th.t->'exclude_categories', '[]'::jsonb)) x), '{}'::int[])) then '9k' end
            ]::text[], null) as failed
     from e3, th
   ),

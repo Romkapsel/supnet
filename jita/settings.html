@@ -38,7 +38,7 @@ const FIELDS = [
 const THRESH = [
   ['min_margin', 'Regel 1: minste netto margin (0,10 = 10 %)'],
   ['max_margin', 'Regel 1: maks margin (over = ingen ekte bud)'],
-  ['min_position_profit_share', 'Regel 1b: forventet fortjeneste per posisjon ≥ andel av kapital (0,01 = 1 %)'],
+  ['min_position_profit_share', 'Regel 1b: forventet fortjeneste per posisjon ≥ andel av kapital (0,005 = 0,5 %)'],
   ['war_mods_per_hour', 'Regel 10: prisendringer/t nær toppen før «priskrig» (3× = hard stopp)'],
   ['max_bid_top_qty', 'Regel 2: maks enheter på toppbudet (hvis muren tar > wall_days)'],
   ['wall_days', 'Regel 2/4: mur/klump godtas hvis den tømmes på ≤ så mange dager'],
@@ -52,6 +52,9 @@ const THRESH = [
   ['prefilter_spread', 'Forfilter: minste brutto spread'],
   ['prefilter_min_orders', 'Forfilter: minste antall ordrer per side'],
 ];
+// exclude_categories er en LISTE, ikke et tall – egen rute. Tomt felt = ingen kategorier utelatt.
+const KATEGORINAVN = { 4: 'Materialer', 6: 'Skip', 7: 'Moduler', 8: 'Charges/ammo', 16: 'Skillbøker',
+  17: 'Commodities (loot/salvage)', 18: 'Droner', 20: 'Implanter', 22: 'Deployables', 25: 'Malm', 41: 'Planetary' };
 
 let profile;
 function form(p) {
@@ -64,13 +67,21 @@ function form(p) {
       <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="allow_npc_seeded" ${p.allow_npc_seeded ? 'checked' : ''} style="width:auto"/> Tillat NPC-seedede varer</label>
     </div>
     <h3 style="margin-top:14px">Terskler</h3>
-    <div class="grid2">${THRESH.map(([k, l]) => `<div><label>${l}</label><input name="th.${k}" type="number" step="any" value="${th[k] ?? ''}"/></div>`).join('')}</div>`;
+    <div class="grid2">${THRESH.map(([k, l]) => `<div><label>${l}</label><input name="th.${k}" type="number" step="any" value="${th[k] ?? ''}"/></div>`).join('')}</div>
+    <div style="margin-top:10px">
+      <label>Regel 9k: kategorier du ikke vil handle i (ID-er med komma mellom)</label>
+      <input name="cats" value="${(th.exclude_categories || []).join(', ')}" placeholder="f.eks. 16, 25"/>
+      <div class="muted small" style="margin-top:4px">${Object.entries(KATEGORINAVN)
+        .map(([k, v]) => `${k} = ${v}`).join(' · ')}</div>
+    </div>`;
 }
 function read() {
   const body = { thresholds: { ...(profile.thresholds || {}) } };
   for (const inp of document.querySelectorAll('#form input')) {
     if (inp.type === 'checkbox') body[inp.name] = inp.checked;
-    else if (inp.name.startsWith('th.')) { if (inp.value !== '') body.thresholds[inp.name.slice(3)] = Number(inp.value); }
+    else if (inp.name === 'cats') {
+      body.thresholds.exclude_categories = inp.value.split(',').map((x) => parseInt(x.trim(), 10)).filter(Number.isFinite);
+    } else if (inp.name.startsWith('th.')) { if (inp.value !== '') body.thresholds[inp.name.slice(3)] = Number(inp.value); }
     else body[inp.name] = inp.value;
   }
   return body;

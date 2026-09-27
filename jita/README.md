@@ -169,6 +169,39 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### Gjennomgang av markedssiden ved 50 mill. kapital (27. sept 2026)
+Eieren spurte om han burde selge ut og starte med ny profil. Svaret var nei – tallene 11.–27. sept:
+102,1 mill. kjøpt, 129,0 mill. solgt, ~29 mill. realisert etter gebyr (17,4 mill. av formuen er
+donasjoner, ikke handel). Det som var galt, var ikke strategien, men innstillingene og gebyrene:
+
+- **Gebyrlekkasjen:** broker 10,2 mill. + skatt 8,9 mill. = 19,1 mill., altså 40 % av bruttofortjenesten.
+  ~400 broker-trekk mot ~180 ordrer roboten har sett ⇒ hver ordre prises om 2–3 ganger. Med 1,8 %
+  broker burde plasseringene kostet ~4 mill.; **~6 mill. er omprisingsgebyr.** Topplista viser nå
+  «priskrig: N undercuts» og hva det koster å prise om hele posisjonen, for varer med `verdict = krangel`
+  eller ≥ 10 undercuts (Inferno Auto-Targeting Heavy Missile I: 43, Exotic Dancers: 38, Cap Booster 3200: 18).
+- **Kapitalen var 98 % bundet** (48,9 mill. i escrow og lager, 1,1 mill. kontant). `reserve_share` 0,10 → 0,20.
+- **`positions` 7 → 12** (ikke 14, se under) og `min_qty` 5 → 3. Med 7 posisjoner fikk hver post 6,75 mill.,
+  og da foreslo roboten 709 889 stk komprimert Veldspar med 2 ISK netto per enhet. Nå 3,33 mill. per post.
+  **Testet med `judge_preview` før det ble satt:** 14 posisjoner og `min_qty` 5 ga maks kjøpspris 571k, og
+  da falt hele høyverdi-nisjen ut (dyreste vare som passerte: 171k, mot 601k-implantatet og Sleeper
+  Manuscripts på 1,0 mill.). 12/3 gir maks kjøpspris 1,11 mill. og beholder den.
+- **Ny regel `9k`:** kategorier du ikke handler i, fra `thresholds.exclude_categories` (satt til `[16, 25]`).
+  Malm ga 0,17 i margin og skillbøker tapte 159k – de eneste kategoriene som ikke tjente penger.
+  Redigerbar i Innstillinger. Pengene ligger i commodities/loot (0,90), implanter (0,97) og moduler (0,80).
+- **`min_position_profit_share` 0,01 → 0,005.** 1 % av 52 mill. = 525k forventet fortjeneste som minimum
+  tvang fram store, trege poster.
+- **`capital_isk`** (reserven hvis EVE-synken svikter) sto fortsatt på 4,5 mill. → 52,5 mill.
+
+### Industri-fanen viste feil kapital (27. sept 2026)
+Fanen viste bare kontanter (1,1 mill.) og sa derfor «du mangler X ISK» på nesten alt, mens markedssiden
+regnet riktig med kontanter + escrow + lager (52,5 mill.). Fanen viser nå **«1,1 mill. ledig av 52,5 mill.
+totalt»**, men regner fortsatt råd på kontanter – ISK som står i salgsordrer kan du ikke kjøpe blueprint med.
+
+### Industri-jobben gikk hver annen dag (27. sept 2026)
+GitHub hopper over planlagte kjøringer under last. Vakten i pg_cron (07:10) skulle ta det, men terskelen
+var 26 t: når 05:40-kjøringen ble hoppet over, var siste kjøring 25,5 t gammel kl. 07:10 – akkurat under
+terskelen – og vakten sto over. Terskelen for industri/mining er satt til **20 t**.
+
 ### «Kjøp blueprint av disse» – lista koblet fra tersklene (25. sept 2026)
 Kravet fra eieren: *«Jeg vil bare logge inn nå og se hva som er lurt å kjøpe blueprint av»* – uten å gå
 inn i «Avansert» og skru på terskler han ikke kan vurdere. Lista er derfor bygget om:
