@@ -374,12 +374,14 @@ async function buildTodo(q, p, portfolio, hangar) {
   return Object.values(best).sort((a, b) => b.impact - a.impact);
 }
 
-// ── Beste tidspunkt (norsk tid) å legge ordrer: når dumping (kjøp) / lifting (salg) topper, siste 14 d ─
+// ── Beste tidspunkt (norsk tid) å legge ordrer: når dumping (kjøp) / lifting (salg) topper, siste 7 d ─
+// 7 d, ikke 14: type_flow_hourly ryddes etter 7 dager (gratisplanens 500 MB-tak). Spørringen ba om
+// 14 og fikk 10 – nå spør den om det som faktisk finnes.
 async function bestHours(q, typeIds) {
   if (!typeIds.length) return {};
   const rows = await q`
     select type_id, extract(hour from hour at time zone 'Europe/Oslo')::int as h, sum(s2b_qty)::float8 s2b, sum(bfs_qty)::float8 bfs
-    from jita.type_flow_hourly where resolution = 60 and hour > now() - interval '14 days' and type_id = any(${typeIds})
+    from jita.type_flow_hourly where resolution = 60 and hour > now() - interval '7 days' and type_id = any(${typeIds})
     group by type_id, extract(hour from hour at time zone 'Europe/Oslo')`;
   const by = {};
   for (const r of rows) (by[r.type_id] ||= []).push(r);
@@ -437,7 +439,7 @@ async function typeDetail(q, id) {
   const [type] = await q`select t.*, w.status as wl_status, w.note as wl_note from jita.types t left join jita.watchlist w using (type_id) where t.type_id = ${id}`;
   const [candidate] = await q`select * from jita.candidates where type_id = ${id} order by run_at desc limit 1`;
   const hourly = await q`select snapshot_at, best_bid, best_ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct from jita.type_hourly where type_id = ${id} and snapshot_at > now() - interval '7 days' order by snapshot_at`;
-  const flow = await q`select hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered from jita.type_flow_hourly where type_id = ${id} and hour > now() - interval '14 days' order by hour`;
+  const flow = await q`select hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered from jita.type_flow_hourly where type_id = ${id} and hour > now() - interval '7 days' order by hour`;
   const history = await q`select date, average, highest, lowest, volume, order_count from jita.history_daily where type_id = ${id} order by date desc limit 30`;
   const fills = await q`select observed_at, is_buy, price, qty, kind, weight, resolution from jita.fills where type_id = ${id} order by observed_at desc limit 200`;
   const decs = await q`select * from jita.decisions where type_id = ${id} order by created_at desc limit 20`;

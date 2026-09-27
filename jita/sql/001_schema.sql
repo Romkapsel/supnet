@@ -220,9 +220,12 @@ end $$;
 -- ── Rydding (pg_cron, daglig 05:00 UTC) ──────────────────────────────────────
 create or replace function jita.cleanup() returns void language plpgsql as $$
 begin
-  -- Oppbevaring (strammet 16. sept 2026 – 7 000 varer/time gir ~5 × spec-ens anslag):
-  --   (strammet igjen 21. sept: 463 MB etter 6 dager) type_hourly 2 d, fills 1 d, type_flow_hourly 10 d,
-  --   candidates 3 d (passed + 100 beste per kjøring; watchlist-kjøringer bare passed), history 60 d, robot_runs/alerts 90 d.
+  -- Oppbevaring (strammet 27. sept 2026 – basen sto på 439 MB av gratisplanens 500 MB-tak):
+  --   type_hourly 2 d, fills 1 d, type_flow_hourly 7 d (var 10), candidates 2 d (var 3; passed
+  --   + 100 beste per kjøring), history 35 d (var 60), robot_runs/alerts/order_changes 90 d, type_daily 400 d.
+  -- Kjøres HVER TIME (var daglig kl. 05): med 7 500 varer i timen rakk type_hourly og fills å samle
+  -- et helt døgns overskudd mellom kjøringene – 45 000 + 22 000 rader som skulle vært slettet.
+  -- Dagstallene rulles opp i type_daily FØR slettingen, så de beholdes for alltid.
   insert into jita.type_daily (type_id, date, best_bid_avg, best_ask_avg, bfs_qty, s2b_qty, bid_top_qty_avg, ask_qty_1pct_avg)
   with hh as (
     select type_id, (snapshot_at at time zone 'utc')::date as d, avg(best_bid) bid, avg(best_ask) ask,
@@ -240,8 +243,9 @@ begin
 
   delete from jita.type_hourly where snapshot_at < now() - interval '2 days';
   delete from jita.fills where observed_at < now() - interval '1 day';
-  delete from jita.type_flow_hourly where hour < now() - interval '10 days';
-  delete from jita.candidates where run_at < now() - interval '3 days';
+  -- 7 dager: bestHours() bruker timemønsteret, og 7 døgn gir 7 målinger per klokketime
+  delete from jita.type_flow_hourly where hour < now() - interval '7 days';
+  delete from jita.candidates where run_at < now() - interval '2 days';
   -- eldre enn 6 t: behold bare passed (topp-10-historikk), ikke-passed brukes bare live
   delete from jita.candidates where run_at < now() - interval '6 hours' and not passed;
   delete from jita.candidates c using (
@@ -251,13 +255,21 @@ begin
   delete from jita.robot_runs where run_at < now() - interval '90 days';
   delete from jita.alerts where created_at < now() - interval '90 days';
   delete from jita.type_daily where date < current_date - 400;
-  delete from jita.history_daily where date < current_date - 60;
+  -- 35 dager: reglene bruker 7-dagers og 20-dagers vinduer, så 60 var dobbelt av behovet
+  delete from jita.history_daily where date < current_date - 35;
+  -- order_changes finnes fra 007; delete på en tabell som ikke er laget ennå ville stoppe skriptet
+  if exists (select 1 from pg_tables where schemaname = 'jita' and tablename = 'order_changes') then
+    delete from jita.order_changes where changed_at < now() - interval '90 days';
+  end if;
 end $$;
 
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-cleanup';
-select cron.schedule('jita-cleanup', '0 5 * * *', 'select jita.cleanup()');
+select cron.schedule('jita-cleanup', '55 * * * *', 'select jita.cleanup()');   -- hver time, se kommentaren i cleanup()
 select cron.unschedule(jobid) from cron.job where jobname = 'jita-vacuum';
 select cron.schedule('jita-vacuum', '20 5 * * *', 'vacuum analyze jita.type_hourly, jita.candidates, jita.fills, jita.type_flow_hourly, jita.history_daily');
+-- Merk: vanlig vacuum frigjør plass INNE i filene, men gir den ikke tilbake til disken. Vokser basen
+-- mot taket, er det «vacuum (full, analyze) <tabell>» som krymper den – én tabell per kall, og ikke
+-- inne i en transaksjon. 27. sept 2026 tok det basen fra 439 MB til 285 MB uten å slette noe.
 
 -- ── Plan B: vaktjobb (pg_cron + pg_net) ──────────────────────────────────────
 -- GitHubs cron er upålitelig. Kl. :23 og :40 ber databasen Vercel-API-et starte timesjobben via
