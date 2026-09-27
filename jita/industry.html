@@ -213,7 +213,8 @@ function tegn() {
 
     <div class="card small">
       <div class="row">
-        <span>Hentet fra spillet: <b>${isk(p.cash_isk ?? p.capital_isk)} ISK</b> i kassa ·
+        <span>Hentet fra spillet: <b>${isk(p.cash_isk ?? p.capital_isk)} ISK</b> ledig${
+          p.bound_isk ? ` <span class="muted" title="Resten står i kjøpsordrer (escrow) og varer du har på lager eller til salgs – de kan du ikke kjøpe blueprint med før de er solgt">av ${isk(p.capital_isk)} totalt</span>` : ''} ·
           Industry <b>${p.industry ?? '–'}</b>, Advanced Industry <b>${p.advanced_industry ?? '–'}</b>,
           <b>${p.slots_effective}</b> produksjonsslot${p.slots_effective > 1 ? 's' : ''}
           ${p.skills_from_eve_at ? `<span class="muted">(${ago(p.skills_from_eve_at)})</span>` : '<span class="pill warn">skills ikke hentet – trykk Oppdater alt</span>'}</span>

@@ -42,6 +42,17 @@ async function load() {
   const taken = (type_id) => (openBy[type_id] || []).map((o) =>
     `<span class="pill ${o.filled_at ? 'warn' : 'ok'}">✓ Din ordre ${o.qty} stk à ${price(o.price)}${o.filled_at ? ' · fylt' : ''}</span>`).join('');
 
+  // Priskrig koster mer enn folk tror: hver omprising er et nytt broker-gebyr. 11.–27. sept gikk
+  // ~6 mill. av 10,2 mill. i broker-gebyr til omprising. Varer med et rulleblad av undercuts
+  // merkes derfor her, med gebyret det koster å jage prisen én gang.
+  const krangel = (c) => {
+    const u = Number(c.undercut_count || 0), o = Number(c.overbid_count || 0);
+    if (c.mem_verdict !== 'krangel' && u < 10) return '';
+    const gebyr = Number(d.profile?.broker || 0) * Number(c.qty || 0) * Number(c.sell_price || 0);
+    return `<div class="row small" style="margin-top:4px"><span class="pill warn" title="Du har blitt underbudt ${u} ganger og overbudt ${o} ganger i denne varen">priskrig: ${u} undercuts</span>
+      <span class="muted">Å prise om hele posisjonen koster <b>${isk(gebyr)}</b> i broker-gebyr. La ordren stå, eller dump til budet – ikke jag prisen.</span></div>`;
+  };
+
   const top = d.top.length ? d.top.map((c, i) => `
     <div class="card link" onclick="location.href='type.html?id=${c.type_id}'">
       <div class="row"><h3>${i + 1}. ${esc(c.name)}${copyBtn(c.name)}</h3><span class="big accent">+${isk(c.expected_profit)} ISK</span></div>
@@ -51,6 +62,7 @@ async function load() {
         <span class="muted">margin ${pct(c.margin)} · netto ${isk(c.net_per_unit)}/stk</span>
       </div>
       <div class="row small muted"><span>Fylling: kjøp ${days(c.days_to_fill_buy)} · salg ${days(c.days_to_fill_sell)}</span><span>score ${isk(c.score)}</span></div>
+      ${krangel(c)}
       ${c.factors ? `<div style="margin-top:4px">${factorPills(c.factors)}</div>` : ''}
       ${c.timing ? `<div class="row small muted"><span>⏰ Dumpes mest kl. ${c.timing.buy_hours.join(', ')} · liftes mest kl. ${c.timing.sell_hours.join(', ')} (norsk tid, 14 d)</span></div>` : ''}
       <div class="reason">${esc(c.reason)}</div>

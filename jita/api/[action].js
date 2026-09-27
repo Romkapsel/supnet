@@ -18,7 +18,7 @@ function db() {
 const RULES = {
   "1": "Margin under terskel", "1b": "Posisjonen monner ikke (< 1 % av kapitalen)", "1x": "Urealistisk spread (ingen ekte bud)", "2": "Toppbud for stort (mur)",
   "3": "For mange budgivere", "4": "Selgere klumpet", "5": "For lite innflyt", "5t": "Liftes for sjelden",
-  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9n": "NPC-seedet (uendelig tilbud, prislokk)", "10": "Priskrig (mange prisendringer/t)",
+  "7": "Salgspris faller", "7b": "Kjøpspris stiger", "8": "For dyr for profilen", "9": "Feil varetype (meta/T2/faction)", "9k": "Kategori du ikke handler i (malm, skillbøker)", "9n": "NPC-seedet (uendelig tilbud, prislokk)", "10": "Priskrig (mange prisendringer/t)",
 };
 
 function json(res, status, body) {
@@ -142,7 +142,11 @@ async function summary(q) {
   const [run] = await q`select max(run_at) as run_at from jita.candidates`;
   const runAt = run?.run_at;
   const top = runAt ? await q`
-    select c.*, t.name, t.market_group_path from jita.candidates c join jita.types t using (type_id)
+    select c.*, t.name, t.market_group_path,
+           m.verdict as mem_verdict, m.undercut_count, m.overbid_count, m.rounds as mem_rounds,
+           m.realized_margin as mem_margin, m.avg_hold_days as mem_hold
+    from jita.candidates c join jita.types t using (type_id)
+    left join jita.type_memory m on m.type_id = c.type_id
     where c.run_at = (select max(run_at) from jita.candidates) and c.passed
       and c.type_id not in (select type_id from jita.decisions where closed_at is null)
     order by c.score desc nulls last limit 10` : [];
@@ -426,7 +430,9 @@ async function scan(q, fallback = false, job = "hourly") {
   const [p] = await q`select last_manual_scan from jita.profile where id = 1`;
   if (fallback) {
     // Plan B (pg_cron): start jobben hvis den ikke har kjørt nylig (GitHub hopper ofte over cron).
-    const maxAge = job === "watchlist" ? 15 : ["industry", "mining"].includes(job) ? 26 * 60 : 50;   // history: 50 (hver time), industri: daglig
+    // industri/mining: 20 t. 26 t var så vidt for høyt – når GitHub hopper over 05:40-kjøringen,
+    // er siste kjøring 25,5 t gammel kl. 07:10 og vakten sto over. Da gikk industri-jobben hver annen dag.
+    const maxAge = job === "watchlist" ? 15 : ["industry", "mining"].includes(job) ? 20 * 60 : 50;
     const [r] = await q`select max(run_at) as last from jita.robot_runs where job = ${job} and ok`;
     if (r.last && Date.now() - new Date(r.last).getTime() < maxAge * 60000) return { ok: true, message: `${job} er fersk – ingenting å gjøre` };
   } else if (p.last_manual_scan) {
@@ -534,7 +540,11 @@ async function industryProfile(q) {
   const [idx] = await q`select manufacturing, updated_at from jita.industry_systems where system_id = ${row?.system_id || 30001395}`;
   return {
     ...row, slots_effective: slots, sell_fees: sellFees, broker: Number(p.broker), tax: Number(p.tax),
+    // cash_isk = ledig ISK (det du kan kjøpe blueprint med nå). capital_isk fra effective_profile
+    // er cash + bundet (escrow + lager) – hele formuen. Fanen viser begge, og regner råd på cash,
+    // for ISK som står i salgsordrer kan du ikke handle med.
     cash_isk: p.cash_isk == null ? null : Number(p.cash_isk), capital_isk: Number(p.capital_isk),
+    bound_isk: p.bound_isk == null ? null : Number(p.bound_isk),
     cost_index: idx?.manufacturing == null ? null : Number(idx.manufacturing), cost_index_at: idx?.updated_at || null,
   };
 }
