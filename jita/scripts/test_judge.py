@@ -40,6 +40,10 @@ def main():
         cur.execute("insert into jita.type_hourly (type_id, snapshot_at, best_bid, best_ask, bid_top_qty, bid_orders_1pct, "
                     "bid_qty_1pct, ask_orders_1pct, ask_qty_1pct, ask_qty_3pct) values (%s, now() + interval '1 second', %s, %s, 27, 2, 40, 5, 120, 200)",
                     (TID, BID, ASK))
+        # Dommeren deler timesflyten på tiden HELE markedet er dekket (jita.flow_coverage, 008). Testen
+        # tømmer dekningen inne i transaksjonen (rulles tilbake under), så varens egne 24 t er nevneren og
+        # flyten blir nøyaktig S2B/BFS – skalering med dekningen ga flyttallsfeil (171 mot 172 stk).
+        cur.execute("delete from jita.flow_coverage where resolution = 60")
         cur.execute("insert into jita.type_flow_hourly (type_id, hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered) "
                     "values (%s, date_trunc('hour', now()), 60, %s, %s, %s, 12, 24)", (TID, BFS, BFS_TRADES, S2B))
         cur.execute("select buy_price, sell_price, qty, net_per_unit, margin, expected_profit, days_to_fill_buy, "

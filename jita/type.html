@@ -41,7 +41,8 @@ async function load() {
   const res = f24.some((f) => f.resolution === 20) ? 20 : 60;
   const sum = (arr, k) => arr.reduce((a, f) => a + Number(f[k] || 0), 0);
   const fr = f24.filter((f) => f.resolution === res);
-  const hours = Math.max(sum(fr, 'hours_covered'), 1);
+  // timesflyt deles på tiden hele markedet er dekket (ikke bare timene varen hadde aktivitet)
+  const hours = Math.max(res === 60 ? Number(d.flow_cover_60 || 0) : 0, sum(fr, 'hours_covered'), 1);
   const s2b = sum(fr, 's2b_qty') / hours * 24, bfs = sum(fr, 'bfs_qty') / hours * 24;
   const byHour = Array.from({ length: 24 }, () => ({ b: 0, s: 0 }));
   for (const f of d.flow.filter((f) => f.resolution === 60)) {

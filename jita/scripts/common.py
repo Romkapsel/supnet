@@ -220,12 +220,20 @@ def undercut_advice(profile: "Profile", p1: float, remaining: int, best_ask: flo
     days_wall = wall_qty / max(bfs_per_day, 0.1)
     net2 = p2 * (1 - broker - tax) - (cost_per_unit * (1 + broker) if cost_per_unit else 0)
     margin2 = (net2 / (cost_per_unit * (1 + broker))) if cost_per_unit else None
-    gain_24h = min(remaining, bfs_per_day) * p2 * (1 - broker - tax)
+    # Gevinsten er ekstra FORTJENESTE neste 24 t (salg × netto etter kostpris), ikke salgsinntekt.
+    # Før 28. sept sto inntekten her, og da slo «senk» gebyret nesten alltid – samme lekkasje som vernet
+    # skulle stoppe. Uten kjent kostpris kan fortjenesten ikke regnes, og da anbefales ikke senking.
+    gain_24h = min(remaining, bfs_per_day) * net2 if cost_per_unit else 0.0
     loss_vs_now = (p1 - p2) * remaining
     if margin2 is not None and margin2 < min_margin:
         action = "HOLD"
-        why = (f"ved {isk(p2)} blir marginen mot kostpris {margin2 * 100:.1f} % (< {min_margin * 100:.0f} %). "
+        why = (f"ved {isk(p2)} blir marginen mot kostpris {_en(margin2 * 100)} % (< {min_margin * 100:.0f} %). "
                f"Ikke følg ned. Muren under deg er {wall_qty} stk (~{days_wall:.1f} d).")
+    elif days_wall > 5 and not cost_per_unit:
+        action = "HOLD"
+        why = (f"kostprisen er ukjent (ikke kjøpt de siste 90 dagene), så det kan ikke regnes om senking til "
+               f"{isk(p2)} lønner seg. Senk bare hvis du vet at prisen gir fortjeneste. "
+               f"Mur under deg: {wall_qty} stk (~{days_wall:.1f} d).")
     elif days_wall > 5 and gain_24h > 2 * fee + loss_vs_now * 0.5:
         action = "ENDRE"
         why = (f"senk til {isk(p2)}: gebyr {isk(fee)} ISK, gir opp {isk(loss_vs_now)} ISK i pris, men muren under deg "
@@ -271,7 +279,7 @@ def guard_advice(adv: dict, *, side: str, hours_since_change: float | None, chan
                  fees_paid_est: float, position_profit: float, best_bid: float | None,
                  remaining: int, cost_per_unit: float | None, broker: float, tax: float,
                  cooldown_h: float = 12.0, fee_share: float = 0.15,
-                 dump_after: int = 3) -> dict:
+                 dump_after: int = 3, bid_depth: int | None = None) -> dict:
     """Legger historikken oppå rådet. Endrer aldri et HOLD til en handling – bare motsatt vei.
 
     Tre stopp, i rekkefølge:
@@ -284,7 +292,9 @@ def guard_advice(adv: dict, *, side: str, hours_since_change: float | None, chan
       2. **Gebyrtaket:** endringene på denne ordren har alt kostet mer enn `fee_share` av det
          posisjonen kan tjene. Da spiser jaging fortjenesten uansett hvor riktig neste endring ser ut.
       3. **Utveien:** er ordren endret `dump_after` ganger eller mer, og budet gir penger, er svaret
-         å selge til budet – ikke å følge ned én gang til.
+         å selge til budet – ikke å følge ned én gang til. Krever kjent kostpris (ellers kan «gir
+         penger» ikke sjekkes), og antallet begrenses av `bid_depth` = enhetene budene innenfor 1 % av
+         toppbudet tar imot (type_hourly.bid_qty_1pct). Dypere i boka faller prisen, og tallet lyver.
 
     Returnerer rådet med `action` satt til LA STÅ eller DUMP, og `guard` = hvilket stopp som slo inn.
     """
@@ -297,19 +307,23 @@ def guard_advice(adv: dict, *, side: str, hours_since_change: float | None, chan
     position_profit = float(position_profit or 0)
     best_bid = None if best_bid is None else float(best_bid)
     cost_per_unit = None if cost_per_unit is None else float(cost_per_unit)
+    bid_depth = None if bid_depth is None else int(bid_depth)
     remaining, changes_total = int(remaining or 0), int(changes_total or 0)
     broker, tax = float(broker), float(tax)
     cooldown_h, fee_share, dump_after = float(cooldown_h), float(fee_share), int(dump_after)
     er_salg = side == "sell"          # kalleren vet hvilken side ordren er på (ENDRE brukes på begge)
 
     # 3. Utveien først når krigen har vart lenge nok – da er «la stå» ikke godt nok svar
-    if er_salg and changes_total >= dump_after and best_bid and remaining > 0:
-        d = dump_net(best_bid, remaining, cost_per_unit, tax, broker)
+    antall = remaining if bid_depth is None else min(remaining, bid_depth)
+    if er_salg and changes_total >= dump_after and best_bid and cost_per_unit and antall > 0:
+        d = dump_net(best_bid, antall, cost_per_unit, tax, broker)
         if d["net"] > 0:
-            return dict(adv, action="DUMP", guard="krig", new_price=best_bid,
+            hvem = (f"de {remaining} resterende" if antall == remaining
+                    else f"{antall} av de {remaining} (mer tar ikke budene innenfor 1 %)")
+            return dict(adv, action="DUMP", guard="krig", new_price=best_bid, dump_qty=antall,
                         dump_net=round(d["net"]), dump_margin=d["margin"],   # hele ISK, som JS-speilet
-                        text=(f"du har endret denne ordren {changes_total} ganger. Selg de {remaining} "
-                              f"resterende rett i budet {isk(best_bid)} i stedet: {isk(d['net'])} ISK netto "
+                        text=(f"du har endret denne ordren {changes_total} ganger. Selg {hvem} "
+                              f"rett i budet {isk(best_bid)} i stedet: {isk(d['net'])} ISK netto "
                               f"etter skatt, ingen nytt broker-gebyr, ingen kø. Å følge ned enda en gang "
                               f"koster {isk(adv.get('fee') or 0)} ISK og starter samme runde på nytt."))
 

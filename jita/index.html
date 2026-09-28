@@ -29,6 +29,9 @@ function factorPills(f) {
     + pill('krig', f.war, `${f.mods_per_hour} prisendringer/t nær toppen`);
 }
 
+// «Oppdater nå»: tilstanden ligger utenfor load(), fordi siden tegnes på nytt underveis (og hvert 5. min)
+const refresh = { busy: false, msg: '' };
+
 async function load() {
   let d;
   try { d = await api('summary'); } catch (e) { el('app').innerHTML = `<p class="err">Feil: ${esc(e.message)}</p>`; return; }
@@ -111,7 +114,7 @@ async function load() {
       </div>
       <div class="row" style="margin-top:10px"><input id="search" placeholder="Søk vare… (f.eks. Damage Control)" autocomplete="off"/></div>
       <div id="searchres"></div>
-      <div class="row" style="margin-top:10px"><button id="scan">Scan nå</button><span id="scanmsg" class="muted small"></span></div>
+      <div class="row" style="margin-top:10px"><button id="scan" ${refresh.busy ? 'disabled' : ''} title="Henter dine ordrer og lommebok fra EVE nå, og starter markedsroboten (ordreboka i Jita) med én gang">Oppdater nå</button><span id="scanmsg" class="muted small">${esc(refresh.msg)}</span></div>
     </div>
     <h2>Topp 10 <span class="muted small">(rangert på ISK/dag for posisjonen × historie × etterspørsel × momentum × stabilitet × rulleblad × krig)</span></h2>${top}
     ${(() => { const pf = d.portfolio; if (!pf) return '';
@@ -192,12 +195,60 @@ async function load() {
         || '<div class="muted small">Ingen treff</div>';
     }, 250);
   };
-  el('scan').onclick = async () => {
-    el('scan').disabled = true; el('scanmsg').textContent = '…';
-    try { const r = await api('scan', { method: 'POST' }); el('scanmsg').textContent = r.message; }
-    catch (e) { el('scanmsg').textContent = e.message; }
-    el('scan').disabled = false;
+  el('scan').onclick = oppdaterNa;
+}
+
+// «Oppdater nå»: 1) start markedsroboten (GitHub Actions, 3–5 min), 2) hent dine ordrer og lommebok fra
+// EVE mens den går, og tegn siden på nytt, 3) følg med til roboten har levert ny ordrebok, og tegn på nytt.
+// ESI selv har cache: ordreboka i Jita 5 min, dine ordrer ~20 min – ferskere enn det finnes ikke.
+async function oppdaterNa() {
+  if (refresh.busy) return;
+  const start = Date.now();
+  const vis = (msg, busy = true) => {
+    refresh.msg = msg; refresh.busy = busy;
+    const m = document.getElementById('scanmsg'), b = document.getElementById('scan');
+    if (m) m.textContent = msg;
+    if (b) b.disabled = busy;
   };
+  const klokka = () => new Date().toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
+  try {
+    vis('Starter markedsroboten…');
+    // forrige timesjobb: ny kjøring = en annen run_at enn denne (ikke sammenlign med telefonens klokke)
+    let forrige = null;
+    try { forrige = (await api('fresh'))?.hourly?.run_at ?? null; } catch { /* da venter vi på første svar */ }
+    let scan;
+    try { scan = await api('scan', { method: 'POST' }); } catch (e) { scan = { ok: false, message: e.message }; }
+
+    vis('Henter ordrene og lommeboka di fra EVE…');
+    let eve;
+    try { eve = await api('character', { method: 'POST' }); } catch (e) { eve = { ok: false, message: e.message }; }
+    const eveTekst = eve?.ok ? 'EVE-data hentet' : `EVE-synk feilet (${eve?.message || 'ukjent feil'})`;
+    await load();
+
+    if (!scan?.ok) {
+      // typisk «vent N min»: roboten gikk for under 10 min siden, og ESI har uansett 5 min cache
+      vis(`${eveTekst} kl. ${klokka()}. Markedet ble ikke hentet på nytt: ${scan?.message || 'ukjent feil'}.`, false);
+      return;
+    }
+    // følg med til en ny timesjobb er ferdig (ok eller feil), maks 12 min
+    while (Date.now() - start < 12 * 60e3) {
+      const s = Math.round((Date.now() - start) / 1000);
+      vis(`${eveTekst}. Markedsroboten kjører… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (vanligvis 3–5 min)`);
+      await new Promise((r) => setTimeout(r, 15000));
+      let f;
+      try { f = await api('fresh'); } catch { continue; }
+      const h = f?.hourly;
+      if (h && h.run_at !== forrige) {
+        if (!h.ok) { vis(`Markedsroboten feilet: ${h.message || 'ukjent feil'}. ${eveTekst}.`, false); await load(); return; }
+        vis(`Alt oppdatert kl. ${klokka()}: ordreboka i Jita og dine ordrer er ferske.`, false);
+        await load();
+        return;
+      }
+    }
+    vis(`${eveTekst}. Markedsroboten har ikke svart på 12 min – GitHub kan ha kø. Siden oppdateres av seg selv når den kommer.`, false);
+  } catch (e) {
+    vis(`Feil: ${e.message}`, false);
+  }
 }
 
 

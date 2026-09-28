@@ -70,15 +70,20 @@ language sql stable as $$
   th as (select (p->'thresholds') as t),
   snap as (select max(snapshot_at) as at from jita.type_hourly),
   book as (select h.* from jita.type_hourly h, snap where h.snapshot_at = snap.at),
+  cov as (select jita.flow_cover(60) as h),
   fl as (
     select f.type_id, f.resolution,
            sum(f.bfs_qty)::float8 bfs_qty, sum(f.bfs_trades)::int bfs_trades,
            sum(f.s2b_qty)::float8 s2b_qty, sum(f.s2b_trades)::int s2b_trades,
-           sum(f.hours_covered)::float8 hours, count(*)::int runs,
+           -- timesflyt deles på tiden kjøringene dekket for HELE markedet (008_flow_coverage.sql), ikke
+           -- bare timene varen hadde aktivitet – ellers ble rolige varer opptil dobbelt så likvide som de er.
+           -- greatest(): aldri mindre enn varens egen sum (overgangen, og hvis dekningsraden mangler).
+           greatest(case when f.resolution = 60 then cov.h else 0 end,
+                    sum(f.hours_covered))::float8 hours, count(*)::int runs,
            sum(coalesce(f.bid_mods, 0) + coalesce(f.ask_mods, 0))::float8 mods
-    from jita.type_flow_hourly f
+    from jita.type_flow_hourly f, cov
     where f.hour >= now() - interval '25 hours'
-    group by f.type_id, f.resolution
+    group by f.type_id, f.resolution, cov.h
   ),
   flow as (select distinct on (type_id) * from fl order by type_id, (resolution = 20 and hours >= 3 and runs >= 12) desc),   -- 20-min-tall bare når de er TETTE (≥ 12 kjøringer/døgn) – glisne målinger lyver
   hist as (
