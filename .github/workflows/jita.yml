@@ -144,6 +144,7 @@ jobs:
           python jita/scripts/test_mining.py
           python jita/scripts/test_advice.py
           python jita/scripts/test_calc.py
+          node jita/scripts/test_timing.mjs
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots

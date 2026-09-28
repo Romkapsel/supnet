@@ -81,6 +81,7 @@ det er mønsteret så langt. Og: ingen skal måtte inn i «Avansert» for å få
 4. Test alltid før push: `python jita/scripts/test_industry.py` (118), `test_mining.py` (58),
    `test_advice.py` (61, inkl. ord-for-ord-paritet mot `lib/advice.js` via `advice_probe.mjs`),
    `test_calc.py` (ME-avrunding i `lib/calc.js` mot `material_quantity()` over 300 kombinasjoner, og malmplanen),
+   `node jita/scripts/test_timing.mjs` (27, «beste tid» i «Å gjøre»),
    `node --check` på `api/[action].js` og på `<script type="module">` i HTML-filene.
 5. **`lib/*.js` speiler `scripts/*.py`.** Endrer du én, endre begge – tekstene skal være ord for ord like,
    ellers sier Discord-varselet og siden ulike ting. `test_advice.py` håndhever det for rådene.

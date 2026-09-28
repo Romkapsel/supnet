@@ -126,7 +126,7 @@ async function load() {
     <div class="card" style="border:1px solid #f0c04055">${d.todo.map((x) => `
       <div class="row small" style="padding:7px 0;border-bottom:1px solid #2a2e40;align-items:flex-start${x.action === 'LA STÅ' ? ';opacity:0.85' : ''}">
         <span style="flex:1;min-width:220px"><span class="pill ${PILLE[x.action] ?? 'ok'}">${x.action}</span>
-          <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a>${copyBtn(x.name)}<div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div></span>
+          <a href="type.html?id=${x.type_id}"><b>${esc(x.title)}</b></a>${copyBtn(x.name)}<div class="muted" style="margin-top:2px">${esc(x.detail)} · <i>${esc(x.where)}</i></div>${x.timing ? `<div class="${x.timing.when === 'nå' ? 'accent' : 'muted'}" style="margin-top:2px">⏰ ${esc(x.timing.text)}</div>` : ''}</span>
         <span class="${x.action === 'LA STÅ' ? 'muted' : 'accent'}" style="white-space:nowrap">${x.action === 'LA STÅ' ? `sparer ~${isk(x.impact)}` : `~${isk(x.impact)} ISK`}</span></div>`).join('')}
       <div class="muted small" style="margin-top:8px">Regnet nå fra dine ordrer i EVE mot siste ordrebok. Endring av ordrer krever at du er dokket i Jita 4-4.
         <b>«LA STÅ»</b> betyr at markedet har gått mot deg, men at det koster mer i gebyr å følge etter enn du henter inn –
