@@ -73,11 +73,11 @@ function resultat(R) {
 
   <div class="card"><h3 style="margin-top:0">Materialer</h3>
     <div class="tblwrap"><table>
-      <tr><th style="text-align:left">Materiale</th><th>Trengs</th><th>I hangaren</th><th title="Mineraler du får når du refiner malmen du alt har, med ditt refine-utbytte">Fra malm du har</th><th>Mangler</th><th>Kjøp for</th></tr>
+      <tr><th style="text-align:left">Materiale</th><th>Mangler</th><th>Trengs</th><th>I hangaren</th><th title="Mineraler du får når du refiner malmen du alt har, med ditt refine-utbytte">Fra malm du har</th><th>Kjøp for</th></tr>
       ${R.materials.map((m) => `<tr>
         <td style="text-align:left">${esc(m.name)}${copyBtn(m.name)}${m.mineable ? '' : ' <span class="pill" title="Kan ikke mines – må kjøpes eller skaffes på annen måte">kjøpes</span>'}</td>
-        <td>${num(m.need)}</td><td>${m.have ? num(m.have) : '–'}</td><td>${m.from_ore ? num(m.from_ore) : '–'}</td>
         <td class="${m.missing ? 'mangler' : 'ok'}">${m.missing ? num(m.missing) : '✓'}</td>
+        <td>${num(m.need)}</td><td>${m.have ? num(m.have) : '–'}</td><td>${m.from_ore ? num(m.from_ore) : '–'}</td>
         <td>${m.buy_cost != null && m.missing ? isk(m.buy_cost) : '–'}</td></tr>`).join('')}
     </table></div>
     <div class="muted small" style="margin-top:6px">Antall følger EVE-regelen: rundes opp per jobb, aldri under 1 per run, og
@@ -117,11 +117,17 @@ function tegn() {
       </div>
       <div id="treff" style="margin-top:6px"></div>
     </div>
-    <div id="res">${state.feil ? `<div class="card err">${esc(state.feil)}</div>`
-      : state.R ? resultat(state.R)
-      : state.laster ? '<div class="card muted">Regner…</div>'
-      : '<div class="card muted">Søk opp en blueprint over. Regnestykket bruker hangaren din fra EVE, refine-utbyttet ditt og malmen der du miner.</div>'}</div>`;
+    <div id="res"></div>`;
   koble();
+  tegnRes();
+}
+
+// Bare resultatet tegnes på nytt – feltene står i fred, så du ikke mister markøren mens du skriver
+function tegnRes() {
+  el('res').innerHTML = state.feil ? `<div class="card err">${esc(state.feil)}</div>`
+    : state.R ? resultat(state.R) + (state.laster ? '<div class="muted small">Regner på nytt…</div>' : '')
+    : state.laster ? '<div class="card muted">Regner…</div>'
+    : '<div class="card muted">Søk opp en blueprint over. Regnestykket bruker hangaren din fra EVE, refine-utbyttet ditt og malmen der du miner.</div>';
 }
 
 function tegnTreff() {
@@ -133,6 +139,7 @@ function tegnTreff() {
 
 function velg(x) {
   state.bp = x.blueprint_type_id; state.navn = x.name; state.treff = []; state.valgt = -1;
+  el('sok').value = x.name; tegnTreff();
   lagre(); regn();
 }
 
@@ -162,19 +169,25 @@ function koble() {
     };
   };
   tall('me', 'me', 0, 10); tall('runs', 'runs', 1, 10000);
-  for (const b of document.querySelectorAll('[data-me]')) b.onclick = () => { state.me = Number(b.dataset.me); lagre(); regn(); };
+  for (const b of document.querySelectorAll('[data-me]')) b.onclick = () => {
+    state.me = Number(b.dataset.me); el('me').value = state.me; lagre(); regn();
+  };
 }
 
+let siste = 0;
 async function regn() {
-  if (!state.bp) return tegn();
-  state.laster = true; state.feil = null; tegn();
+  if (!state.bp) return tegnRes();
+  const nr = ++siste;                        // et eldre svar som kommer sist skal ikke overskrive et nyere
+  state.laster = true; state.feil = null; tegnRes();
   try {
-    state.R = await api('calc', { query: { bp: state.bp, me: state.me, runs: state.runs } });
-    state.navn = state.R.blueprint.name; lagre();
-  } catch (e) { state.feil = e.message; state.R = null; }
-  state.laster = false; tegn();
+    const R = await api('calc', { query: { bp: state.bp, me: state.me, runs: state.runs } });
+    if (nr !== siste) return;
+    state.R = R; state.navn = R.blueprint.name; lagre();
+  } catch (e) { if (nr !== siste) return; state.feil = e.message; state.R = null; }
+  state.laster = false; tegnRes();
 }
 
+tegn();
 regn();
 </script>
 </body>
