@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, guardAdvice, dumpNet, tick as tickOf } from "../lib/advice.js";
+import { materialQuantity, oreToMinerals, orePlan } from "../lib/calc.js";
 import { INDUSTRY_RULES, CATEGORY_NAMES, myPick, pickPortfolio, startRecommendation, starterFunnel, starterList, whyNot } from "../lib/industry.js";
 
 // Én tilkobling per kall (serverless): en gjenbrukt tilkobling mot transaction-pooleren hang på kall nr. 2.
@@ -106,6 +107,7 @@ export default async function handler(req, res) {
         if (req.method === "POST") return json(res, 200, await saveIndustry(q, await readBody(req)));
         return json(res, 200, await industry(q, req.query));
       case "industry_type": return json(res, 200, await industryType(q, Number(req.query.id)));
+      case "calc": return json(res, 200, await calc(q, req.query));
       case "mining":
         if (req.method === "POST") return json(res, 200, await saveMining(q, await readBody(req)));
         return json(res, 200, await mining(q));
@@ -676,6 +678,97 @@ async function industry(q, query) {
                           count(*) filter (where npc_bpo) as npc from jita.blueprints`;
   return { profile: p, run_at: run?.run_at || null, rows: visRows, portfolio, start, starter, pick, funnel,
            why, robot, counts, alerts, sde, rules: INDUSTRY_RULES, categories: CATEGORY_NAMES };
+}
+
+// ── Blueprint-kalkulator: «hvor mye mangler jeg, og hvor mye malm må jeg mine?» ─────────────
+// ?q=tekst          → søk etter blueprints (produktnavn)
+// ?bp=id&me=10&runs=1 → materialbehov (EVE-avrunding), hva du har i hangaren (mineraler + malm
+//                     omregnet med ditt refine-utbytte), hva som mangler, og en malmplan for resten.
+async function calc(q, query) {
+  const sok = String(query.q || "").trim();
+  if (sok && !query.bp) {
+    if (sok.length < 2) return { results: [] };
+    const results = await q`
+      select b.blueprint_type_id, t.name, t.group_name, b.units_per_run
+      from jita.blueprints b join jita.types t on t.type_id = b.product_type_id
+      where t.name ilike ${"%" + sok + "%"}
+      order by (t.name ilike ${sok + "%"}) desc, length(t.name), t.name limit 12`;
+    return { results };
+  }
+  const bp = Number(query.bp);
+  if (!bp) throw new Error("mangler bp");
+  const me = Math.max(0, Math.min(10, Math.round(Number(query.me ?? 10))));
+  const runs = Math.max(1, Math.min(10000, Math.round(Number(query.runs || 1))));
+
+  const [b] = await q`
+    select b.blueprint_type_id, b.product_type_id, b.units_per_run, b.base_time_s, t.name,
+           mq.sell_min::float8 as sell_price
+    from jita.blueprints b join jita.types t on t.type_id = b.product_type_id
+    left join jita.market_quotes mq on mq.type_id = b.product_type_id
+    where b.blueprint_type_id = ${bp}`;
+  if (!b) throw new Error("fant ikke blueprinten");
+
+  const mats = await q`
+    select bm.material_type_id as type_id, t.name, t.group_name, t.volume::float8 as volume,
+           bm.quantity::float8 as base_qty, mq.buy_max::float8 as buy, mq.sell_min::float8 as sell
+    from jita.blueprint_materials bm join jita.types t on t.type_id = bm.material_type_id
+    left join jita.market_quotes mq on mq.type_id = bm.material_type_id
+    where bm.blueprint_type_id = ${bp} order by bm.quantity desc`;
+
+  // Hangaren (fra EVE-synken): alt i Hangar på alle stasjoner
+  const hangar = await q`select type_id, sum(quantity)::bigint as qty from jita.my_assets
+                         where location_flag = 'Hangar' group by type_id`;
+  const har = Object.fromEntries(hangar.map((h) => [h.type_id, Number(h.qty)]));
+
+  // Malm og utbytte: alt vi kjenner utbyttet til (også varianter), og hvilken malm du miner
+  const [mp] = await q`select reprocess_yield::float8 as y, m3_per_hour::float8 as m3h, thresholds
+                       from jita.mining_profile where id = 1`;
+  const yieldFactor = Number(mp?.y ?? 0.5);
+  const grupper = mp?.thresholds?.available_groups || [];
+  const yrows = await q`
+    select oy.ore_type_id, t.name, t.group_name, t.volume::float8 as volume, oy.batch_size,
+           oy.mineral_type_id, oy.quantity::float8 as qty
+    from jita.ore_yields oy join jita.types t on t.type_id = oy.ore_type_id`;
+  const yields = {};
+  for (const r of yrows) {
+    const y = (yields[r.ore_type_id] ||= { name: r.name, group: r.group_name, volume: r.volume,
+                                           batch: r.batch_size, minerals: {} });
+    y.minerals[r.mineral_type_id] = r.qty;
+  }
+  // Malmen du har i hangaren, regnet om til mineraler
+  const malmHar = Object.fromEntries(Object.entries(har).filter(([id]) => yields[id]));
+  const fraMalm = oreToMinerals(malmHar, yields, yieldFactor);
+  // Planen bruker grunnvarianten i hver gruppe du miner (navn = gruppenavn, f.eks. «Scordite»)
+  const ores = Object.entries(yields)
+    .filter(([, y]) => grupper.includes(y.group) && y.name === y.group)
+    .map(([id, y]) => ({ id: Number(id), name: y.name, volume: y.volume, batch: y.batch, minerals: y.minerals }));
+
+  const rader = mats.map((m) => {
+    const need = materialQuantity(m.base_qty, runs, me);
+    const iHangar = har[m.type_id] || 0;
+    const avMalm = fraMalm[m.type_id] || 0;
+    const missing = Math.max(0, need - iHangar - avMalm);
+    return { type_id: m.type_id, name: m.name, group: m.group_name, need, have: iHangar, from_ore: avMalm,
+             missing, price: m.buy ?? m.sell ?? null, buy_cost: m.buy ? missing * m.buy : null,
+             mineable: m.group_name === "Mineral" && ores.some((o) => o.minerals[m.type_id]) };
+  });
+  const manglerMin = Object.fromEntries(rader.filter((r) => r.mineable && r.missing > 0).map((r) => [r.type_id, r.missing]));
+  const priser = Object.fromEntries(rader.map((r) => [r.type_id, r.price || 0]));
+  const plan = orePlan(manglerMin, ores, yieldFactor, priser);
+  const navn = Object.fromEntries(rader.map((r) => [r.type_id, r.name]));
+
+  return {
+    blueprint: { ...b, blueprint_name: `${b.name} Blueprint` }, me, runs,
+    units: runs * Number(b.units_per_run || 1),
+    reprocess_yield: yieldFactor, m3_per_hour: Number(mp?.m3h || 0),
+    materials: rader,
+    plan: { ...plan, minutes: mp?.m3h ? Math.round(plan.m3 / mp.m3h * 60) : null,
+            uncovered: Object.entries(plan.uncovered).map(([id, n]) => ({ type_id: Number(id), name: navn[id], qty: n })),
+            surplus: Object.entries(plan.surplus).map(([id, n]) => ({ type_id: Number(id), name: navn[id], qty: n })) },
+    must_buy: rader.filter((r) => r.missing > 0 && !r.mineable),
+    buy_all_cost: rader.reduce((s, r) => s + (r.buy_cost || 0), 0),
+    hangar_ore: Object.entries(malmHar).map(([id, n]) => ({ type_id: Number(id), name: yields[id].name, qty: n })),
+  };
 }
 
 // Én vare: siste tall + hvordan margin og kostpris har beveget seg (brief punkt 3)

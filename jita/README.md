@@ -169,6 +169,28 @@ Tre lag hindrer forslag i markeder uten flyt – det hjelper ikke med 200 skip h
    Samme tall trekker ned likviditetsfaktoren i scoren, uansett hvor stort volumet ser ut.
 3. **Kapital-omløpet** (se punkt 8 over) straffer alt som tar lang tid å selge unna.
 
+### Kalkulatoren (`calc.html`, 28. sept 2026)
+Eieren ville kunne søke opp en blueprint, sette ME, og se nøyaktig hvor mye malm som mangler.
+
+- **Søk** på produktnavn (`/api/calc?q=`), T1 sortert først. **ME 0–10** og **runs** som felt, med
+  hurtigknapper 0/5/10. Siste valg huskes i nettleseren, og `calc.html?bp=…&me=…&runs=…` er en lenke –
+  industri-lista har «Regn på dette i kalkulatoren» for tre dagers salg.
+- **Materialbehov** med EVE-regelen (`materialQuantity()` i `lib/calc.js`, speil av `material_quantity()`):
+  rundes opp per jobb, aldri under 1 per run, mengde 1 reduseres ikke av ME. NPC-stasjon, ingen bonus.
+- **Hva du har:** mineraler i hangaren (alle stasjoner, fra EVE-synken) **pluss malm du alt har**, regnet om
+  med ditt refine-utbytte. Bare hele batcher à 100 refines; resten blir liggende.
+- **Malmplan** (`orePlan()`): dyreste mineral først – for hvert mineral som mangler, malmen der du miner som
+  gir mest av det per m³, i hele batcher, og alt den gir av andre mineraler trekkes fra resten. Ikke et
+  optimalt LP-svar, men forklarbart og nær nok med seks malmtyper. For Thermal Shield Hardener I (ME 10):
+  Plagioclase + Omber + Scordite, 2 100 m³ ≈ 42 min. Det som ingen malm gir (salvage, komponenter,
+  Nocxium i høysikkerhet) står som «må kjøpes».
+- Siden sier alltid også hva det koster å **kjøpe** det som mangler – egen malm er ikke gratis.
+- `scripts/test_calc.py` kjører `calc_probe.mjs` og krever lik ME-avrunding med Python over 300
+  kombinasjoner, at planen dekker behovet i hele batcher, og at hvert mineral tas fra malmen med mest per m³.
+  **Feillogg:** testen forventet først Kernite for Isogen og Pyroxeres for Mexallon. Algoritmen hadde rett –
+  Omber (1,25 Isogen/m³) slår Kernite (1,0), og Plagioclase (2,0 Mexallon/m³) slår Pyroxeres (1,0).
+  Fasiten regnes nå fra dataene i stedet for å hardkodes.
+
 ### Databasen: 439 → 285 MB, og hvorfor den vokste (27. sept 2026)
 Roboten varslet «databasen er 460 MB». Prosjektet ligger på **Supabase gratisplan, som har et hardt tak
 på 500 MB** – over det blir basen skrivebeskyttet, og da stopper ikke bare Jita, men alt familien har i

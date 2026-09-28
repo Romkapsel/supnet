@@ -143,6 +143,7 @@ jobs:
           python jita/scripts/test_industry.py
           python jita/scripts/test_mining.py
           python jita/scripts/test_advice.py
+          python jita/scripts/test_calc.py
       - uses: actions/cache/restore@v4
         with:
           path: jita/snapshots

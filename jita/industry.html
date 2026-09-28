@@ -168,7 +168,9 @@ function komIGang() {
           (${num(x.daily_volume)} stk/dag) · ${num(x.runs_per_day, 1)} runs gir ~${isk(x.profit_per_day)} ISK/dag
           = ${pct(x.daily_return, 0)} av pengene per døgn</span>
       </div>
-      ${materialtabell(x)}</td></tr>` : ''}`;
+      ${materialtabell(x)}
+      <div class="small" style="margin-top:8px"><a href="calc.html?bp=${x.blueprint_type_id}&me=0&runs=${Math.max(1, Math.round((x.runs_per_day || 1) * 3))}">
+        Regn på dette i kalkulatoren →</a> <span class="muted">hvor mye malm mangler du for tre dagers salg?</span></div></td></tr>` : ''}`;
   };
 
   return `<div class="card" style="border:1px solid var(--accent)">
