@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f1117"/>
+  <title>Jita – Kalkulator</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <link rel="icon" href="icons/icon-192.png"/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <div id="app"><p class="muted">Laster…</p></div>
+
+<script type="module">
+import { api, isk, el, esc, nav, injectCss, copyBtn } from './app.js';
+// Antall med tusenskille (11 300 Scordite leses lettere enn 11300)
+const num = (v) => v == null ? '–' : Math.round(Number(v)).toLocaleString('nb-NO');
+injectCss();
+
+const s = document.createElement('style');
+s.textContent = `
+.tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.tblwrap table { min-width:560px; }
+.treff { display:block; width:100%; text-align:left; padding:8px 10px; border-radius:10px; background:none; border:none; color:var(--text); cursor:pointer; }
+.treff:hover, .treff.on { background:var(--card2); }
+.inputs { display:grid; grid-template-columns: 2fr 1fr 1fr; gap:10px; }
+@media (max-width: 560px) { .inputs { grid-template-columns: 1fr 1fr; } .inputs .sok { grid-column: 1 / -1; } }
+.me-knapper { display:flex; gap:6px; margin-top:6px; }
+.me-knapper button { padding:4px 10px; font-size:0.8rem; }
+td.mangler { color:#ff8080; font-weight:700; }
+td.ok { color:#6fd08c; }
+`;
+document.head.appendChild(s);
+
+// Husk siste valg i denne nettleseren (bare bekvemmelighet – alt regnes på nytt fra basen)
+const lagret = (() => { try { return JSON.parse(localStorage.getItem('jita_calc') || '{}'); } catch { return {}; } })();
+const qs = new URLSearchParams(location.search);
+const state = {
+  bp: Number(qs.get('bp') || lagret.bp || 0) || null,
+  navn: lagret.navn || '',
+  me: Number(qs.get('me') ?? lagret.me ?? 10),
+  runs: Number(qs.get('runs') || lagret.runs || 1),
+  treff: [], valgt: -1, R: null, laster: false, feil: null,
+};
+const lagre = () => { try { localStorage.setItem('jita_calc', JSON.stringify({ bp: state.bp, navn: state.navn, me: state.me, runs: state.runs })); } catch {} };
+
+function anbefaling(R) {
+  const p = R.plan, kjop = R.must_buy;
+  const manglerNoe = R.materials.some((m) => m.missing > 0);
+  if (!manglerNoe) return `<div class="big green">Du har alt du trenger 🎉</div>
+    <div class="muted small" style="margin-top:4px">Hangaren din dekker hele jobben${R.materials.some((m) => m.from_ore) ? ' – regnet med at du refiner malmen du har' : ''}.</div>`;
+  const deler = [];
+  if (p.ores.length) deler.push(`<b>Mine ${num(p.m3)} m³</b>${p.minutes != null ? ` (≈ ${p.minutes < 90 ? `${p.minutes} min` : `${(p.minutes / 60).toFixed(1).replace('.', ',')} t`})` : ''}:
+    ${p.ores.map((o) => `${num(o.units)} ${esc(o.name)}`).join(' + ')}`);
+  if (kjop.length) deler.push(`<b>Kjøp</b> ${kjop.map((m) => `${num(m.missing)} ${esc(m.name)}`).join(', ')} – det kan ikke mines
+    (${isk(kjop.reduce((a, m) => a + (m.buy_cost || 0), 0))} ISK)`);
+  if (p.uncovered.length) deler.push(`<b>Kjøp</b> ${p.uncovered.map((m) => `${num(m.qty)} ${esc(m.name)}`).join(', ')} – ingen av malmtypene der du miner gir det`);
+  return `<div class="small" style="line-height:1.7">${deler.map((d) => `<div>→ ${d}</div>`).join('')}</div>
+    <div class="muted small" style="margin-top:6px">Alternativt: kjøp alt som mangler i Jita for <b>${isk(R.buy_all_cost)} ISK</b>
+      (høyeste kjøpsbud – du legger kjøpsordre og venter). Egen malm er ikke gratis: den kunne vært solgt for omtrent det samme.</div>`;
+}
+
+function resultat(R) {
+  const tot = R.materials.reduce((a, m) => a + (m.price || 0) * m.need, 0);
+  return `<div class="card" style="border:1px solid var(--accent)">
+    <div class="row"><h2 style="margin:0">${num(R.runs)} run${R.runs > 1 ? 's' : ''} ${esc(R.blueprint.name)}
+      <span class="muted" style="font-size:0.9rem">ME ${R.me}</span></h2>
+      <span class="muted small">${num(R.units)} stk · materialer verdt ${isk(tot)} ISK${R.blueprint.sell_price ? ` · selges for ${isk(R.blueprint.sell_price * R.units)}` : ''}</span></div>
+    <div style="margin-top:10px">${anbefaling(R)}</div>
+  </div>
+
+  <div class="card"><h3 style="margin-top:0">Materialer</h3>
+    <div class="tblwrap"><table>
+      <tr><th style="text-align:left">Materiale</th><th>Trengs</th><th>I hangaren</th><th title="Mineraler du får når du refiner malmen du alt har, med ditt refine-utbytte">Fra malm du har</th><th>Mangler</th><th>Kjøp for</th></tr>
+      ${R.materials.map((m) => `<tr>
+        <td style="text-align:left">${esc(m.name)}${copyBtn(m.name)}${m.mineable ? '' : ' <span class="pill" title="Kan ikke mines – må kjøpes eller skaffes på annen måte">kjøpes</span>'}</td>
+        <td>${num(m.need)}</td><td>${m.have ? num(m.have) : '–'}</td><td>${m.from_ore ? num(m.from_ore) : '–'}</td>
+        <td class="${m.missing ? 'mangler' : 'ok'}">${m.missing ? num(m.missing) : '✓'}</td>
+        <td>${m.buy_cost != null && m.missing ? isk(m.buy_cost) : '–'}</td></tr>`).join('')}
+    </table></div>
+    <div class="muted small" style="margin-top:6px">Antall følger EVE-regelen: rundes opp per jobb, aldri under 1 per run, og
+      materialer med mengde 1 reduseres ikke av ME. NPC-stasjon (ingen strukturbonus).</div>
+  </div>
+
+  ${R.plan.ores.length ? `<div class="card"><h3 style="margin-top:0">Malm å mine</h3>
+    <div class="tblwrap"><table style="min-width:auto">
+      <tr><th style="text-align:left">Malm</th><th>Antall</th><th>Batcher</th><th>m³</th></tr>
+      ${R.plan.ores.map((o) => `<tr><td style="text-align:left">${esc(o.name)}${copyBtn(o.name)}</td>
+        <td>${num(o.units)}</td><td>${num(o.batches)}</td><td>${num(o.m3)}</td></tr>`).join('')}
+      <tr><td style="text-align:left"><b>Totalt</b></td><td></td><td></td><td><b>${num(R.plan.m3)}</b></td></tr>
+    </table></div>
+    <div class="muted small" style="margin-top:6px">Sjeldneste mineral først: for hvert mineral velges malmen som gir mest av det
+      per m³, og det den gir av andre mineraler trekkes fra resten. Hele batcher à 100 – mindre enn det refines ikke.
+      Refine-utbytte <b>${Math.round(R.reprocess_yield * 100)} %</b> (fra skills${R.reprocess_yield <= 0.5 ? ' – Reprocessing gir +3 % per nivå' : ''}),
+      mining-rate ${num(R.m3_per_hour)} m³/t.
+      ${R.plan.surplus.length ? `<br/>Til overs etter refine: ${R.plan.surplus.map((x) => `${num(x.qty)} ${esc(x.name)}`).join(', ')}.` : ''}</div>
+  </div>` : ''}
+
+  ${R.hangar_ore.length ? `<div class="muted small">Malm i hangaren som er regnet med: ${R.hangar_ore.map((o) => `${num(o.qty)} ${esc(o.name)}`).join(', ')}.</div>` : ''}`;
+}
+
+function tegn() {
+  el('app').innerHTML = `
+    <h1>Kalkulator <span class="muted" style="font-size:0.9rem">hvor mye mangler jeg – og hvor mye malm er det?</span></h1>
+    ${nav('calc.html')}
+    <div class="card">
+      <div class="inputs">
+        <label class="sok">Blueprint (søk på produktet)
+          <input id="sok" value="${esc(state.navn)}" placeholder="f.eks. Scourge Light Missile" autocomplete="off"/></label>
+        <label>Material Efficiency (ME %)
+          <input id="me" type="number" min="0" max="10" value="${state.me}"/>
+          <div class="me-knapper"><button class="ghost" data-me="0">0</button><button class="ghost" data-me="5">5</button><button class="ghost" data-me="10">10</button></div></label>
+        <label>Runs
+          <input id="runs" type="number" min="1" max="10000" value="${state.runs}"/></label>
+      </div>
+      <div id="treff" style="margin-top:6px"></div>
+    </div>
+    <div id="res">${state.feil ? `<div class="card err">${esc(state.feil)}</div>`
+      : state.R ? resultat(state.R)
+      : state.laster ? '<div class="card muted">Regner…</div>'
+      : '<div class="card muted">Søk opp en blueprint over. Regnestykket bruker hangaren din fra EVE, refine-utbyttet ditt og malmen der du miner.</div>'}</div>`;
+  koble();
+}
+
+function tegnTreff() {
+  const t = el('treff'); if (!t) return;
+  t.innerHTML = state.treff.map((x, i) => `<button class="treff ${i === state.valgt ? 'on' : ''}" data-i="${i}">
+    ${esc(x.name)} <span class="muted small">${esc(x.group_name || '')}${x.units_per_run > 1 ? ` · ${x.units_per_run} per run` : ''}</span></button>`).join('');
+  for (const b of t.querySelectorAll('.treff')) b.onclick = () => velg(state.treff[Number(b.dataset.i)]);
+}
+
+function velg(x) {
+  state.bp = x.blueprint_type_id; state.navn = x.name; state.treff = []; state.valgt = -1;
+  lagre(); regn();
+}
+
+let sokTimer, regnTimer;
+function koble() {
+  const sok = el('sok');
+  sok.oninput = () => {
+    clearTimeout(sokTimer);
+    sokTimer = setTimeout(async () => {
+      const v = sok.value.trim();
+      if (v.length < 2) { state.treff = []; tegnTreff(); return; }
+      try { state.treff = (await api('calc', { query: { q: v } })).results || []; state.valgt = -1; tegnTreff(); } catch (e) { /* stille */ }
+    }, 250);
+  };
+  sok.onkeydown = (e) => {
+    if (!state.treff.length) return;
+    if (e.key === 'ArrowDown') { state.valgt = Math.min(state.treff.length - 1, state.valgt + 1); tegnTreff(); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { state.valgt = Math.max(0, state.valgt - 1); tegnTreff(); e.preventDefault(); }
+    if (e.key === 'Enter') { velg(state.treff[Math.max(0, state.valgt)]); e.preventDefault(); }
+  };
+  const tall = (id, key, min, max) => {
+    const inp = el(id);
+    inp.oninput = () => {
+      const v = Math.max(min, Math.min(max, Math.round(Number(inp.value) || 0)));
+      state[key] = v; lagre();
+      clearTimeout(regnTimer); regnTimer = setTimeout(regn, 300);
+    };
+  };
+  tall('me', 'me', 0, 10); tall('runs', 'runs', 1, 10000);
+  for (const b of document.querySelectorAll('[data-me]')) b.onclick = () => { state.me = Number(b.dataset.me); lagre(); regn(); };
+}
+
+async function regn() {
+  if (!state.bp) return tegn();
+  state.laster = true; state.feil = null; tegn();
+  try {
+    state.R = await api('calc', { query: { bp: state.bp, me: state.me, runs: state.runs } });
+    state.navn = state.R.blueprint.name; lagre();
+  } catch (e) { state.feil = e.message; state.R = null; }
+  state.laster = false; tegn();
+}
+
+regn();
+</script>
+</body>
+</html>
