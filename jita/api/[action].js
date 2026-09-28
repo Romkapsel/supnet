@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { authorizeUrl, checkState, completeLogin, syncCharacter, ssoStatus, accessToken } from "../lib/eve.js";
 import { computeResults } from "../lib/pnl.js";
 import { overbidAdvice, undercutAdvice, guardAdvice, dumpNet, tick as tickOf } from "../lib/advice.js";
+import { bestTime } from "../lib/timing.js";
 import { materialQuantity, oreToMinerals, orePlan } from "../lib/calc.js";
 import { INDUSTRY_RULES, CATEGORY_NAMES, myPick, pickPortfolio, startRecommendation, starterFunnel, starterList, whyNot } from "../lib/industry.js";
 
@@ -242,9 +243,10 @@ function vernKontekst(o, p, side) {
 
 // «LA STÅ» er et punkt på lista, ikke en stillhet: markedet HAR gått mot deg, og det skal stå
 // hvorfor du likevel ikke skal røre ordren – ellers gjør man det uansett.
-function vernPunkt(o, adv, hva) {
+function vernPunkt(o, adv, hva, cooldownH = 12) {
   const grunn = { karantene: "nylig endret", gebyrtak: "gebyrene har spist nok", krig: "priskrig" }[adv.guard] || "";
-  return { kind: "guard", type_id: o.type_id, name: o.name, action: "LA STÅ",
+  return { kind: "guard", type_id: o.type_id, name: o.name, action: "LA STÅ", guard: adv.guard || null,
+    wait_h: adv.guard === "karantene" ? Math.max(0, cooldownH - Number(o.hours_since_change || 0)) : null,
     title: `La ${hva} ${o.name} stå (${grunn})`, detail: adv.text,
     impact: Number(adv.fee || 0), where: "ingen handling – dette er en advarsel mot å endre" };
 }
@@ -291,7 +293,7 @@ async function buildTodo(q, p, portfolio, hangar) {
       const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.bid_qty_1pct || 0) - (o.price >= o.best_bid * 0.99 ? o.remaining : 0));
       const raa = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "HEV" : o.alert.action } : overbidAdvice(p, o.price, o.remaining, o.best_bid, wall, o.s2b || 0, o.best_ask, minMargin);
       const adv = guardAdvice(raa, vernKontekst(o, p, "buy"));
-      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "kjøpsordren"));
+      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "kjøpsordren", Number(p.thresholds?.relist_cooldown_h ?? 12)));
       if (adv.action === "HEV") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "HEV",
         title: `Hev kjøpsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
       else if (adv.action === "TREKK") items.push({ kind: "overbid", type_id: o.type_id, name: o.name, action: "TREKK",
@@ -301,7 +303,7 @@ async function buildTodo(q, p, portfolio, hangar) {
       const wall = fresh ? Number(o.alert.wall_qty) : Math.max(0, Number(o.ask_qty_1pct || 0) - (o.price <= o.best_ask * 1.01 ? o.remaining : 0));
       const raa = fresh ? { ...o.alert, action: o.alert.action === "ENDRE" ? "SENK" : o.alert.action } : undercutAdvice(p, o.price, o.remaining, o.best_ask, wall, o.bfs || 0, o.cost, minMargin);
       const adv = guardAdvice(raa, vernKontekst(o, p, "sell"));
-      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "salgsordren"));
+      if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "salgsordren", Number(p.thresholds?.relist_cooldown_h ?? 12)));
       if (adv.action === "DUMP") items.push({ kind: "war", type_id: o.type_id, name: o.name, action: "DUMP",
         title: `Selg ${adv.dump_qty ?? o.remaining} × ${o.name} rett i budet ${Math.round(o.best_bid).toLocaleString("nb-NO")}`,
         detail: adv.text, impact: Number(adv.dump_net || 0), where: "Jita 4-4 – selg til kjøpsordren (ingen broker, bare skatt)" });
@@ -378,7 +380,56 @@ async function buildTodo(q, p, portfolio, hangar) {
     const k = `${x.type_id}:${side(x)}`;
     if (!best[k] || PRIO[x.action] < PRIO[best[k].action] || (PRIO[x.action] === PRIO[best[k].action] && x.impact > best[k].impact)) best[k] = x;
   }
-  return Object.values(best).sort((a, b) => b.impact - a.impact);
+  const out = Object.values(best).sort((a, b) => b.impact - a.impact);
+  await addTiming(q, out, side);
+  return out;
+}
+
+// ── «Beste tid» på hvert punkt i «Å gjøre» (lib/timing.js) ────────────────────
+// Kjøpsside (HEV/KJØP/ØK, RELIST av kjøpsordre, LA STÅ i karantene): timen før dumpingen topper.
+// Salgsside (SENK/SELG, RELIST av salgsordre, LA STÅ i karantene): timen før kjøperne kommer.
+// DUMP (selg til budet nå), TREKK og LA STÅ av andre grunner får ingen tid – der er svaret ikke «når».
+async function addTiming(q, items, side) {
+  const want = items.filter((x) => ["HEV", "KJØP", "ØK", "SENK", "SELG", "RELIST"].includes(x.action)
+                                   || (x.action === "LA STÅ" && x.guard === "karantene"));
+  if (!want.length) return;
+  const prof = await flowProfiles(q, [...new Set(want.map((x) => x.type_id))]);
+  const pool = { s2b: Array(24).fill(0), bfs: Array(24).fill(0) };
+  for (const v of Object.values(prof)) for (let h = 0; h < 24; h++) { pool.s2b[h] += v.s2b[h]; pool.bfs[h] += v.bfs[h]; }
+  const nowHour = osloHour(new Date());
+  const dt11 = new Date(); dt11.setUTCHours(11, 0, 0, 0);            // EVEs nedetid er 11:00 UTC
+  const downtime = Math.floor(osloHour(dt11));
+  for (const x of want) {
+    const s = side(x), own = prof[x.type_id];
+    const t = bestTime(s, own ? own[s === "buy" ? "s2b" : "bfs"] : null, pool[s === "buy" ? "s2b" : "bfs"],
+                       nowHour, x.wait_h || 0, downtime);
+    if (t) x.timing = t;
+  }
+}
+
+// Norsk klokketime med desimaler (sommer/vinter håndteres av Intl)
+function osloHour(d) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Oslo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(d);
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+  return get("hour") + get("minute") / 60;
+}
+
+// Flyt per norsk klokketime siste 7 d. Timebøtta `hour` er timen snapshotet ble tatt (~:23), og diffen dekker
+// ~:23 forrige time → :23 denne – mesteparten ligger i timen FØR. Derfor trekkes én time fra.
+async function flowProfiles(q, typeIds) {
+  if (!typeIds.length) return {};
+  const rows = await q`
+    select type_id, extract(hour from (hour - interval '1 hour') at time zone 'Europe/Oslo')::int as h,
+           -- antall DAGER med handel i timen (0–7), ikke enheter eller handler: én travel dag er ikke et mønster
+           count(*) filter (where s2b_trades > 0)::float8 s2b, count(*) filter (where bfs_trades > 0)::float8 bfs
+    from jita.type_flow_hourly where resolution = 60 and hour > now() - interval '7 days' and type_id = any(${typeIds})
+    group by 1, 2`;
+  const out = {};
+  for (const r of rows) {
+    const v = (out[r.type_id] ||= { s2b: Array(24).fill(0), bfs: Array(24).fill(0) });
+    v.s2b[r.h] += r.s2b || 0; v.bfs[r.h] += r.bfs || 0;
+  }
+  return out;
 }
 
 // ── Beste tidspunkt (norsk tid) å legge ordrer: når dumping (kjøp) / lifting (salg) topper, siste 7 d ─
@@ -387,9 +438,9 @@ async function buildTodo(q, p, portfolio, hangar) {
 async function bestHours(q, typeIds) {
   if (!typeIds.length) return {};
   const rows = await q`
-    select type_id, extract(hour from hour at time zone 'Europe/Oslo')::int as h, sum(s2b_qty)::float8 s2b, sum(bfs_qty)::float8 bfs
+    select type_id, extract(hour from (hour - interval '1 hour') at time zone 'Europe/Oslo')::int as h, sum(s2b_qty)::float8 s2b, sum(bfs_qty)::float8 bfs
     from jita.type_flow_hourly where resolution = 60 and hour > now() - interval '7 days' and type_id = any(${typeIds})
-    group by type_id, extract(hour from hour at time zone 'Europe/Oslo')`;
+    group by 1, 2`;   // én time tilbake: bøtta er snapshot-timen, handelen skjedde mest i timen før
   const by = {};
   for (const r of rows) (by[r.type_id] ||= []).push(r);
   const out = {};

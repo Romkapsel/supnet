@@ -224,6 +224,28 @@ varer sekunder).
 Etter ryddingen: `jita` 205 MB, `wow_ah` 48 MB, `public` 12 MB, resten under 2 MB.
 `wow_ah` og `public.graded_prices` hører til et annet prosjekt og er ikke rørt.
 
+### «Beste tid» i «Å gjøre» (29. sept 2026)
+Hvert punkt som handler om å heve, senke eller legge ut en ordre (HEV, KJØP, ØK, SENK, SELG, RELIST, og
+LA STÅ i karantene) har fått en linje «⏰ Beste tid: kl. 18, rett før dumpingen topper kl. 19–22 …
+Neste gang: i dag kl. 18». Regnes i `lib/timing.js`, testet i `scripts/test_timing.mjs` (27 sjekker).
+
+- **Idé:** en ordre tjener bare når den ligger øverst *mens* handelen skjer. Beste tid er timen før de tre
+  timene på rad med mest handel på riktig side: dumping for kjøpsordrer, kjøpere for salgsordrer.
+- **Grunnlaget er dager, ikke mengde:** for hver norsk klokketime telles hvor mange av de siste 7 dagene
+  varen ble handlet da (0–7). Første forsøk brukte enheter, og én dumping av 38 000 Cap Boostere pekte ut
+  kl. 10; andre forsøk brukte antall handler, og 24 handler én formiddag gjorde det samme. Et mønster må
+  gå igjen flere dager.
+- **Ærlig når det ikke finnes et mønster:** toppen må ha 1,5 × så mye handel per time som resten av døgnet
+  («Tidspunktet betyr lite» ellers – svaret for de fleste likvide varene), og gå igjen minst 3 av 7 dager
+  («Ingen fast tid: varen handles for sjelden» ellers). Under 20 handelstimer på varen brukes alle
+  varene i lista samlet, og teksten sier det.
+- **Karantene:** for LA STÅ regnes neste gode tid fra når karantenen er over («i dag kl. 18:18»).
+- **Nedetid:** havner beste tid i nedetidstimen (11:00 UTC), står det kl. 13:30 «etter nedetiden».
+- **Timeforskyvning:** timebøtta i `type_flow_hourly` er timen snapshotet ble tatt (~:23), og diffen
+  dekker mest timen før. Både «beste tid» og Topp 10s «Dumpes/liftes mest kl. …» trekker nå fra én time.
+- Konkurrentenes prisendringer (`bid_mods`/`ask_mods`) er ikke med ennå – et naturlig neste steg er å
+  foretrekke timer der konkurrentene er stille, så du blir liggende øverst lenger.
+
 ### Flyt, «senk» og DUMP rettet – og «Oppdater nå» (28. sept 2026)
 Fra en gjennomgang av hele koden. Tre feil som ga feil råd, rettet i én runde:
 
