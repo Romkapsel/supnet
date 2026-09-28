@@ -17,7 +17,7 @@ import subprocess
 
 from decimal import Decimal
 
-from common import dump_net, guard_advice
+from common import Profile, dump_net, guard_advice, undercut_advice
 
 FEIL = []
 
@@ -36,6 +36,18 @@ def sjekk(navn: str, fikk, vil, tol=1e-6):
 RAAD = dict(action="SENK", fee=50_000, text="senk til 12 600", new_price=12_600, gain_24h=400_000)
 KONTEKST = dict(side="sell", changes_total=1, fees_paid_est=0.0, position_profit=5_000_000.0,
                 best_bid=10_200.0, remaining=917, cost_per_unit=6_229.0, broker=0.018, tax=0.05)
+# Profil med faste satser som i JS-proben: broker 1,8 %, skatt 5 %, ingen Advanced Broker Relations
+PROFIL = Profile(broker_fee_override=0.018, sales_tax_override=0.05, adv_broker_relations=0)
+
+
+def senk_tilfeller():
+    """Tallene fra gjennomgangen 28. sept: ask 12 610, laveste 12 600 (ny pris 12 590), 917 igjen,
+    50 liftes per døgn, mur 400 stk (8 d). Kost 10 000 → netto 11 734 − 10 180 ≈ 1 554/stk."""
+    return dict(
+        senk_netto=undercut_advice(PROFIL, 12_610.0, 917, 12_600.0, 400, 50.0, 10_000.0),
+        senk_ukjent=undercut_advice(PROFIL, 12_610.0, 917, 12_600.0, 400, 50.0, None),
+        senk_lonner=undercut_advice(PROFIL, 12_610.0, 917, 12_600.0, 2_000, 300.0, 6_229.0),
+    )
 
 
 def sjekk_paritet():
@@ -44,7 +56,8 @@ def sjekk_paritet():
     toLocaleString normaliseres; det er samme tegn på skjermen."""
     probe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "advice_probe.mjs")
     try:
-        ut = subprocess.run(["node", probe], capture_output=True, text=True, timeout=60, check=True).stdout
+        ut = subprocess.run(["node", probe], capture_output=True, text=True, encoding="utf-8",
+                            timeout=60, check=True).stdout
     except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         print(f"ok   paritet mot lib/advice.js: hoppet over (node mangler eller feilet: {e})")
         return
@@ -63,6 +76,14 @@ def sjekk_paritet():
             guard_advice(dict(RAAD, action="HEV"), hours_since_change=30.0,
                          **{**KONTEKST, "side": "buy", "changes_total": 9})),
     }
+    u = senk_tilfeller()
+    for k, r in u.items():
+        # Python kaller senking ENDRE (felles med kjøpssiden), JS kaller den SENK – samme råd
+        py[k] = ["SENK" if r["action"] == "ENDRE" else r["action"], r["gain_24h"], r["text"]]
+    py["dump_ukjent"] = (lambda r: [r["action"], r.get("guard")])(
+        guard_advice(dict(RAAD), hours_since_change=1.0, **{**KONTEKST, "changes_total": 3, "cost_per_unit": None}))
+    py["dump_dybde"] = (lambda r: [r["action"], r["dump_qty"], r["dump_net"], r["text"]])(
+        guard_advice(dict(RAAD), hours_since_change=1.0, bid_depth=200, **{**KONTEKST, "changes_total": 3}))
     for k in py:
         sjekk(f"paritet med lib/advice.js: {k}", norm(js.get(k)), norm(py[k]))
     # dump_net sammenlignes som tall: JS runder ikke, Python runder til øre
@@ -161,6 +182,29 @@ def main():
     sjekk("Decimal fra basen gir samme netto", dec2["dump_net"], 3_070_921)
     sjekk("dump_net tåler Decimal", dump_net(Decimal("10200"), 917, Decimal("6229"), 0.05, 0.018)["net"],
           3_070_921.13)
+
+    # ── «Senk» regnes på fortjeneste, ikke salgsinntekt (rettet 28. sept 2026) ──
+    # Før: gevinst = 50 × 12 590 × 0,932 ≈ 587k > terskel ~217k → SENK. Riktig: 50 × ~1 554 ≈ 77,7k → HOLD.
+    u = senk_tilfeller()
+    sjekk("senk: gevinsten er netto etter kostpris", u["senk_netto"]["gain_24h"],
+          round(50 * (12_590 * (1 - 0.018 - 0.05) - 10_000 * 1.018)), tol=1e-9)
+    sjekk("senk: 77k gevinst slår ikke 217k i gebyr + prisfall → HOLD", u["senk_netto"]["action"], "HOLD")
+    sjekk("senk: ukjent kostpris → HOLD", u["senk_ukjent"]["action"], "HOLD")
+    sjekk("senk: ukjent kostpris sier hvorfor", 1 if "kostprisen er ukjent" in u["senk_ukjent"]["text"] else 0, 1)
+    # Stor mur (2 000 stk, ~6,7 d) og god flyt (300/d) på en billig vare: da lønner senking seg fortsatt
+    sjekk("senk: lønner seg fortsatt når fortjenesten er stor", u["senk_lonner"]["action"], "ENDRE")
+
+    # ── DUMP krever kjent kostpris og dybde i budet (rettet 28. sept 2026) ──
+    uk = guard_advice(dict(RAAD), hours_since_change=1.0, **{**KONTEKST, "changes_total": 3, "cost_per_unit": None})
+    sjekk("dump: ukjent kostpris gir ikke DUMP", uk["action"], "LA STÅ")
+    dy = guard_advice(dict(RAAD), hours_since_change=1.0, bid_depth=200, **{**KONTEKST, "changes_total": 3})
+    sjekk("dump: begrenset av budenes dybde", dy["dump_qty"], 200)
+    sjekk("dump: nettoen regnes på de 200", dy["dump_net"], round(dump_net(10_200.0, 200, 6_229.0, 0.05, 0.018)["net"]))
+    sjekk("dump: teksten sier 200 av 917", 1 if "200 av de 917" in dy["text"] else 0, 1)
+    tom = guard_advice(dict(RAAD), hours_since_change=1.0, bid_depth=0, **{**KONTEKST, "changes_total": 3})
+    sjekk("dump: ingen bud innenfor 1 % → ingen DUMP", tom["action"], "LA STÅ")
+    hel = guard_advice(dict(RAAD), hours_since_change=1.0, bid_depth=5_000, **{**KONTEKST, "changes_total": 3})
+    sjekk("dump: dypt nok bud → hele beholdningen", hel["dump_qty"], 917)
 
     sjekk_paritet()
 

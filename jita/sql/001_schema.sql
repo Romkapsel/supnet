@@ -261,6 +261,10 @@ begin
   if exists (select 1 from pg_tables where schemaname = 'jita' and tablename = 'order_changes') then
     delete from jita.order_changes where changed_at < now() - interval '90 days';
   end if;
+  -- flow_coverage finnes fra 008 (flyt delt på dekket tid for hele markedet, ikke per vare)
+  if exists (select 1 from pg_tables where schemaname = 'jita' and tablename = 'flow_coverage') then
+    perform jita.cleanup_flow_coverage();
+  end if;
 end $$;
 
 -- ── Autovacuum på tabellene som churner (27. sept 2026) ──────────────────────

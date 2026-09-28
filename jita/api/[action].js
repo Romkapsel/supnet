@@ -118,6 +118,10 @@ export default async function handler(req, res) {
       case "preview": return json(res, 200, await preview(q, await readBody(req)));
       case "scan": return json(res, 200, await scan(q, req.query.fallback === "1", ["watchlist", "history", "industry", "mining"].includes(req.query.job) ? req.query.job : "hourly"));
       case "rejudge": return json(res, 200, { passed: (await q`select jita.judge() as n`)[0].n });
+      case "fresh": {   // «Oppdater nå» spør her til markedsroboten har levert (lett – ingen dom, ingen synk)
+        const [h] = await q`select run_at, ok, message, snapshot_at from jita.robot_runs where job = 'hourly' order by run_at desc limit 1`;
+        return json(res, 200, { hourly: h || null });
+      }
       case "watchlist": return json(res, 200, await watchlist(q, await readBody(req)));
       case "decision": return json(res, 200, await decision(q, await readBody(req)));
       case "decisions": return json(res, 200, await decisions(q));
@@ -230,6 +234,7 @@ function vernKontekst(o, p, side) {
     changedBefore: !!o.changed_before,
     feesPaidEst: o.fees_paid_est, positionProfit: Math.max(0, nettoStk * o.remaining),
     bestBid: o.best_bid, remaining: o.remaining, costPerUnit: o.cost, broker, tax,
+    bidDepth: o.bid_qty_1pct == null ? null : Number(o.bid_qty_1pct),
     cooldownH: Number(th.relist_cooldown_h ?? 12), feeShare: Number(th.relist_fee_share ?? 0.15),
     dumpAfter: Number(th.dump_after_changes ?? 3),
   };
@@ -298,7 +303,7 @@ async function buildTodo(q, p, portfolio, hangar) {
       const adv = guardAdvice(raa, vernKontekst(o, p, "sell"));
       if (adv.action === "LA STÅ") items.push(vernPunkt(o, adv, "salgsordren"));
       if (adv.action === "DUMP") items.push({ kind: "war", type_id: o.type_id, name: o.name, action: "DUMP",
-        title: `Selg ${o.remaining} × ${o.name} rett i budet ${Math.round(o.best_bid).toLocaleString("nb-NO")}`,
+        title: `Selg ${adv.dump_qty ?? o.remaining} × ${o.name} rett i budet ${Math.round(o.best_bid).toLocaleString("nb-NO")}`,
         detail: adv.text, impact: Number(adv.dump_net || 0), where: "Jita 4-4 – selg til kjøpsordren (ingen broker, bare skatt)" });
       if (adv.action === "SENK") items.push({ kind: "undercut", type_id: o.type_id, name: o.name, action: "SENK",
         title: `Senk salgsordren ${o.name} → ${Math.round(adv.new_price).toLocaleString("nb-NO")}`, detail: adv.text, impact: Number(adv.gain_24h || 0), where: "Jita 4-4 (må være dokket)" });
@@ -442,6 +447,8 @@ async function typeDetail(q, id) {
   const [candidate] = await q`select * from jita.candidates where type_id = ${id} order by run_at desc limit 1`;
   const hourly = await q`select snapshot_at, best_bid, best_ask, bid_top_qty, bid_orders_1pct, ask_qty_1pct from jita.type_hourly where type_id = ${id} and snapshot_at > now() - interval '7 days' order by snapshot_at`;
   const flow = await q`select hour, resolution, bfs_qty, bfs_trades, s2b_qty, s2b_trades, hours_covered from jita.type_flow_hourly where type_id = ${id} and hour > now() - interval '7 days' order by hour`;
+  // dekket tid for hele markedet siste 25 t (008_flow_coverage.sql) – nevneren for timesflyten
+  const [cov] = await q`select jita.flow_cover(60) as h`;
   const history = await q`select date, average, highest, lowest, volume, order_count from jita.history_daily where type_id = ${id} order by date desc limit 30`;
   const fills = await q`select observed_at, is_buy, price, qty, kind, weight, resolution from jita.fills where type_id = ${id} order by observed_at desc limit 200`;
   const decs = await q`select * from jita.decisions where type_id = ${id} order by created_at desc limit 20`;
@@ -450,7 +457,7 @@ async function typeDetail(q, id) {
   const [stock] = await q`select coalesce(sum(quantity), 0)::int as n from jita.my_assets where type_id = ${id} and location_flag = 'Hangar'`;
   const [memory] = await q`select * from jita.type_memory where type_id = ${id}`;
   const profile = await effectiveProfile(q);
-  return { type, candidate, hourly, flow, history, fills, decisions: decs, my_orders, my_tx, stock: stock?.n || 0, memory: memory || null, profile, rules: RULES };
+  return { type, candidate, hourly, flow, flow_cover_60: Number(cov?.h || 0), history, fills, decisions: decs, my_orders, my_tx, stock: stock?.n || 0, memory: memory || null, profile, rules: RULES };
 }
 
 // ── Profil / hva-om ──────────────────────────────────────────────────────────

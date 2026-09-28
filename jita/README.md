@@ -224,6 +224,37 @@ varer sekunder).
 Etter ryddingen: `jita` 205 MB, `wow_ah` 48 MB, `public` 12 MB, resten under 2 MB.
 `wow_ah` og `public.graded_prices` hører til et annet prosjekt og er ikke rørt.
 
+### Flyt, «senk» og DUMP rettet – og «Oppdater nå» (28. sept 2026)
+Fra en gjennomgang av hele koden. Tre feil som ga feil råd, rettet i én runde:
+
+1. **Flyten ble delt på for lite tid.** Timesjobben skriver en rad i `type_flow_hourly` bare for varer med
+   aktivitet, og dommeren delte på `sum(hours_covered)` *per vare* – de rolige timene falt ut av nevneren.
+   De 30 varene som passerte hadde i snitt 18,7 av 24 timer dekket, den dårligste 11,3: flyten var opptil
+   dobbelt så høy, og dermed antallet for stort og dagene til fylling for få. Nå: `jita.flow_coverage`
+   (`sql/008_flow_coverage.sql`) har én rad per kjøring med tiden den dekket, og timesflyten deles på
+   `jita.flow_cover(60)` for hele markedet (`greatest()` med varens egen sum, så overgangen aldri blir verre).
+   Watchlist-jobben (20 min, få varer) skriver i stedet nullrader, så hver vare har sin egen dekning.
+   Brukes i dommeren, i robotens overbud/undercut-vakt og på vare-siden. Tilbakefylt fra eksisterende rader.
+   Effekt ved innføring: Eifyr «Rogue» 15 → 8 dumpet/døgn (5,6 → 10,8 d), Small Targeting System
+   Subcontroller 34 → 20 (4,8 → 8,1 d); Microwave S og Missile Range Disruption Script falt ut.
+2. **«Senk» regnet salgsinntekt som gevinst.** `undercut_advice` sammenlignet 24 t × pris × (1 − gebyr)
+   med to ganger endringsgebyret – uten å trekke fra kostprisen. Eksempel (test): 50/døgn, ny pris 12 590,
+   kost 10 000 → «gevinst» 587k mot terskel 217k = SENK; riktig netto er 77,7k = HOLD. Nå: netto etter
+   kostpris. Uten kjent kostpris (kjøpt for over 90 dager siden, loot, laget selv) anbefales ikke senking.
+3. **DUMP antok at budet tar alt, og at ukjent kostpris er null.** DUMP krever nå kjent kostpris, og
+   antallet begrenses av enhetene budene innenfor 1 % av toppen tar imot (`bid_qty_1pct` – samme mål i
+   roboten og på siden). Teksten sier «Selg 200 av de 917» når budene ikke tar mer.
+
+`test_advice.py` har fått tilfellene over (61 sjekker), og paritetssjekken mot `lib/advice.js` dekker nå
+også `undercutAdvice`. Den avslørte at tre «senk»-tekster aldri hadde vært like i Python og JS – rettet.
+`test_judge.py` tømmer dekningen inne i transaksjonen, så sammenligningen er eksakt.
+
+**«Oppdater nå»** (erstatter «Scan nå» på forsiden): starter markedsroboten, henter ordrer og lommebok fra
+EVE mens den går og tegner siden på nytt, og følger så med via `/api/fresh` til en ny timesjobb er ferdig
+(maks 12 min) før siden tegnes igjen. Ny kjøring gjenkjennes på at `run_at` er en annen enn før – ikke ved
+å sammenligne med telefonens klokke. 10-minutterssperren på roboten gjelder fortsatt (ESI har 5 min cache
+på ordreboka, ~20 min på dine ordrer); da hentes bare EVE-dataene, og siden sier hvorfor.
+
 ### Vernet mot for hyppige ordreendringer (27. sept 2026)
 Rådene i «Å gjøre» svarte på «lønner DENNE endringen seg?», men spurte aldri hvor mange ganger ordren
 alt var endret. Resultatet var en gebyrlekkasje: 27. sept ble alle 17 ordrer endret mellom 08:19 og 08:23

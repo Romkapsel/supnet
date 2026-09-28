@@ -47,6 +47,7 @@ Eierens verktøy for å tjene ISK i EVE: markedshandel i Jita 4-4, produksjon i 
   `calc.html` (blueprint-kalkulator: materialbehov med ME, hva som mangler mot hangaren, og malmplan).
 - Regler og terskler: `jita/sql/002_judge.sql` (`jita.judge_rows`) + `jita.profile.thresholds`.
   Industri: `005_industry.sql` + `industry_profile.thresholds`. Mining: `006_mining.sql`. Vern: `007_order_guard.sql`.
+  Flyt-dekning: `008_flow_coverage.sql` – timesflyt deles på `jita.flow_cover(60)` (hele markedets dekkede tid), ikke per vare.
 
 ### Robotens jobber og hvem som kjører hva
 | jobb | klokke | gjør |
@@ -78,7 +79,7 @@ det er mønsteret så langt. Og: ingen skal måtte inn i «Avansert» for å få
 3. **Filene er CRLF** (`index.html`, `settings.html`, `sql/*.sql`). Rediger slik: les binært, `\r\n → \n`,
    endre, skriv tilbake som CRLF. Ellers blir diffen hele filen. Python `open()` i tekstmodus ødelegger dette.
 4. Test alltid før push: `python jita/scripts/test_industry.py` (118), `test_mining.py` (58),
-   `test_advice.py` (45, inkl. ord-for-ord-paritet mot `lib/advice.js` via `advice_probe.mjs`),
+   `test_advice.py` (61, inkl. ord-for-ord-paritet mot `lib/advice.js` via `advice_probe.mjs`),
    `test_calc.py` (ME-avrunding i `lib/calc.js` mot `material_quantity()` over 300 kombinasjoner, og malmplanen),
    `node --check` på `api/[action].js` og på `<script type="module">` i HTML-filene.
 5. **`lib/*.js` speiler `scripts/*.py`.** Endrer du én, endre begge – tekstene skal være ord for ord like,

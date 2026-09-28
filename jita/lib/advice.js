@@ -34,13 +34,15 @@ export function undercutAdvice(p, p1, remaining, bestAsk, wallQty, bfsPerDay, co
   const daysWall = wallQty / Math.max(bfsPerDay, 0.1);
   const net2 = p2 * (1 - broker - tax) - (costPerUnit ? costPerUnit * (1 + broker) : 0);
   const margin2 = costPerUnit ? net2 / (costPerUnit * (1 + broker)) : null;
-  const gain = Math.min(remaining, bfsPerDay) * p2 * (1 - broker - tax);
+  // Gevinst = ekstra FORTJENESTE neste 24 t, ikke salgsinntekt (rettet 28. sept). Uten kostpris: ingen senking.
+  const gain = costPerUnit ? Math.min(remaining, bfsPerDay) * net2 : 0;
   const lossVsNow = (p1 - p2) * remaining;
   let action, text;
-  if (margin2 != null && margin2 < minMargin) { action = "HOLD"; text = `ved ${isk(p2)} blir marginen mot kostpris ${(margin2 * 100).toFixed(1).replace(".", ",")} % (< ${Math.round(minMargin * 100)} %). Ikke følg ned. Mur under deg: ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
+  if (margin2 != null && margin2 < minMargin) { action = "HOLD"; text = `ved ${isk(p2)} blir marginen mot kostpris ${(margin2 * 100).toFixed(1).replace(".", ",")} % (< ${Math.round(minMargin * 100)} %). Ikke følg ned. Muren under deg er ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
+  else if (daysWall > 5 && !costPerUnit) { action = "HOLD"; text = `kostprisen er ukjent (ikke kjøpt de siste 90 dagene), så det kan ikke regnes om senking til ${isk(p2)} lønner seg. Senk bare hvis du vet at prisen gir fortjeneste. Mur under deg: ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
   else if (daysWall > 5 && gain > 2 * fee + lossVsNow * 0.5) { action = "SENK"; text = `senk til ${isk(p2)}: gebyr ${isk(fee)} ISK, gir opp ${isk(lossVsNow)} ISK i pris, men muren under deg (${wallQty} stk) tar ~${daysWall.toFixed(1)} d å tømme.`; }
-  else if (daysWall <= 5) { action = "HOLD"; text = `muren under deg (${wallQty} stk) liftes bort på ~${daysWall.toFixed(1)} d. Senking ville kostet ${isk(fee)} + ${isk(lossVsNow)} ISK.`; }
-  else { action = "HOLD"; text = `senking til ${isk(p2)} koster ${isk(fee)} + ${isk(lossVsNow)} ISK og gir ~${isk(gain)} neste 24 t – ikke verdt det. Mur ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
+  else if (daysWall <= 5) { action = "HOLD"; text = `muren under deg (${wallQty} stk) liftes bort på ~${daysWall.toFixed(1)} d. Senking ville kostet ${isk(fee)} ISK i gebyr + ${isk(lossVsNow)} ISK i pris.`; }
+  else { action = "HOLD"; text = `senking til ${isk(p2)} koster ${isk(fee)} ISK + ${isk(lossVsNow)} ISK i pris og gir ~${isk(gain)} neste 24 t – ikke verdt det. Mur ${wallQty} stk (~${daysWall.toFixed(1)} d).`; }
   return { action, text, new_price: p2, fee: Math.round(fee), wall_qty: wallQty, days_wall: +daysWall.toFixed(1), gain_24h: Math.round(gain), margin_at_new: margin2 };
 }
 
@@ -61,20 +63,23 @@ export function dumpNet(bestBid, remaining, costPerUnit, tax, broker) {
  *  1) karantene: endret (eller lagt ut) for under cooldownH timer siden → LA STÅ. changedBefore
  *     skiller de to, slik at teksten ikke påstår en endring du ikke har gjort.
  *  2) gebyrtak: endringene har spist mer enn feeShare av posisjonens fortjeneste → LA STÅ
- *  3) utveien: endret dumpAfter ganger eller mer, og budet gir penger → DUMP (bare salgsordrer) */
+ *  3) utveien: endret dumpAfter ganger eller mer, og budet gir penger → DUMP (bare salgsordrer).
+ *     Krever kjent kostpris, og antallet begrenses av bidDepth (enheter innenfor 1 % av toppbudet). */
 export function guardAdvice(adv, ctx) {
   if (!["ENDRE", "HEV", "SENK"].includes(adv.action)) return adv;
   const { side, hoursSinceChange, changesTotal = 0, changedBefore = true, feesPaidEst = 0, positionProfit = 0,
           bestBid, remaining = 0, costPerUnit, broker, tax,
-          cooldownH = 12, feeShare = 0.15, dumpAfter = 3 } = ctx;
+          cooldownH = 12, feeShare = 0.15, dumpAfter = 3, bidDepth = null } = ctx;
   const n = (v) => isk(v || 0);
   const en = (v, d = 1) => v.toFixed(d).replace(".", ",");
 
-  if (side === "sell" && changesTotal >= dumpAfter && bestBid && remaining > 0) {
-    const d = dumpNet(bestBid, remaining, costPerUnit, tax, broker);
-    if (d.net > 0) return { ...adv, action: "DUMP", guard: "krig", new_price: bestBid,
+  const antall = bidDepth == null ? remaining : Math.min(remaining, Math.trunc(bidDepth));
+  if (side === "sell" && changesTotal >= dumpAfter && bestBid && costPerUnit && antall > 0) {
+    const d = dumpNet(bestBid, antall, costPerUnit, tax, broker);
+    const hvem = antall === remaining ? `de ${remaining} resterende` : `${antall} av de ${remaining} (mer tar ikke budene innenfor 1 %)`;
+    if (d.net > 0) return { ...adv, action: "DUMP", guard: "krig", new_price: bestBid, dump_qty: antall,
       dump_net: Math.round(d.net), dump_margin: d.margin,
-      text: `du har endret denne ordren ${changesTotal} ganger. Selg de ${remaining} resterende rett i budet `
+      text: `du har endret denne ordren ${changesTotal} ganger. Selg ${hvem} rett i budet `
           + `${n(bestBid)} i stedet: ${n(d.net)} ISK netto etter skatt, ingen nytt broker-gebyr, ingen kø. `
           + `Å følge ned enda en gang koster ${n(adv.fee)} ISK og starter samme runde på nytt.` };
   }

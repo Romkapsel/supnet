@@ -150,6 +150,13 @@ def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int, mods
     for t, is_buy in (mods or []):
         if t in keep:
             agg[t][4 if is_buy else 5] += 1
+    # Flyt per døgn = mengde / DEKKET TID × 24. Rader skrives bare for varer med aktivitet, så dekningen
+    # kan ikke leses av radene alene (da falt de rolige timene ut av nevneren, og flyten ble opptil
+    # dobbelt så høy). Timesjobben: én dekningsrad per kjøring i jita.flow_coverage (7 000 nullrader i
+    # timen ville sprengt 500 MB-taket). Watchlist-jobben: få varer, så nullrader for hver vare i keep.
+    if resolution == 20:
+        for t in keep:
+            agg[t]                                    # defaultdict: lager en nullrad
     hour = snapshot_at.replace(minute=0, second=0, microsecond=0)
     with conn.cursor() as cur:
         with cur.copy("copy jita.fills (observed_at, order_id, type_id, is_buy, price, qty, kind, weight, resolution) from stdin") as cp:
@@ -167,6 +174,10 @@ def write_flow(conn, fills, snapshot_at, hours, keep: set, resolution: int, mods
                  bid_mods = coalesce(jita.type_flow_hourly.bid_mods, 0) + excluded.bid_mods,
                  ask_mods = coalesce(jita.type_flow_hourly.ask_mods, 0) + excluded.ask_mods""",
             [(t, hour, resolution, a[0], a[1], a[2], a[3], hours, a[4], a[5]) for t, a in agg.items()])
+        cur.execute("""insert into jita.flow_coverage (resolution, hour, hours_covered, runs) values (%s, %s, %s, 1)
+                       on conflict (resolution, hour) do update set
+                         hours_covered = jita.flow_coverage.hours_covered + excluded.hours_covered,
+                         runs = jita.flow_coverage.runs + 1""", (resolution, hour, hours))
     return len(fills), len(agg)
 
 
@@ -186,7 +197,7 @@ def check_positions(conn, buys: dict, sells: dict, profile) -> int:
         open_buys = [r for r in cur.fetchall() if r[4] > 0]
         if not open_buys:
             return 0
-        cur.execute("""select type_id, coalesce(sum(s2b_qty) / greatest(sum(hours_covered), 1) * 24, 0)::float8
+        cur.execute("""select type_id, coalesce(sum(s2b_qty) / greatest(jita.flow_cover(60), sum(hours_covered), 1) * 24, 0)::float8
                        from jita.type_flow_hourly where hour > now() - interval '25 hours' and resolution = 60
                          and type_id = any(%s) group by type_id""", ([r[1] for r in open_buys],))
         s2b = dict(cur.fetchall())
@@ -263,7 +274,7 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
         my_sells = cur.fetchall()
         if not my_sells:
             return 0
-        cur.execute("""select type_id, coalesce(sum(bfs_qty) / greatest(sum(hours_covered), 1) * 24, 0)::float8
+        cur.execute("""select type_id, coalesce(sum(bfs_qty) / greatest(jita.flow_cover(60), sum(hours_covered), 1) * 24, 0)::float8
                        from jita.type_flow_hourly where hour > now() - interval '25 hours' and resolution = 60
                          and type_id = any(%s) group by type_id""", ([r[1] for r in my_sells],))
         bfs = dict(cur.fetchall())
@@ -304,7 +315,9 @@ def check_sell_orders(conn, buys, sells, profile, min_margin) -> int:
                            broker=broker, tax=tax,
                            cooldown_h=float(th.get("relist_cooldown_h", 12)),
                            fee_share=float(th.get("relist_fee_share", 0.15)),
-                           dump_after=int(th.get("dump_after_changes", 3)))
+                           dump_after=int(th.get("dump_after_changes", 3)),
+                           # enhetene budene innenfor 1 % av toppen tar imot – samme mål som type_hourly.bid_qty_1pct
+                           bid_depth=sum(o[cm.O_VOL] for o in bl if o[cm.O_PRICE] >= best_bid * 0.99) if best_bid else None)
         payload = dict(order_id=oid, type_id=tid, price=p1, remaining=remaining, best_ask=best_ask, **adv)
         if (prev_kind == "undercut" and prev_payload.get("action") == adv["action"]
                 and abs(float(prev_payload.get("best_ask", 0)) - best_ask) / best_ask < 0.02 and prev_age < 2):
